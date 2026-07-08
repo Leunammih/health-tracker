@@ -27,12 +27,35 @@ async function getSql(): Promise<SqlJsStatic> {
   return SQL
 }
 
+// Adds columns introduced after a table's original CREATE TABLE, for databases
+// created by an earlier version of the app. SQLite has no "ADD COLUMN IF NOT
+// EXISTS", so we check PRAGMA table_info first. Table/column names here are
+// fixed literals we control, never user input.
+function hasColumn(target: Database, table: string, column: string): boolean {
+  const res = target.exec(`PRAGMA table_info(${table})`)
+  if (!res.length) return false
+  return res[0].values.some((row) => row[1] === column)
+}
+
+function runMigrations(target: Database): void {
+  if (!hasColumn(target, 'entries', 'entry_date')) {
+    target.run('ALTER TABLE entries ADD COLUMN entry_date TEXT')
+  }
+  if (!hasColumn(target, 'wellbeing', 'entry_id')) {
+    target.run('ALTER TABLE wellbeing ADD COLUMN entry_id TEXT')
+  }
+  if (!hasColumn(target, 'day_context', 'entry_id')) {
+    target.run('ALTER TABLE day_context ADD COLUMN entry_id TEXT')
+  }
+}
+
 export async function initDb(): Promise<Database> {
   if (db) return db
   const sql = await getSql()
   const cached = await loadDbBlob()
   db = cached ? new sql.Database(cached) : new sql.Database()
   db.run(SCHEMA_SQL)
+  runMigrations(db)
   db.run('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)', ['schema_version', String(SCHEMA_VERSION)])
   return db
 }
@@ -64,6 +87,7 @@ export async function replaceDb(bytes: Uint8Array): Promise<void> {
   const next = new sql.Database(bytes)
   try {
     next.run(SCHEMA_SQL)
+    runMigrations(next)
   } catch (e) {
     next.close()
     throw e

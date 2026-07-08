@@ -42,12 +42,14 @@ export async function saveDiaryExtraction(
   rawText: string,
   source: 'voice' | 'text',
   data: DiaryExtraction,
+  entryDate: string = todayISO(),
 ): Promise<string> {
   const entryId = uid()
   const created = nowISO()
-  exec('INSERT INTO entries(id, created_at, raw_text, source, processed) VALUES (?,?,?,?,1)', [
+  exec('INSERT INTO entries(id, created_at, entry_date, raw_text, source, processed) VALUES (?,?,?,?,?,1)', [
     entryId,
     created,
+    entryDate,
     rawText,
     source,
   ])
@@ -58,7 +60,7 @@ export async function saveDiaryExtraction(
         symptom_onset, symptoms, recovery_time, gentle_movement_effect, notes)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        uid(), entryId, a.date ?? todayISO(), a.type ?? null, a.duration_min ?? null,
+        uid(), entryId, a.date ?? entryDate, a.type ?? null, a.duration_min ?? null,
         a.intensity ?? null, a.felt_during ?? null, a.symptom_onset ?? null, a.symptoms ?? null,
         a.recovery_time ?? null, a.gentle_movement_effect ?? null, a.notes ?? null,
       ],
@@ -69,7 +71,7 @@ export async function saveDiaryExtraction(
       `INSERT INTO gut_events(id, entry_id, date, pain, bloating, preceded_by, stool_consistency,
         warming_bottle_needed, notes) VALUES (?,?,?,?,?,?,?,?,?)`,
       [
-        uid(), entryId, g.date ?? todayISO(), g.pain ?? null, g.bloating ?? null,
+        uid(), entryId, g.date ?? entryDate, g.pain ?? null, g.bloating ?? null,
         tags(g.preceded_by), g.stool_consistency ?? null, b(g.warming_bottle_needed), g.notes ?? null,
       ],
     )
@@ -78,29 +80,42 @@ export async function saveDiaryExtraction(
     exec(
       `INSERT INTO infections(id, entry_id, date, kind, severity, preceded_by, notes)
        VALUES (?,?,?,?,?,?,?)`,
-      [uid(), entryId, inf.date ?? todayISO(), inf.kind ?? null, inf.severity ?? null, tags(inf.preceded_by), inf.notes ?? null],
+      [uid(), entryId, inf.date ?? entryDate, inf.kind ?? null, inf.severity ?? null, tags(inf.preceded_by), inf.notes ?? null],
     )
   }
   for (const w of data.wellbeing ?? []) {
     // one row per day: replace an existing same-day row
-    const date = w.date ?? todayISO()
+    const date = w.date ?? entryDate
     exec('DELETE FROM wellbeing WHERE date = ?', [date])
-    exec('INSERT INTO wellbeing(id, date, energy, mood, notes) VALUES (?,?,?,?,?)', [
-      uid(), date, w.energy ?? null, w.mood ?? null, w.notes ?? null,
+    exec('INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes) VALUES (?,?,?,?,?,?)', [
+      uid(), entryId, date, w.energy ?? null, w.mood ?? null, w.notes ?? null,
     ])
   }
   for (const d of data.day_context ?? []) {
-    const date = d.date ?? todayISO()
+    const date = d.date ?? entryDate
     exec('DELETE FROM day_context WHERE date = ?', [date])
     exec(
-      `INSERT INTO day_context(id, date, tasks, travel, work, retreat, relaxation, stress_load, notes)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [uid(), date, d.tasks ?? null, d.travel ?? null, d.work ?? null, d.retreat ?? null, d.relaxation ?? null, d.stress_load ?? null, d.notes ?? null],
+      `INSERT INTO day_context(id, entry_id, date, tasks, travel, work, retreat, relaxation, stress_load, notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [uid(), entryId, date, d.tasks ?? null, d.travel ?? null, d.work ?? null, d.retreat ?? null, d.relaxation ?? null, d.stress_load ?? null, d.notes ?? null],
     )
   }
 
   await persist()
   return entryId
+}
+
+// Delete an entry and every category row it produced. Wellbeing/day_context
+// rows are only removed if they still belong to this entry (a later entry for
+// the same date would have replaced them, in which case they're left alone).
+export async function deleteEntry(entryId: string): Promise<void> {
+  exec('DELETE FROM activities WHERE entry_id = ?', [entryId])
+  exec('DELETE FROM gut_events WHERE entry_id = ?', [entryId])
+  exec('DELETE FROM infections WHERE entry_id = ?', [entryId])
+  exec('DELETE FROM wellbeing WHERE entry_id = ?', [entryId])
+  exec('DELETE FROM day_context WHERE entry_id = ?', [entryId])
+  exec('DELETE FROM entries WHERE id = ?', [entryId])
+  await persist()
 }
 
 // ---- Meals ----
@@ -117,6 +132,11 @@ export async function saveMeal(a: MealAnalysis, date: string, time: string | nul
   )
   await persist()
   return id
+}
+
+export async function deleteMeal(id: string): Promise<void> {
+  exec('DELETE FROM meals WHERE id = ?', [id])
+  await persist()
 }
 
 // ---- Interpretations ----

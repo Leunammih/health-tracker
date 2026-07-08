@@ -7,6 +7,7 @@ export type EntrySource = 'voice' | 'text'
 export interface Entry {
   id: string
   created_at: string
+  entry_date: string | null // the date this entry was logged FOR (may be a past date)
   raw_text: string
   source: EntrySource
   processed: number // 0/1
@@ -51,6 +52,7 @@ export interface Infection {
 
 export interface Wellbeing {
   id: string
+  entry_id: string | null
   date: string
   energy: number | null
   mood: number | null
@@ -59,6 +61,7 @@ export interface Wellbeing {
 
 export interface DayContext {
   id: string
+  entry_id: string | null
   date: string
   tasks: string | null
   travel: string | null

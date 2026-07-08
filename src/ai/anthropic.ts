@@ -32,11 +32,11 @@ function firstToolInput(content: Block[], name: string): ToolInput {
 
 // ---- Diary extraction ----
 
-export async function extractDiary(rawText: string): Promise<DiaryExtraction> {
+export async function extractDiary(rawText: string, entryDate: string): Promise<DiaryExtraction> {
   const res = await client().messages.create({
     model: model(),
     max_tokens: 2048,
-    system: diarySystemPrompt(),
+    system: diarySystemPrompt(entryDate),
     tools: [DIARY_TOOL as unknown as Anthropic.Messages.Tool],
     tool_choice: { type: 'tool', name: DIARY_TOOL.name },
     messages: [{ role: 'user', content: rawText }],
@@ -48,12 +48,13 @@ export async function extractDiary(rawText: string): Promise<DiaryExtraction> {
 export async function refineDiary(
   rawText: string,
   qa: { question: string; answer: string }[],
+  entryDate: string,
 ): Promise<DiaryExtraction> {
   const answers = qa.map((x) => `Q: ${x.question}\nA: ${x.answer}`).join('\n\n')
   const res = await client().messages.create({
     model: model(),
     max_tokens: 2048,
-    system: refineSystemPrompt(),
+    system: refineSystemPrompt(entryDate),
     tools: [DIARY_TOOL as unknown as Anthropic.Messages.Tool],
     tool_choice: { type: 'tool', name: DIARY_TOOL.name },
     messages: [

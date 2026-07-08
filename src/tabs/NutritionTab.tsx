@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { analyseMeal } from '../ai/anthropic'
-import { saveMeal, recentMeals } from '../db/queries'
+import { saveMeal, deleteMeal, recentMeals } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/nextcloud'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
@@ -75,6 +75,16 @@ export default function NutritionTab() {
 
   function patch(p: Partial<MealAnalysis>) {
     setAnalysis((a) => (a ? { ...a, ...p } : a))
+  }
+
+  async function removeMeal(id: string) {
+    if (!confirm('Delete this meal? This cannot be undone.')) return
+    try {
+      await deleteMeal(id)
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      setError(msg(e))
+    }
   }
 
   return (
@@ -200,16 +210,25 @@ export default function NutritionTab() {
         <div className="space-y-2">
           <div className="label">Recent meals</div>
           {meals.map((m) => (
-            <div key={m.id} className="card flex items-center justify-between !p-3">
-              <div>
+            <div key={m.id} className="card flex items-center justify-between gap-2 !p-3">
+              <div className="min-w-0">
                 <div className="text-sm text-white">{m.name}</div>
                 <div className="text-xs text-ink-400">{fmtDate(m.date)}</div>
               </div>
-              <div className="text-right text-xs text-ink-300">
-                <div className="text-sm font-semibold text-white">{m.calories ?? '—'} kcal</div>
-                <div>
-                  P{fmt(m.protein_g)} · F{fmt(m.fat_g)} · C{fmt(m.carbs_g)} · Fb{fmt(m.fiber_g)}
+              <div className="flex shrink-0 items-center gap-3">
+                <div className="text-right text-xs text-ink-300">
+                  <div className="text-sm font-semibold text-white">{m.calories ?? '—'} kcal</div>
+                  <div>
+                    P{fmt(m.protein_g)} · F{fmt(m.fat_g)} · C{fmt(m.carbs_g)} · Fb{fmt(m.fiber_g)}
+                  </div>
                 </div>
+                <button
+                  className="rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                  onClick={() => void removeMeal(m.id)}
+                  aria-label="Delete meal"
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))}

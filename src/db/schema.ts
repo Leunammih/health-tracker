@@ -1,9 +1,10 @@
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
+  entry_date TEXT,
   raw_text TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'text',
   processed INTEGER NOT NULL DEFAULT 0
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS infections (
 
 CREATE TABLE IF NOT EXISTS wellbeing (
   id TEXT PRIMARY KEY,
+  entry_id TEXT,
   date TEXT NOT NULL,
   energy INTEGER,
   mood INTEGER,
@@ -56,6 +58,7 @@ CREATE TABLE IF NOT EXISTS wellbeing (
 
 CREATE TABLE IF NOT EXISTS day_context (
   id TEXT PRIMARY KEY,
+  entry_id TEXT,
   date TEXT NOT NULL,
   tasks TEXT,
   travel TEXT,

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { extractDiary, refineDiary } from '../ai/anthropic'
-import { saveDiaryExtraction, recentEntries } from '../db/queries'
-import { fmtDate } from '../lib/dates'
+import { saveDiaryExtraction, deleteEntry, recentEntries } from '../db/queries'
+import { fmtDate, todayISO } from '../lib/dates'
 import { IconMic } from '../components/icons'
 import type { DiaryExtraction } from '../types'
 
@@ -10,6 +10,7 @@ type Phase = 'input' | 'processing' | 'questions' | 'preview'
 export default function LogTab() {
   const [phase, setPhase] = useState<Phase>('input')
   const [raw, setRaw] = useState('')
+  const [entryDate, setEntryDate] = useState(todayISO())
   const [extraction, setExtraction] = useState<DiaryExtraction | null>(null)
   const [answers, setAnswers] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +23,7 @@ export default function LogTab() {
     setError(null)
     setPhase('processing')
     try {
-      const res = await extractDiary(raw)
+      const res = await extractDiary(raw, entryDate)
       setExtraction(res)
       if (res.follow_up_questions.length) {
         setAnswers(new Array(res.follow_up_questions.length).fill(''))
@@ -44,7 +45,7 @@ export default function LogTab() {
       const qa = extraction.follow_up_questions
         .map((q, i) => ({ question: q, answer: answers[i]?.trim() ?? '' }))
         .filter((x) => x.answer)
-      const merged = qa.length ? await refineDiary(raw, qa) : extraction
+      const merged = qa.length ? await refineDiary(raw, qa, entryDate) : extraction
       setExtraction(merged)
       setPhase('preview')
     } catch (e) {
@@ -56,7 +57,7 @@ export default function LogTab() {
   async function confirmSave() {
     if (!extraction) return
     try {
-      await saveDiaryExtraction(raw, 'voice', extraction)
+      await saveDiaryExtraction(raw, 'voice', extraction, entryDate)
       setSavedNote('Saved to your log.')
       reset()
       setRefreshKey((k) => k + 1)
@@ -66,9 +67,20 @@ export default function LogTab() {
     }
   }
 
+  async function removeEntry(id: string) {
+    if (!confirm('Delete this entry and everything logged from it? This cannot be undone.')) return
+    try {
+      await deleteEntry(id)
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      setError(msg(e))
+    }
+  }
+
   function reset() {
     setPhase('input')
     setRaw('')
+    setEntryDate(todayISO())
     setExtraction(null)
     setAnswers([])
   }
@@ -91,6 +103,21 @@ export default function LogTab() {
           <div className="flex items-center gap-2 text-ink-300">
             <IconMic width={18} height={18} />
             <span className="text-sm">Dictate or type your day</span>
+          </div>
+          <div>
+            <label className="label">Logging for</label>
+            <input
+              type="date"
+              className="field !w-auto"
+              value={entryDate}
+              max={todayISO()}
+              onChange={(e) => setEntryDate(e.target.value)}
+            />
+            {entryDate !== todayISO() && (
+              <p className="mt-1 text-xs text-amber-300">
+                Backfilling {fmtDate(entryDate)} — dates you don't mention will default here, not today.
+              </p>
+            )}
           </div>
           <textarea
             className="field min-h-[9rem]"
@@ -117,7 +144,9 @@ export default function LogTab() {
 
       {phase === 'questions' && extraction && (
         <div className="card space-y-4">
-          <p className="text-sm text-ink-300">A few follow-ups so the log is complete:</p>
+          <p className="text-sm text-ink-300">
+            A few follow-ups so the log is complete{entryDate !== todayISO() ? ` (logging for ${fmtDate(entryDate)})` : ''}:
+          </p>
           {extraction.follow_up_questions.map((q, i) => (
             <div key={i}>
               <label className="label">{q}</label>
@@ -146,7 +175,7 @@ export default function LogTab() {
       {phase === 'preview' && extraction && (
         <div className="card space-y-4">
           <div>
-            <div className="label">Summary</div>
+            <div className="label">Summary · {fmtDate(entryDate)}</div>
             <p className="text-sm text-white">{extraction.summary || 'Log entry'}</p>
           </div>
           <ExtractionPreview data={extraction} />
@@ -165,9 +194,18 @@ export default function LogTab() {
         <div className="space-y-2">
           <div className="label">Recent entries</div>
           {entries.map((e) => (
-            <div key={e.id} className="card !p-3">
-              <div className="text-xs text-ink-400">{fmtDate(e.created_at)}</div>
-              <div className="line-clamp-2 text-sm text-ink-300">{e.raw_text}</div>
+            <div key={e.id} className="card flex items-start justify-between gap-3 !p-3">
+              <div className="min-w-0">
+                <div className="text-xs text-ink-400">{fmtDate(e.entry_date ?? e.created_at)}</div>
+                <div className="line-clamp-2 text-sm text-ink-300">{e.raw_text}</div>
+              </div>
+              <button
+                className="shrink-0 rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                onClick={() => void removeEntry(e.id)}
+                aria-label="Delete entry"
+              >
+                Delete
+              </button>
             </div>
           ))}
         </div>

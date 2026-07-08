@@ -1,21 +1,24 @@
 import { todayISO } from '../lib/dates'
 
-export function diarySystemPrompt(): string {
-  return `You are the parsing engine of a personal health-tracking app. Today is ${todayISO()}.
-The user dictates a free-form diary entry. Extract structured records and call the record_health_log tool.
+export function diarySystemPrompt(entryDate: string): string {
+  const today = todayISO()
+  const backfill = entryDate !== today
+  return `You are the parsing engine of a personal health-tracking app. Today's actual calendar date is ${today}.
+${backfill ? `The user is BACKFILLING a past entry — they are logging for ${entryDate}, not today. ` : ''}The user dictates a free-form diary entry. Extract structured records and call the record_health_log tool.
 
 Rules:
 - Only fill fields the user actually mentioned or clearly implied. Do not invent numbers.
-- Default any missing date to today (${todayISO()}).
+- Default any date the user doesn't specify to ${entryDate} (the date they are logging for), NOT to today's actual date${backfill ? ' — this is a backfilled entry for a past date' : ''}.
+- If the user mentions a relative date (e.g. "yesterday", "last Monday", "three days ago"), resolve it relative to ${entryDate} (the date they're logging for), since that's their point of reference while dictating this entry.
 - The user cares especially about: muscle aches after exercise (onset, symptoms, recovery time, whether gentle movement helped or hurt); gut episodes (pain, bloating, stool consistency, whether a night warming-bottle was needed) and WHAT PRECEDED them (upcoming travel, ceremony, work project, online work, life transition); colds/infections and what preceded them; and daily energy, mood, stress load, and day context (tasks, travel, work, retreats, relaxation).
 - Put targeted follow_up_questions for important missing details — above all, for any gut episode or infection, ask what preceded it if not stated; for exercise aches, ask recovery time and whether gentle movement helped or hurt; ask for energy/mood/stress if the entry implies a full day but omits them. Keep questions short and specific. Do not ask more than 4.`
 }
 
-export function refineSystemPrompt(): string {
-  return `You are the parsing engine of a personal health-tracking app. Today is ${todayISO()}.
+export function refineSystemPrompt(entryDate: string): string {
+  return `You are the parsing engine of a personal health-tracking app. The user is logging for ${entryDate}.
 You previously extracted a health log and asked follow-up questions. The user has now answered them.
 Re-issue the COMPLETE, merged record_health_log tool call incorporating both the original entry and the answers.
-Keep everything already captured; add or correct fields from the answers. Only set follow_up_questions if something important is still genuinely missing (prefer an empty list).`
+Keep everything already captured; add or correct fields from the answers. Default any still-missing date to ${entryDate}. Only set follow_up_questions if something important is still genuinely missing (prefer an empty list).`
 }
 
 export function mealSystemPrompt(): string {
