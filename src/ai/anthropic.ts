@@ -1,0 +1,131 @@
+import Anthropic from '@anthropic-ai/sdk'
+import type { DiaryExtraction, MealAnalysis } from '../types'
+import { loadSettings } from '../lib/storage'
+import { DIARY_TOOL, MEAL_TOOL, INTERPRET_TOOL } from './schemas'
+import { diarySystemPrompt, refineSystemPrompt, mealSystemPrompt, interpretSystemPrompt } from './prompts'
+
+function client(): Anthropic {
+  const { anthropicKey } = loadSettings()
+  if (!anthropicKey) throw new Error('No Anthropic API key set. Add it in Settings.')
+  return new Anthropic({
+    apiKey: anthropicKey,
+    dangerouslyAllowBrowser: true,
+    defaultHeaders: { 'anthropic-dangerous-direct-browser-access': 'true' },
+  })
+}
+
+function model(): string {
+  return loadSettings().model || 'claude-sonnet-5'
+}
+
+type Block = Anthropic.Messages.ContentBlock
+type ToolInput = Record<string, unknown>
+
+function firstToolInput(content: Block[], name: string): ToolInput {
+  for (const block of content) {
+    if (block.type === 'tool_use' && block.name === name) {
+      return block.input as ToolInput
+    }
+  }
+  throw new Error('Model did not return the expected structured output.')
+}
+
+// ---- Diary extraction ----
+
+export async function extractDiary(rawText: string): Promise<DiaryExtraction> {
+  const res = await client().messages.create({
+    model: model(),
+    max_tokens: 2048,
+    system: diarySystemPrompt(),
+    tools: [DIARY_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: DIARY_TOOL.name },
+    messages: [{ role: 'user', content: rawText }],
+  })
+  return normaliseDiary(firstToolInput(res.content, DIARY_TOOL.name))
+}
+
+// Merge original entry + Q/A answers into a final extraction.
+export async function refineDiary(
+  rawText: string,
+  qa: { question: string; answer: string }[],
+): Promise<DiaryExtraction> {
+  const answers = qa.map((x) => `Q: ${x.question}\nA: ${x.answer}`).join('\n\n')
+  const res = await client().messages.create({
+    model: model(),
+    max_tokens: 2048,
+    system: refineSystemPrompt(),
+    tools: [DIARY_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: DIARY_TOOL.name },
+    messages: [
+      { role: 'user', content: `Original diary entry:\n${rawText}\n\nFollow-up answers:\n${answers}` },
+    ],
+  })
+  return normaliseDiary(firstToolInput(res.content, DIARY_TOOL.name))
+}
+
+function normaliseDiary(input: ToolInput): DiaryExtraction {
+  return {
+    summary: (input.summary as string) ?? '',
+    activities: (input.activities as DiaryExtraction['activities']) ?? [],
+    gut_events: (input.gut_events as DiaryExtraction['gut_events']) ?? [],
+    infections: (input.infections as DiaryExtraction['infections']) ?? [],
+    wellbeing: (input.wellbeing as DiaryExtraction['wellbeing']) ?? [],
+    day_context: (input.day_context as DiaryExtraction['day_context']) ?? [],
+    follow_up_questions: (input.follow_up_questions as string[]) ?? [],
+  }
+}
+
+// ---- Meal photo analysis ----
+
+export async function analyseMeal(
+  base64: string,
+  mediaType: 'image/jpeg' | 'image/png' | 'image/webp',
+  hint?: string,
+): Promise<MealAnalysis> {
+  const content: Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam> = [
+    { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+  ]
+  if (hint) content.push({ type: 'text', text: `Extra context from the user: ${hint}` })
+
+  const res = await client().messages.create({
+    model: model(),
+    max_tokens: 1536,
+    system: mealSystemPrompt(),
+    tools: [MEAL_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: MEAL_TOOL.name },
+    messages: [{ role: 'user', content }],
+  })
+  const input = firstToolInput(res.content, MEAL_TOOL.name)
+  return {
+    name: (input.name as string) ?? 'Meal',
+    ingredients: (input.ingredients as MealAnalysis['ingredients']) ?? [],
+    calories: Number(input.calories ?? 0),
+    protein_g: Number(input.protein_g ?? 0),
+    fat_g: Number(input.fat_g ?? 0),
+    carbs_g: Number(input.carbs_g ?? 0),
+    fiber_g: Number(input.fiber_g ?? 0),
+    confidence: (input.confidence as MealAnalysis['confidence']) ?? 'medium',
+    clarifying_questions: (input.clarifying_questions as string[]) ?? [],
+  }
+}
+
+// ---- Interpretation ----
+
+export async function interpret(dataJson: string, period: string): Promise<{ patterns: string; correlations: string; period_covered: string; model: string }> {
+  const usedModel = model()
+  const res = await client().messages.create({
+    model: usedModel,
+    max_tokens: 2048,
+    system: interpretSystemPrompt(),
+    tools: [INTERPRET_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: INTERPRET_TOOL.name },
+    messages: [{ role: 'user', content: `Period: ${period}\n\nData (JSON):\n${dataJson}` }],
+  })
+  const input = firstToolInput(res.content, INTERPRET_TOOL.name)
+  return {
+    patterns: (input.patterns as string) ?? '',
+    correlations: (input.correlations as string) ?? '',
+    period_covered: (input.period_covered as string) ?? period,
+    model: usedModel,
+  }
+}
