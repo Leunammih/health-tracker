@@ -1,14 +1,12 @@
 // On-device persistence:
-//  - Settings (API key, Nextcloud config, model) in localStorage.
+//  - Settings (API key, Dropbox config, model) in localStorage.
 //  - The SQLite database blob cached in IndexedDB for fast offline load.
 
 export interface Settings {
   anthropicKey: string
   model: string
-  nextcloudUrl: string // e.g. https://cloud.example.com
-  nextcloudUser: string
-  nextcloudPass: string // app password
-  nextcloudPath: string // folder path, e.g. /HealthTracker
+  dropboxAppKey: string // the Dropbox app's public "App key" (safe on-device; PKCE client)
+  dropboxRefreshToken: string // obtained via OAuth PKCE; used to mint short-lived access tokens
   syncEnabled: boolean
 }
 
@@ -17,10 +15,8 @@ const SETTINGS_KEY = 'ht.settings.v1'
 export const DEFAULT_SETTINGS: Settings = {
   anthropicKey: '',
   model: 'claude-sonnet-5',
-  nextcloudUrl: '',
-  nextcloudUser: '',
-  nextcloudPass: '',
-  nextcloudPath: '/HealthTracker',
+  dropboxAppKey: '',
+  dropboxRefreshToken: '',
   syncEnabled: false,
 }
 

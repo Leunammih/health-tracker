@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { initDb } from './db/sqlite'
 import { startSync, pullIfNewer } from './sync/manager'
+import { completeAuthFromRedirect } from './sync/dropbox'
 import { loadSettings } from './lib/storage'
 import SyncBadge from './components/SyncBadge'
 import { IconLog, IconMeal, IconChart, IconBrain, IconSettings } from './components/icons'
@@ -28,6 +29,16 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       await initDb()
+      // Complete a Dropbox OAuth redirect if we're returning from one, then strip
+      // the ?code=…/state from the URL so a refresh doesn't retry the exchange.
+      try {
+        if (await completeAuthFromRedirect()) {
+          window.history.replaceState({}, '', window.location.origin + window.location.pathname)
+          setTab('settings')
+        }
+      } catch (e) {
+        console.error('Dropbox connect failed:', e)
+      }
       startSync()
       setNeedsKey(!loadSettings().anthropicKey)
       setReady(true)

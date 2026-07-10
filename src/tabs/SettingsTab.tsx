@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { loadSettings, saveSettings, getLastLocalSave, type Settings } from '../lib/storage'
-import { testConnection } from '../sync/nextcloud'
+import { testConnection, beginAuth, disconnect, isConfigured } from '../sync/dropbox'
 import { pullIfNewer } from '../sync/manager'
 import { counts } from '../db/queries'
 import { dbSizeBytes } from '../db/sqlite'
@@ -67,6 +67,24 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
     setTesting(false)
   }
 
+  async function connectDropbox() {
+    if (!s.dropboxAppKey.trim()) {
+      setTest('Enter your Dropbox app key first.')
+      return
+    }
+    saveSettings(s) // persist app key so it survives the OAuth redirect
+    await beginAuth(s.dropboxAppKey.trim()) // redirects away
+  }
+
+  function disconnectDropbox() {
+    disconnect()
+    const next = { ...s, dropboxRefreshToken: '', syncEnabled: false }
+    setS(next)
+    setTest(null)
+  }
+
+  const dropboxConnected = isConfigured(s)
+
   return (
     <div className="space-y-4">
       <section className="card space-y-3">
@@ -94,43 +112,61 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
       </section>
 
       <section className="card space-y-3">
-        <div className="label">Nextcloud sync</div>
-        <label className="flex items-center gap-2 text-sm text-ink-300">
-          <input type="checkbox" checked={s.syncEnabled} onChange={(e) => set('syncEnabled', e.target.checked)} />
-          Enable sync
-        </label>
-        <div>
-          <label className="label">Server URL</label>
-          <input className="field" placeholder="https://cloud.example.com" value={s.nextcloudUrl} onChange={(e) => set('nextcloudUrl', e.target.value.trim())} />
-          <p className="mt-1 text-xs text-ink-400">
-            Just the domain (e.g. <code>https://cloud.example.com</code>) — not the full WebDAV link. Even if
-            you paste a longer WebDAV URL your provider gave you, only the domain part is used.
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Username</label>
-            <input className="field" value={s.nextcloudUser} onChange={(e) => set('nextcloudUser', e.target.value.trim())} autoComplete="off" />
-          </div>
-          <div>
-            <label className="label">App password</label>
-            <input type="password" className="field" value={s.nextcloudPass} onChange={(e) => set('nextcloudPass', e.target.value)} autoComplete="off" />
-          </div>
-        </div>
-        <div>
-          <label className="label">Folder path</label>
-          <input className="field" placeholder="/HealthTracker" value={s.nextcloudPath} onChange={(e) => set('nextcloudPath', e.target.value.trim())} />
-        </div>
-        <button className="btn-ghost w-full" disabled={testing} onClick={() => void runTest()}>
-          {testing ? 'Testing…' : 'Test connection'}
-        </button>
-        {test && <p className="text-xs text-ink-300">{test}</p>}
-        <p className="text-xs text-ink-400">
-          Some Nextcloud providers block direct browser access entirely (no CORS on WebDAV), in which case
-          this will keep failing no matter how correct your details are — often the case on managed/hosted
-          plans where you can't change server settings. If so, use <strong>Export / Import .db</strong> below
-          instead: export on one device, save the file into your Nextcloud folder, then import it on the other.
-        </p>
+        <div className="label">Dropbox sync</div>
+        {dropboxConnected ? (
+          <>
+            <div className="flex items-center gap-2 text-sm text-brand-300">
+              <span className="h-2.5 w-2.5 rounded-full bg-brand-400" /> Dropbox connected
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="btn-ghost" disabled={testing} onClick={() => void runTest()}>
+                {testing ? 'Testing…' : 'Test connection'}
+              </button>
+              <button className="btn-ghost" onClick={() => void pullIfNewer()}>
+                Sync now
+              </button>
+            </div>
+            {test && <p className="text-xs text-ink-300">{test}</p>}
+            <button className="btn-ghost w-full !text-red-400" onClick={disconnectDropbox}>
+              Disconnect Dropbox
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-ink-300">
+              Sync your data across devices via Dropbox. One-time setup:
+            </p>
+            <ol className="list-decimal space-y-1 pl-5 text-xs text-ink-400">
+              <li>
+                Go to the Dropbox <strong>App Console</strong> → Create app → “Scoped access” → “App
+                folder” → name it (e.g. HealthTracker).
+              </li>
+              <li>
+                Under <strong>Permissions</strong>, enable <code>files.content.write</code> and{' '}
+                <code>files.content.read</code>; save.
+              </li>
+              <li>
+                Under <strong>Settings</strong>, add this exact <strong>Redirect URI</strong>:{' '}
+                <code className="break-all">{window.location.origin + window.location.pathname}</code>
+              </li>
+              <li>Copy the <strong>App key</strong> and paste it below, then Connect.</li>
+            </ol>
+            <div>
+              <label className="label">Dropbox app key</label>
+              <input
+                className="field"
+                placeholder="e.g. a1b2c3d4e5f6g7h"
+                value={s.dropboxAppKey}
+                onChange={(e) => set('dropboxAppKey', e.target.value.trim())}
+                autoComplete="off"
+              />
+            </div>
+            <button className="btn-primary w-full" onClick={() => void connectDropbox()}>
+              Connect Dropbox
+            </button>
+            {test && <p className="text-xs text-ink-300">{test}</p>}
+          </>
+        )}
       </section>
 
       <button className="btn-primary w-full" onClick={persist}>
@@ -149,9 +185,8 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
           <span className="chip">Last saved: {fmtWhen(storage.lastSave)}</span>
         </div>
         <p className="text-xs text-amber-300/90">
-          Back up regularly with <em>Export .db</em> below — if you clear Safari's website data or lose
-          the device, anything not exported is gone. (Automatic Nextcloud sync isn't possible on your
-          current provider — see Nextcloud sync above.)
+          Connect <strong>Dropbox sync</strong> above to keep an automatic off-device backup that also
+          syncs across your devices. Even so, an occasional <em>Export .db</em> is a good safety net.
         </p>
       </section>
 
@@ -196,12 +231,9 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
         </button>
         {importMsg && <p className="text-xs text-ink-300">{importMsg}</p>}
         <p className="text-xs text-ink-400">
-          Import replaces the data in this app with the picked file — use this after moving a newer
-          <code> health.db</code> here from another device (e.g. via your Nextcloud folder).
+          Import replaces the data in this app with the picked file — a manual alternative to Dropbox
+          sync for moving a <code>health.db</code> between devices.
         </p>
-        <button className="btn-ghost w-full" onClick={() => void pullIfNewer()}>
-          Sync now
-        </button>
       </section>
 
       <p className="pb-4 text-center text-[11px] text-ink-600">Health Tracker · data stays on your device</p>

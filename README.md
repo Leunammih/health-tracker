@@ -2,12 +2,12 @@
 
 A private, iPhone-first PWA for tracking activities & muscle aches, gut episodes, infections, energy/mood, day context, and nutrition — with Claude sorting your voice diary, estimating meal macros from photos, and surfacing patterns.
 
-Everything runs client-side. Your data lives in a local **SQLite** database on the device and syncs to your **Nextcloud** folder. Your Anthropic API key stays on the device.
+Everything runs client-side. Your data lives in a local **SQLite** database on the device and syncs to your **Dropbox** (App folder). Your Anthropic API key stays on the device.
 
 ## Stack
 
 - Vite + React + TypeScript + Tailwind, installable PWA (`vite-plugin-pwa`)
-- `sql.js` (SQLite in WebAssembly), cached in IndexedDB, synced to Nextcloud over WebDAV
+- `sql.js` (SQLite in WebAssembly), cached in IndexedDB, synced to Dropbox via its browser API (OAuth PKCE)
 - `@anthropic-ai/sdk` called directly from the browser (single-user, own key)
 - Recharts for the Insights tab
 
@@ -17,7 +17,7 @@ Everything runs client-side. Your data lives in a local **SQLite** database on t
 - **Meals** — photograph a meal; Claude estimates ingredients + calories/protein/fat/carbs/fiber and asks to confirm portions.
 - **Insights** — energy/mood, stress, gut/infection counts, daily calories & macro averages.
 - **Patterns** — Claude reviews recent data for correlations (e.g. anticipatory stress → infection/gut, warming-bottle vs stress).
-- **Settings** — API key, model, Nextcloud sync, and data export (.db / JSON / CSV / copy-to-clipboard).
+- **Settings** — API key, model, Dropbox sync, and data export (.db / JSON / CSV / copy-to-clipboard).
 
 ## Local development
 
@@ -28,15 +28,16 @@ npm run dev
 
 Open the printed URL. In **Settings**, paste your Anthropic API key. (Camera + dictation need HTTPS or `localhost`.)
 
-## Nextcloud sync setup
+## Dropbox sync setup
 
-1. In Nextcloud, install and enable the **WebAppPassword** app (adds the CORS headers a browser needs for WebDAV).
-2. Create a dedicated **app password**: Nextcloud → Settings → Security → Devices & sessions.
-3. In the app’s **Settings** tab: enable sync, enter your **server URL** (just the domain, e.g. `https://cloud.example.com` — if your provider gave you a full WebDAV link instead, that's fine too, only the domain part is used), username, the app password, and a folder path (e.g. `/HealthTracker`), then **Test connection**. On success it shows the exact URL it's using — check that it looks right.
+The app syncs `health.db` to a Dropbox **App folder** using browser-side OAuth (PKCE — no server, no client secret). One-time setup:
 
-The app pulls the latest `health.db` on open and pushes changes back after you save. Single user → last-write-wins.
+1. Open the Dropbox **App Console** (dropbox.com/developers/apps) → **Create app** → *Scoped access* → *App folder* → name it (e.g. `HealthTracker`).
+2. On the **Permissions** tab, enable `files.content.write` and `files.content.read`, then **Submit**.
+3. On the **Settings** tab, add your app URL as a **Redirect URI** (both the deployed URL, e.g. `https://<user>.github.io/health-tracker/`, and `http://localhost:5199/` for local dev).
+4. Copy the **App key**. In the app's **Settings** tab, paste it under *Dropbox sync* and click **Connect Dropbox** — you'll approve access once, then it stays connected (refresh token stored on-device).
 
-**If sync keeps failing (shows "Offline" even with correct details):** some Nextcloud providers — especially managed/hosted plans — never send the CORS headers a browser needs, and there's no user-facing setting to fix that (confirmed by probing the WebDAV endpoint directly: no `Access-Control-Allow-Origin` header on any response, even with the WebAppPassword app in theory enabled). In that case automatic sync cannot work from the browser at all. Use the manual fallback instead: Settings → **Export .db** on one device, save the file into your Nextcloud folder (e.g. via the Nextcloud iOS app or Files app), then Settings → **Import .db** on the other device to load it. This still keeps everything serverless and works with any storage provider.
+The app pulls the latest `health.db` on open and pushes changes back after you save (Dropbox `rev` is the version marker; single user → last-write-wins). **Export / Import .db** remains as a manual alternative.
 
 ## Deploy to GitHub Pages (install on iPhone)
 

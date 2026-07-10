@@ -1,8 +1,8 @@
-// Coordinates local DB <-> Nextcloud: pull on start, debounced push on change.
+// Coordinates local DB <-> Dropbox: pull on start, debounced push on change.
 import { exportBytes, replaceDb, onDbChange } from '../db/sqlite'
 import { getSyncMeta, setSyncMeta } from '../lib/storage'
 import { nowISO } from '../lib/dates'
-import { isConfigured, pullDb, pushDb, remoteEtag } from './nextcloud'
+import { isConfigured, pullDb, pushDb, remoteRev } from './dropbox'
 
 export type SyncState = 'idle' | 'syncing' | 'error' | 'offline' | 'disabled'
 export interface SyncStatus {
@@ -37,11 +37,11 @@ export async function pullIfNewer(): Promise<void> {
     set({ state: 'disabled', message: 'Sync off' })
     return
   }
-  set({ state: 'syncing', message: 'Checking Nextcloud…' })
+  set({ state: 'syncing', message: 'Checking Dropbox…' })
   try {
-    const localEtag = getSyncMeta().etag
-    const rEtag = await remoteEtag()
-    if (rEtag && rEtag === localEtag) {
+    const localRev = getSyncMeta().etag
+    const rRev = await remoteRev()
+    if (rRev && rRev === localRev) {
       set({ state: 'idle', message: 'Up to date', lastSyncedAt: getSyncMeta().lastSyncedAt })
       return
     }
@@ -51,7 +51,7 @@ export async function pullIfNewer(): Promise<void> {
         suppressPush = true
         await replaceDb(res.bytes)
         const at = nowISO()
-        setSyncMeta(res.etag, at)
+        setSyncMeta(res.rev, at)
         set({ state: 'idle', message: 'Pulled latest', lastSyncedAt: at })
       } catch (e) {
         // Remote file was invalid/corrupt — local data is untouched (replaceDb
@@ -74,11 +74,11 @@ export async function pullIfNewer(): Promise<void> {
 
 async function pushNow(): Promise<void> {
   if (!isConfigured()) return
-  set({ state: 'syncing', message: 'Saving to Nextcloud…' })
+  set({ state: 'syncing', message: 'Saving to Dropbox…' })
   try {
-    const etag = await pushDb(exportBytes())
+    const rev = await pushDb(exportBytes())
     const at = nowISO()
-    setSyncMeta(etag, at)
+    setSyncMeta(rev, at)
     set({ state: 'idle', message: 'Saved', lastSyncedAt: at })
   } catch (e) {
     reportError(e)

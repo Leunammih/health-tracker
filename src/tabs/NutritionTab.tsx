@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { analyseMeal } from '../ai/anthropic'
 import { saveMeal, deleteMeal, recentMeals } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
-import { isConfigured, pushPhoto } from '../sync/nextcloud'
+import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera } from '../components/icons'
@@ -251,7 +251,7 @@ export default function NutritionTab() {
           {isConfigured() && (
             <label className="flex items-center gap-2 text-sm text-ink-300">
               <input type="checkbox" checked={savePhoto} onChange={(e) => setSavePhoto(e.target.checked)} />
-              Also save the photo to Nextcloud
+              Also save the photo to Dropbox
             </label>
           )}
 
