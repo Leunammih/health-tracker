@@ -13,6 +13,7 @@ export default function LogTab() {
   const [entryDate, setEntryDate] = useState(todayISO())
   const [extraction, setExtraction] = useState<DiaryExtraction | null>(null)
   const [answers, setAnswers] = useState<string[]>([])
+  const [extraNote, setExtraNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [savedNote, setSavedNote] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -25,12 +26,12 @@ export default function LogTab() {
     try {
       const res = await extractDiary(raw, entryDate)
       setExtraction(res)
-      if (res.follow_up_questions.length) {
-        setAnswers(new Array(res.follow_up_questions.length).fill(''))
-        setPhase('questions')
-      } else {
-        setPhase('preview')
-      }
+      // Only reset answers if the questions actually changed, so re-processing an
+      // edited log doesn't wipe answers you've already typed for the same questions.
+      setAnswers((prev) =>
+        res.follow_up_questions.map((_, i) => prev[i] ?? ''),
+      )
+      setPhase('questions')
     } catch (e) {
       setError(msg(e))
       setPhase('input')
@@ -45,6 +46,9 @@ export default function LogTab() {
       const qa = extraction.follow_up_questions
         .map((q, i) => ({ question: q, answer: answers[i]?.trim() ?? '' }))
         .filter((x) => x.answer)
+      if (extraNote.trim()) {
+        qa.push({ question: 'Additional notes or corrections from me', answer: extraNote.trim() })
+      }
       const merged = qa.length ? await refineDiary(raw, qa, entryDate) : extraction
       setExtraction(merged)
       setPhase('preview')
@@ -83,6 +87,7 @@ export default function LogTab() {
     setEntryDate(todayISO())
     setExtraction(null)
     setAnswers([])
+    setExtraNote('')
   }
 
   return (
@@ -145,7 +150,10 @@ export default function LogTab() {
       {phase === 'questions' && extraction && (
         <div className="card space-y-4">
           <p className="text-sm text-ink-300">
-            A few follow-ups so the log is complete{entryDate !== todayISO() ? ` (logging for ${fmtDate(entryDate)})` : ''}:
+            {extraction.follow_up_questions.length
+              ? `A few follow-ups so the log is complete`
+              : `Anything to adjust before saving?`}
+            {entryDate !== todayISO() ? ` (logging for ${fmtDate(entryDate)})` : ''}:
           </p>
           {extraction.follow_up_questions.map((q, i) => (
             <div key={i}>
@@ -161,12 +169,24 @@ export default function LogTab() {
               />
             </div>
           ))}
+          <div>
+            <label className="label">Anything else to add or correct?</label>
+            <textarea
+              className="field min-h-[3.5rem]"
+              placeholder="e.g. 'Interpret the Bristol value as 4, not 6' or 'also add: felt anxious in the evening'"
+              value={extraNote}
+              onChange={(e) => setExtraNote(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-ink-400">
+              Add or fix anything here instead of re-editing the whole log.
+            </p>
+          </div>
           <div className="flex gap-2">
             <button className="btn-primary flex-1" onClick={() => void submitAnswers()}>
               Continue
             </button>
-            <button className="btn-ghost" onClick={() => setPhase('preview')}>
-              Skip
+            <button className="btn-ghost" onClick={() => setPhase('input')}>
+              Edit log
             </button>
           </div>
         </div>
@@ -183,8 +203,8 @@ export default function LogTab() {
             <button className="btn-primary flex-1" onClick={() => void confirmSave()}>
               Confirm & save
             </button>
-            <button className="btn-ghost" onClick={() => setPhase('input')}>
-              Back
+            <button className="btn-ghost" onClick={() => setPhase('questions')}>
+              Back to questions
             </button>
           </div>
         </div>

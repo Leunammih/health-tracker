@@ -6,7 +6,7 @@ import { isConfigured, pushPhoto } from '../sync/nextcloud'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera } from '../components/icons'
-import type { MealAnalysis } from '../types'
+import type { MealAnalysis, Ingredient } from '../types'
 
 type Phase = 'input' | 'analysing' | 'review'
 
@@ -16,6 +16,7 @@ export default function NutritionTab() {
   const [image, setImage] = useState<PreparedImage | null>(null)
   const [analysis, setAnalysis] = useState<MealAnalysis | null>(null)
   const [answer, setAnswer] = useState('')
+  const [extraItems, setExtraItems] = useState('')
   const [date, setDate] = useState(todayISO())
   const [savePhoto, setSavePhoto] = useState(isConfigured())
   const [error, setError] = useState<string | null>(null)
@@ -40,13 +41,26 @@ export default function NutritionTab() {
   }
 
   async function reEstimate() {
-    if (!image) return
+    if (!image || !analysis) return
     setError(null)
     setPhase('analysing')
     try {
-      const res = await analyseMeal(image.base64, image.mediaType, answer)
+      // Feed the current (possibly hand-edited) ingredient list, extra off-photo
+      // items, and any answer back to Claude so it re-estimates from the truth.
+      const parts: string[] = []
+      const ings = analysis.ingredients.filter((i) => i.name.trim())
+      if (ings.length) {
+        parts.push(
+          'Corrected ingredient list (treat as authoritative): ' +
+            ings.map((i) => `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join(', '),
+        )
+      }
+      if (extraItems.trim()) parts.push(`Also eaten, not visible in photo: ${extraItems.trim()}`)
+      if (answer.trim()) parts.push(answer.trim())
+      const res = await analyseMeal(image.base64, image.mediaType, parts.join('. '))
       setAnalysis(res)
       setAnswer('')
+      setExtraItems('')
       setPhase('review')
     } catch (e) {
       setError(msg(e))
@@ -66,6 +80,8 @@ export default function NutritionTab() {
       setPhase('input')
       setImage(null)
       setAnalysis(null)
+      setAnswer('')
+      setExtraItems('')
       setRefreshKey((k) => k + 1)
       setTimeout(() => setNote(null), 2500)
     } catch (e) {
@@ -75,6 +91,20 @@ export default function NutritionTab() {
 
   function patch(p: Partial<MealAnalysis>) {
     setAnalysis((a) => (a ? { ...a, ...p } : a))
+  }
+
+  function updateIngredient(idx: number, field: keyof Ingredient, value: string) {
+    setAnalysis((a) => {
+      if (!a) return a
+      const ingredients = a.ingredients.map((ing, i) => (i === idx ? { ...ing, [field]: value } : ing))
+      return { ...a, ingredients }
+    })
+  }
+  function addIngredient() {
+    setAnalysis((a) => (a ? { ...a, ingredients: [...a.ingredients, { name: '', quantity: '' }] } : a))
+  }
+  function removeIngredient(idx: number) {
+    setAnalysis((a) => (a ? { ...a, ingredients: a.ingredients.filter((_, i) => i !== idx) } : a))
   }
 
   async function removeMeal(id: string) {
@@ -147,13 +177,47 @@ export default function NutritionTab() {
 
           <div>
             <div className="label">Ingredients · confidence {analysis.confidence}</div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="space-y-1.5">
               {analysis.ingredients.map((ing, i) => (
-                <span key={i} className="chip">
-                  {ing.name} {ing.quantity && `· ${ing.quantity}`}
-                </span>
+                <div key={i} className="flex items-center gap-1.5">
+                  <input
+                    className="field flex-1 !py-1.5"
+                    value={ing.name}
+                    placeholder="ingredient"
+                    onChange={(e) => updateIngredient(i, 'name', e.target.value)}
+                  />
+                  <input
+                    className="field w-28 !py-1.5"
+                    value={ing.quantity}
+                    placeholder="amount"
+                    onChange={(e) => updateIngredient(i, 'quantity', e.target.value)}
+                  />
+                  <button
+                    className="shrink-0 rounded-lg px-2 py-1 text-ink-400 hover:bg-ink-700 hover:text-red-400"
+                    onClick={() => removeIngredient(i)}
+                    aria-label="Remove ingredient"
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
             </div>
+            <button className="btn-ghost mt-2 !py-1.5 text-sm" onClick={addIngredient}>
+              + Add ingredient
+            </button>
+            <p className="mt-1 text-xs text-ink-400">
+              Tap any field to correct it. Edit the macros above directly, or re-estimate below.
+            </p>
+          </div>
+
+          <div>
+            <label className="label">Ate something not in the photo?</label>
+            <textarea
+              className="field min-h-[3rem]"
+              placeholder="e.g. 'a cup of blueberries, one kiwi, a slice of bread with almond butter'"
+              value={extraItems}
+              onChange={(e) => setExtraItems(e.target.value)}
+            />
           </div>
 
           {analysis.clarifying_questions.length > 0 && (
@@ -170,10 +234,13 @@ export default function NutritionTab() {
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
               />
-              <button className="btn-ghost mt-2 w-full" disabled={!answer.trim()} onClick={() => void reEstimate()}>
-                Re-estimate with this
-              </button>
             </div>
+          )}
+
+          {(answer.trim() || extraItems.trim() || analysis.clarifying_questions.length > 0) && (
+            <button className="btn-ghost w-full" onClick={() => void reEstimate()}>
+              Re-estimate from edits, extra items & answers
+            </button>
           )}
 
           <div className="flex items-center gap-3">

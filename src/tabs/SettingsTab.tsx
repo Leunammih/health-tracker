@@ -1,9 +1,20 @@
 import { useMemo, useRef, useState } from 'react'
-import { loadSettings, saveSettings, type Settings } from '../lib/storage'
+import { loadSettings, saveSettings, getLastLocalSave, type Settings } from '../lib/storage'
 import { testConnection } from '../sync/nextcloud'
 import { pullIfNewer } from '../sync/manager'
 import { counts } from '../db/queries'
+import { dbSizeBytes } from '../db/sqlite'
 import { downloadDbFile, downloadJson, downloadCsvBundle, copyAllJson, importDbFile } from '../lib/export'
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+function fmtWhen(iso: string | null): string {
+  if (!iso) return 'never'
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+}
 
 export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
   const [s, setS] = useState<Settings>(loadSettings())
@@ -16,6 +27,10 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
   const [refreshKey, setRefreshKey] = useState(0)
   const importRef = useRef<HTMLInputElement>(null)
   const c = useMemo(() => counts(), [refreshKey])
+  const storage = useMemo(
+    () => ({ size: dbSizeBytes(), lastSave: getLastLocalSave() }),
+    [refreshKey],
+  )
 
   async function handleImport(file: File) {
     setImporting(true)
@@ -122,6 +137,24 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
         {saved ? 'Saved ✓' : 'Save settings'}
       </button>
 
+      <section className="card space-y-2">
+        <div className="label">Where your data lives</div>
+        <p className="text-sm text-ink-300">
+          Your health database is stored <strong>on this device</strong>, inside this app's private
+          browser storage. It is <strong>not</strong> a file you can open in the iOS Files app — that's
+          why <em>Export</em> exists (to make a copy you can keep or move).
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs text-ink-300">
+          <span className="chip">Size: {fmtBytes(storage.size)}</span>
+          <span className="chip">Last saved: {fmtWhen(storage.lastSave)}</span>
+        </div>
+        <p className="text-xs text-amber-300/90">
+          Back up regularly with <em>Export .db</em> below — if you clear Safari's website data or lose
+          the device, anything not exported is gone. (Automatic Nextcloud sync isn't possible on your
+          current provider — see Nextcloud sync above.)
+        </p>
+      </section>
+
       <section className="card space-y-3">
         <div className="label">Data</div>
         <div className="flex flex-wrap gap-2 text-xs text-ink-300">
@@ -171,7 +204,7 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
         </button>
       </section>
 
-      <p className="pb-4 text-center text-[11px] text-ink-600">Health Tracker · data stays on your device + Nextcloud</p>
+      <p className="pb-4 text-center text-[11px] text-ink-600">Health Tracker · data stays on your device</p>
     </div>
   )
 }

@@ -11,7 +11,8 @@ Rules:
 - Default any date the user doesn't specify to ${entryDate} (the date they are logging for), NOT to today's actual date${backfill ? ' — this is a backfilled entry for a past date' : ''}.
 - If the user mentions a relative date (e.g. "yesterday", "last Monday", "three days ago"), resolve it relative to ${entryDate} (the date they're logging for), since that's their point of reference while dictating this entry.
 - The user cares especially about: muscle aches after exercise (onset, symptoms, recovery time, whether gentle movement helped or hurt); gut episodes (pain, bloating, stool consistency, whether a night warming-bottle was needed) and WHAT PRECEDED them (upcoming travel, ceremony, work project, online work, life transition); colds/infections and what preceded them; and daily energy, mood, stress load, and day context (tasks, travel, work, retreats, relaxation).
-- Put targeted follow_up_questions for important missing details — above all, for any gut episode or infection, ask what preceded it if not stated; for exercise aches, ask recovery time and whether gentle movement helped or hurt; ask for energy/mood/stress if the entry implies a full day but omits them. Keep questions short and specific. Do not ask more than 4.`
+- Put targeted follow_up_questions for important missing details — above all, for any gut episode or infection, ask what preceded it if not stated; ask for energy/mood/stress if the entry implies a full day but omits them. Keep questions short and specific. Do not ask more than 4.
+- IMPORTANT about exercise soreness: muscle soreness (DOMS) is usually DELAYED and peaks 24–72h later, so do NOT ask about soreness, aches, or recovery time for a workout done ON ${entryDate} (the day being logged) — it's too soon to know. Still record any soreness the user volunteers, but never make it a follow_up_question for a same-day workout. (The app checks in about recovery on the following days separately.) If the user is logging a workout from a PRIOR day, asking about recovery is fine.`
 }
 
 export function refineSystemPrompt(entryDate: string): string {
@@ -22,8 +23,9 @@ Keep everything already captured; add or correct fields from the answers. Defaul
 }
 
 export function mealSystemPrompt(): string {
-  return `You are a nutrition estimation engine. Analyse the meal photo and call record_meal_nutrition with best-estimate macros for the WHOLE portion shown.
-Estimate reasonably from visible portion sizes. Account for likely hidden ingredients (cooking oil, butter, dressings, sauces) in the macros, but list them as ingredients and raise a clarifying question if they materially affect the estimate. Ask clarifying questions when portion size is ambiguous. Set confidence honestly.`
+  return `You are a nutrition estimation engine. Analyse the meal photo and call record_meal_nutrition with best-estimate macros for the WHOLE portion eaten.
+Estimate reasonably from visible portion sizes. Account for likely hidden ingredients (cooking oil, butter, dressings, sauces) in the macros, but list them as ingredients and raise a clarifying question if they materially affect the estimate. Ask clarifying questions when portion size is ambiguous. Set confidence honestly.
+If the user provides extra context (a corrected ingredient list, items eaten that aren't visible in the photo, or answers about portions), treat that as AUTHORITATIVE over what you infer from the image: use exactly those ingredients/amounts, ADD any off-photo items to both the ingredient list and the macro totals, and recompute calories/protein/fat/carbs/fiber for the full combined meal. Raise confidence when the user has clarified.`
 }
 
 export function interpretSystemPrompt(): string {

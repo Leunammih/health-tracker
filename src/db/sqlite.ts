@@ -8,7 +8,7 @@ const initSqlJs = ((sqlJsNs as { default?: unknown }).default ?? sqlJsNs) as (
   config?: { locateFile?: (file: string) => string },
 ) => Promise<SqlJsStatic>
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema'
-import { loadDbBlob, saveDbBlob } from '../lib/storage'
+import { loadDbBlob, saveDbBlob, setLastLocalSave } from '../lib/storage'
 
 let SQL: SqlJsStatic | null = null
 let db: Database | null = null
@@ -106,7 +106,13 @@ export function exportBytes(): Uint8Array {
 export async function persist(): Promise<void> {
   const bytes = exportBytes()
   await saveDbBlob(bytes)
+  setLastLocalSave(new Date().toISOString())
   listeners.forEach((l) => l())
+}
+
+// Byte size of the current database (for the storage panel).
+export function dbSizeBytes(): number {
+  return getDb().export().length
 }
 
 // Debounced persist for rapid successive writes.

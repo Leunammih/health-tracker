@@ -90,3 +90,11 @@ export function setSyncMeta(etag: string | null, lastSyncedAt: string): void {
   if (etag) localStorage.setItem('ht.sync.etag', etag)
   localStorage.setItem('ht.sync.at', lastSyncedAt)
 }
+
+// Timestamp of the last time the DB was written to on-device storage.
+export function setLastLocalSave(iso: string): void {
+  localStorage.setItem('ht.lastLocalSave', iso)
+}
+export function getLastLocalSave(): string | null {
+  return localStorage.getItem('ht.lastLocalSave')
+}
