@@ -90,11 +90,30 @@ export const DIARY_TOOL = {
       tracks: {
         type: 'array',
         description:
-          'Generic trackable items to graph over time that are NOT exercise-with-soreness bouts (those go in activities). Use for: meditation and other practices; ongoing symptoms like knee/joint/back pain; body measurements like weight; and light/named activities (kite surfing, dancing, biking, swimming). One entry per occurrence.',
+          'Generic trackable items to graph over time that are NOT exercise-with-soreness bouts (those go in activities). Use for: meditation and other practices; ongoing symptoms like knee/joint/back pain; body measurements like weight; and light/named activities (kite surfing, dancing, biking, swimming). One entry per occurrence — EXCEPT when the user describes a repeated/recurring habit over a span ("meditated every morning for three weeks", "walked Mon/Wed/Fri last month"): emit ONE entry with a recurrence (start_date + end_date, plus weekdays if only some days), not one entry per day. The app expands the recurrence into individual dated rows.',
         items: {
           type: 'object',
           properties: {
-            date: { type: 'string', description: 'ISO YYYY-MM-DD' },
+            date: { type: 'string', description: 'ISO YYYY-MM-DD for a single occurrence. Omit when using recurrence or dates.' },
+            recurrence: {
+              type: 'object',
+              description: 'For a habit repeated over a span. The app creates one dated row per matching day in the range.',
+              properties: {
+                start_date: { type: 'string', description: 'ISO YYYY-MM-DD, first day of the span' },
+                end_date: { type: 'string', description: 'ISO YYYY-MM-DD, last day of the span (inclusive)' },
+                weekdays: {
+                  type: 'array',
+                  description: 'Only these weekdays within the span (e.g. ["mon","wed","fri"]). Omit for every day in the span.',
+                  items: { type: 'string', enum: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] },
+                },
+              },
+              required: ['start_date', 'end_date'],
+            },
+            dates: {
+              type: 'array',
+              description: 'Explicit list of ISO YYYY-MM-DD dates for irregular repeats that are not a clean range. Alternative to recurrence.',
+              items: { type: 'string' },
+            },
             name: { type: 'string', description: "short lowercase label, e.g. 'meditation', 'knee pain', 'weight', 'kite surfing'" },
             category: { type: 'string', enum: ['practice', 'symptom', 'measurement', 'activity', 'other'] },
             value: { type: 'number', description: 'numeric value if any: minutes for practices/activities, 0-10 severity for symptoms, the number for measurements' },

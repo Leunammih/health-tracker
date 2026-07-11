@@ -1,6 +1,6 @@
 import { getDb, persist } from './sqlite'
 import { uid } from '../lib/id'
-import { nowISO, todayISO, daysAgoISO } from '../lib/dates'
+import { nowISO, todayISO, daysAgoISO, expandDateRange, weekdayNums } from '../lib/dates'
 import type {
   DiaryExtraction,
   Entry,
@@ -103,11 +103,24 @@ export async function saveDiaryExtraction(
   }
   for (const t of data.tracks ?? []) {
     if (!t.name) continue
-    exec(
-      `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, notes)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [uid(), entryId, t.date ?? entryDate, t.name.trim().toLowerCase(), t.category ?? null, t.value ?? null, t.unit ?? null, t.notes ?? null],
-    )
+    // A track may cover a single day, an explicit list of dates, or a recurrence
+    // over a span (optionally limited to certain weekdays) — expand to dated rows.
+    let dates: string[]
+    if (t.dates?.length) {
+      dates = t.dates
+    } else if (t.recurrence?.start_date && t.recurrence?.end_date) {
+      dates = expandDateRange(t.recurrence.start_date, t.recurrence.end_date, weekdayNums(t.recurrence.weekdays))
+    } else {
+      dates = [t.date ?? entryDate]
+    }
+    const name = t.name.trim().toLowerCase()
+    for (const date of dates) {
+      exec(
+        `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, notes)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [uid(), entryId, date, name, t.category ?? null, t.value ?? null, t.unit ?? null, t.notes ?? null],
+      )
+    }
   }
 
   await persist()

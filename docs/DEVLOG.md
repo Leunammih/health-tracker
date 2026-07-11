@@ -4,6 +4,15 @@ Reverse-chronological log of what changed and why. Keep entries short. See PLAN.
 for the roadmap and status checkboxes.
 
 ## 2026-07-11
+- **Phase C1 — bulk/range track entry.** A `tracks` item can now carry a `recurrence`
+  (`start_date`/`end_date` + optional `weekdays`) or an explicit `dates[]` instead of a
+  single `date`. The diary prompt tells Claude to emit ONE recurring entry for habits
+  repeated over a span ("meditated every morning for 3 weeks") rather than many rows.
+  `saveDiaryExtraction` expands these into one `tracks` row per matching date using new
+  `expandDateRange`/`weekdayNums` helpers in `src/lib/dates.ts` (capped at 366 days,
+  reversed-range safe, TZ-safe via local Y-M-D formatting). Value/name/notes apply to
+  every occurrence. No schema migration (still v3). Verified the date-expansion logic
+  directly; full dictation path needs the user's live API key in-browser.
 - Added planning files `docs/PLAN.md` + `docs/DEVLOG.md` + `STATUS.md`.
 - **Dropbox replaces Nextcloud** (commit: dropbox migration). New `src/sync/dropbox.ts`
   (OAuth PKCE, refresh→access token cache, pull/push `health.db`, photo upload, `rev`

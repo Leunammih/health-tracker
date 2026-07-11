@@ -168,8 +168,18 @@ export interface ExtractedDayContext {
   notes?: string
 }
 
+export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface TrackRecurrence {
+  start_date: string
+  end_date: string
+  weekdays?: Weekday[]
+}
+
 export interface ExtractedTrack {
   date?: string
+  recurrence?: TrackRecurrence // repeated habit over a span → one row per matching day
+  dates?: string[] // explicit irregular list → one row per date
   name?: string
   category?: TrackCategory
   value?: number

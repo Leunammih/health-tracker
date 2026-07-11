@@ -42,8 +42,11 @@ have to reconstruct state from chat. Dates are absolute.
 - [x] B2 Next-day soreness check-ins on the Log tab (`recovery_checked` flag; record/dismiss)
 - [x] B3 Tap a Recent entry → view saved details → Edit & re-analyze (replaces the entry)
 
-## Phase C — later
-- [ ] Bulk/range entry by dictation ("meditated every morning for 3 weeks")
+## Phase C — in progress
+- [x] C1 Bulk/range entry by dictation ("meditated every morning for 3 weeks") — track
+  items carry an optional `recurrence` (start/end + weekdays) or explicit `dates[]`;
+  `saveDiaryExtraction` expands them into one `tracks` row per date via
+  `expandDateRange`/`weekdayNums` in `src/lib/dates.ts` (2026-07-11)
 - [ ] Calorie/protein goals + progress display
 - [ ] Supplements (start date, composition via photo/name, periodic re-check via B2 queue)
 

@@ -15,6 +15,10 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
 - **Phase B** — B1 generic `tracks` table + weight + Insights charts; B2 next-day soreness
   check-ins; B3 tap-to-view/edit a saved entry. Schema at **v3** (migrations in
   `src/db/sqlite.ts` `runMigrations`, PRAGMA-guarded).
+- **Phase C1** — bulk/range track entry by dictation. A track item can carry a
+  `recurrence` (start/end + optional weekdays) or explicit `dates[]`; `saveDiaryExtraction`
+  expands it into one `tracks` row per date (`expandDateRange`/`weekdayNums` in
+  `src/lib/dates.ts`). No new schema. Date logic verified; live dictation path needs the API key.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
@@ -24,23 +28,23 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   sync → **Connect**. Until then sync is off (app still works locally; export/import is the manual fallback).
 
 ## Not started — for new sessions
-- **Phase C:** (1) bulk/range entry by dictation ("meditated every morning for 3 weeks" →
-  expand to dated `tracks` rows); (2) calorie/protein goals + progress display;
+- **Phase C:** ~~(1) bulk/range entry~~ ✅; (2) calorie/protein goals + progress display;
   (3) supplements (start date, composition via photo or name, periodic re-check reusing the
   B2 check-in queue pattern).
 - **Phase D:** eating-pattern quick-adds by time of day (client-side frequency over `meals`).
 
 ## Exact next step
-Start **Phase C item 1 — bulk/range entry**. It rides on the existing generic `tracks`
-table (B1) and the Claude extraction pipeline. Plan:
-1. In `src/ai/schemas.ts`, extend the `tracks` item schema (or add a sibling) so Claude can
-   emit either a single date OR a recurrence (e.g. `{start_date, end_date, weekdays?}` or an
-   explicit `dates: string[]`).
-2. In `src/ai/prompts.ts`, tell Claude to expand ranges ("every morning for 3 weeks",
-   "on Mon/Wed/Fri") into the recurrence fields rather than one row.
-3. In `src/db/queries.ts` `saveDiaryExtraction`, expand a recurrence into one `tracks` row
-   per date (add a small date-range helper in `src/lib/dates.ts`).
-4. Verify: dictate a range, confirm N dated rows land and show on the Insights chart.
+Start **Phase C item 2 — calorie/protein goals + progress display**. Meals already store
+macros (`src/db/queries.ts`, `meals` table). Plan:
+1. Store daily goals (calories, protein) — a small settings/prefs store (localStorage or a
+   1-row `settings` table); add a Settings input for them.
+2. Sum today's `meals` macros and show progress (bar/ring) against the goals — likely on
+   NutritionTab and/or InsightsTab.
+3. Verify in-browser: set goals, log meals, confirm progress updates.
+
+**Verify C1 first (needs the user):** dictate a range ("meditated every morning for the
+last 3 weeks, 20 min"), confirm ~21 dated `tracks` rows land and show on the Insights
+meditation chart.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
