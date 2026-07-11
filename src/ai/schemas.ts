@@ -87,6 +87,22 @@ export const DIARY_TOOL = {
           },
         },
       },
+      tracks: {
+        type: 'array',
+        description:
+          'Generic trackable items to graph over time that are NOT exercise-with-soreness bouts (those go in activities). Use for: meditation and other practices; ongoing symptoms like knee/joint/back pain; body measurements like weight; and light/named activities (kite surfing, dancing, biking, swimming). One entry per occurrence.',
+        items: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: 'ISO YYYY-MM-DD' },
+            name: { type: 'string', description: "short lowercase label, e.g. 'meditation', 'knee pain', 'weight', 'kite surfing'" },
+            category: { type: 'string', enum: ['practice', 'symptom', 'measurement', 'activity', 'other'] },
+            value: { type: 'number', description: 'numeric value if any: minutes for practices/activities, 0-10 severity for symptoms, the number for measurements' },
+            unit: { type: 'string', description: "'min', '/10', 'kg', 'lb', etc." },
+            notes: { type: 'string' },
+          },
+        },
+      },
       follow_up_questions: {
         type: 'array',
         items: { type: 'string' },
@@ -94,7 +110,7 @@ export const DIARY_TOOL = {
           'Targeted questions for important missing details the user did not cover (e.g. recovery time, what preceded a gut/infection episode, energy/mood if absent). Empty if nothing important is missing.',
       },
     },
-    required: ['summary', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'follow_up_questions'],
+    required: ['summary', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'tracks', 'follow_up_questions'],
   },
 } as const
 

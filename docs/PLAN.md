@@ -26,20 +26,21 @@ have to reconstruct state from chat. Dates are absolute.
 - [x] Stop asking about same-day workout soreness (DOMS is delayed)
 - [x] Meals: inline-editable ingredient rows; "items not in the photo" field; unified re-estimate
 
-## Dropbox migration  — IN PROGRESS (2026-07-11)
-- [ ] `src/sync/dropbox.ts` — OAuth PKCE, pull/push `health.db`, photo upload, rev versioning
-- [ ] Rewrite `src/sync/manager.ts` to use Dropbox (same public interface)
-- [ ] OAuth redirect handling on app startup (`?code=` → token exchange)
-- [ ] Settings: replace Nextcloud fields with Dropbox connect + app key + status
-- [ ] Remove `src/sync/nextcloud.ts`; update NutritionTab photo upload
-- [ ] Update storage-panel + README copy (Nextcloud → Dropbox)
-- Setup the user must do once: register a Dropbox app (App folder, files.content.read/write),
-  add redirect URIs (Pages URL + localhost), paste the **App key** in Settings, click Connect.
+## Dropbox migration  ✅ DONE (2026-07-11, code complete; needs user's app key to connect)
+- [x] `src/sync/dropbox.ts` — OAuth PKCE, pull/push `health.db`, photo upload, rev versioning
+- [x] Rewrite `src/sync/manager.ts` to use Dropbox (same public interface)
+- [x] OAuth redirect handling on app startup (`?code=` → token exchange, cleans URL)
+- [x] Settings: Dropbox connect + app key + status/disconnect + in-app setup steps
+- [x] Remove `src/sync/nextcloud.ts`; NutritionTab photo upload → Dropbox
+- [x] Update storage-panel + README copy (Nextcloud → Dropbox)
+- **User action still required (one-time):** register a Dropbox app (Scoped, App folder,
+  enable `files.content.read`/`write`), add redirect URIs (the deployed Pages URL + `http://localhost:5199/`),
+  copy the **App key** into Settings → Dropbox sync → Connect. Until then sync stays off; app works fine locally.
 
-## Phase B — foundations
-- [ ] B1 Generic `tracks` table + extraction routing + generic Insights chart; **weight** as a track
-- [ ] B2 Deferred-prompt queue → next-day soreness check-ins on the Log tab
-- [ ] B3 Tap a Recent entry → view saved details → edit text & re-analyze (fix dictation errors)
+## Phase B — foundations  ✅ DONE (2026-07-11)
+- [x] B1 Generic `tracks` table + extraction routing + generic Insights charts (fitted Y-axis); **weight** as a track
+- [x] B2 Next-day soreness check-ins on the Log tab (`recovery_checked` flag; record/dismiss)
+- [x] B3 Tap a Recent entry → view saved details → Edit & re-analyze (replaces the entry)
 
 ## Phase C — later
 - [ ] Bulk/range entry by dictation ("meditated every morning for 3 weeks")

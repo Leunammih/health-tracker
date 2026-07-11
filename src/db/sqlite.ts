@@ -47,6 +47,9 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'day_context', 'entry_id')) {
     target.run('ALTER TABLE day_context ADD COLUMN entry_id TEXT')
   }
+  if (!hasColumn(target, 'activities', 'recovery_checked')) {
+    target.run('ALTER TABLE activities ADD COLUMN recovery_checked INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 export async function initDb(): Promise<Database> {

@@ -72,6 +72,7 @@ function normaliseDiary(input: ToolInput): DiaryExtraction {
     infections: (input.infections as DiaryExtraction['infections']) ?? [],
     wellbeing: (input.wellbeing as DiaryExtraction['wellbeing']) ?? [],
     day_context: (input.day_context as DiaryExtraction['day_context']) ?? [],
+    tracks: (input.tracks as DiaryExtraction['tracks']) ?? [],
     follow_up_questions: (input.follow_up_questions as string[]) ?? [],
   }
 }

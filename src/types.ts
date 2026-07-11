@@ -26,6 +26,7 @@ export interface Activity {
   recovery_time: string | null
   gentle_movement_effect: GentleMovementEffect | null
   notes: string | null
+  recovery_checked: number // 0/1 — whether we've done the next-day soreness check-in
 }
 
 export interface GutEvent {
@@ -93,6 +94,19 @@ export interface Meal {
   confirmed: number // 0/1
 }
 
+export type TrackCategory = 'practice' | 'symptom' | 'measurement' | 'activity' | 'other'
+
+export interface Track {
+  id: string
+  entry_id: string | null
+  date: string
+  name: string
+  category: string | null
+  value: number | null
+  unit: string | null
+  notes: string | null
+}
+
 export interface Interpretation {
   id: string
   created_at: string
@@ -154,12 +168,22 @@ export interface ExtractedDayContext {
   notes?: string
 }
 
+export interface ExtractedTrack {
+  date?: string
+  name?: string
+  category?: TrackCategory
+  value?: number
+  unit?: string
+  notes?: string
+}
+
 export interface DiaryExtraction {
   activities: ExtractedActivity[]
   gut_events: ExtractedGut[]
   infections: ExtractedInfection[]
   wellbeing: ExtractedWellbeing[]
   day_context: ExtractedDayContext[]
+  tracks: ExtractedTrack[]
   follow_up_questions: string[]
   summary: string
 }

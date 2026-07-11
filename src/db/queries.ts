@@ -1,6 +1,6 @@
 import { getDb, persist } from './sqlite'
 import { uid } from '../lib/id'
-import { nowISO, todayISO } from '../lib/dates'
+import { nowISO, todayISO, daysAgoISO } from '../lib/dates'
 import type {
   DiaryExtraction,
   Entry,
@@ -12,6 +12,7 @@ import type {
   Infection,
   Wellbeing,
   DayContext,
+  Track,
 } from '../types'
 
 // Run a SELECT and return an array of plain objects.
@@ -100,6 +101,14 @@ export async function saveDiaryExtraction(
       [uid(), entryId, date, d.tasks ?? null, d.travel ?? null, d.work ?? null, d.retreat ?? null, d.relaxation ?? null, d.stress_load ?? null, d.notes ?? null],
     )
   }
+  for (const t of data.tracks ?? []) {
+    if (!t.name) continue
+    exec(
+      `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, notes)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [uid(), entryId, t.date ?? entryDate, t.name.trim().toLowerCase(), t.category ?? null, t.value ?? null, t.unit ?? null, t.notes ?? null],
+    )
+  }
 
   await persist()
   return entryId
@@ -109,13 +118,20 @@ export async function saveDiaryExtraction(
 // rows are only removed if they still belong to this entry (a later entry for
 // the same date would have replaced them, in which case they're left alone).
 export async function deleteEntry(entryId: string): Promise<void> {
+  deleteEntryRows(entryId)
+  exec('DELETE FROM entries WHERE id = ?', [entryId])
+  await persist()
+}
+
+// Delete just the derived category rows for an entry (keeps the entries row).
+// Used when re-analyzing an edited entry so it can be re-populated under the same id.
+export function deleteEntryRows(entryId: string): void {
   exec('DELETE FROM activities WHERE entry_id = ?', [entryId])
   exec('DELETE FROM gut_events WHERE entry_id = ?', [entryId])
   exec('DELETE FROM infections WHERE entry_id = ?', [entryId])
   exec('DELETE FROM wellbeing WHERE entry_id = ?', [entryId])
   exec('DELETE FROM day_context WHERE entry_id = ?', [entryId])
-  exec('DELETE FROM entries WHERE id = ?', [entryId])
-  await persist()
+  exec('DELETE FROM tracks WHERE entry_id = ?', [entryId])
 }
 
 // ---- Meals ----
@@ -154,6 +170,26 @@ export async function saveInterpretation(i: Omit<Interpretation, 'id'>): Promise
 
 export const recentEntries = (limit = 30) =>
   all<Entry>('SELECT * FROM entries ORDER BY created_at DESC LIMIT ?', [limit])
+
+export interface EntryDetail {
+  activities: Activity[]
+  gut_events: GutEvent[]
+  infections: Infection[]
+  wellbeing: Wellbeing[]
+  day_context: DayContext[]
+  tracks: Track[]
+}
+// All derived rows produced by one entry (for the view/edit panel).
+export function entryDetail(entryId: string): EntryDetail {
+  return {
+    activities: all<Activity>('SELECT * FROM activities WHERE entry_id = ? ORDER BY date', [entryId]),
+    gut_events: all<GutEvent>('SELECT * FROM gut_events WHERE entry_id = ? ORDER BY date', [entryId]),
+    infections: all<Infection>('SELECT * FROM infections WHERE entry_id = ? ORDER BY date', [entryId]),
+    wellbeing: all<Wellbeing>('SELECT * FROM wellbeing WHERE entry_id = ? ORDER BY date', [entryId]),
+    day_context: all<DayContext>('SELECT * FROM day_context WHERE entry_id = ? ORDER BY date', [entryId]),
+    tracks: all<Track>('SELECT * FROM tracks WHERE entry_id = ? ORDER BY date', [entryId]),
+  }
+}
 export const recentMeals = (limit = 30) =>
   all<Meal>('SELECT * FROM meals ORDER BY date DESC, time DESC LIMIT ?', [limit])
 export const recentInterpretations = (limit = 20) =>
@@ -171,9 +207,42 @@ export const dayContextSince = (dateISO: string) =>
   all<DayContext>('SELECT * FROM day_context WHERE date >= ? ORDER BY date', [dateISO])
 export const mealsSince = (dateISO: string) =>
   all<Meal>('SELECT * FROM meals WHERE date >= ? ORDER BY date', [dateISO])
+export const tracksSince = (dateISO: string) =>
+  all<Track>('SELECT * FROM tracks WHERE date >= ? ORDER BY date', [dateISO])
+// Distinct track names in range, most-logged first (for building charts).
+export const trackNames = (dateISO: string) =>
+  all<{ name: string; n: number }>(
+    'SELECT name, COUNT(*) as n FROM tracks WHERE date >= ? GROUP BY name ORDER BY n DESC',
+    [dateISO],
+  )
+
+// ---- Next-day soreness check-ins ----
+// Workouts from the last few days (not today) we haven't yet asked about recovery for.
+export function pendingCheckins(): Activity[] {
+  const from = daysAgoISO(4)
+  const to = daysAgoISO(1)
+  return all<Activity>(
+    `SELECT * FROM activities WHERE recovery_checked = 0 AND date >= ? AND date <= ?
+     ORDER BY date DESC`,
+    [from, to],
+  )
+}
+
+export async function recordCheckin(activityId: string, note: string): Promise<void> {
+  const rows = all<Activity>('SELECT * FROM activities WHERE id = ?', [activityId])
+  const existing = rows[0]?.notes?.trim()
+  const merged = [existing, `Recovery (${todayISO()}): ${note.trim()}`].filter(Boolean).join(' | ')
+  exec('UPDATE activities SET notes = ?, recovery_checked = 1 WHERE id = ?', [merged, activityId])
+  await persist()
+}
+
+export async function dismissCheckin(activityId: string): Promise<void> {
+  exec('UPDATE activities SET recovery_checked = 1 WHERE id = ?', [activityId])
+  await persist()
+}
 
 export function counts(): Record<string, number> {
-  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'interpretations']
+  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations']
   const out: Record<string, number> = {}
   for (const name of t) {
     const r = all<{ n: number }>(`SELECT COUNT(*) as n FROM ${name}`)

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS activities (
   symptoms TEXT,
   recovery_time TEXT,
   gentle_movement_effect TEXT,
-  notes TEXT
+  notes TEXT,
+  recovery_checked INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS gut_events (
@@ -85,6 +86,20 @@ CREATE TABLE IF NOT EXISTS meals (
   confirmed INTEGER NOT NULL DEFAULT 1
 );
 
+-- Generic time-series for anything the user wants to track/graph beyond the
+-- fixed categories: meditation, joint/knee pain, weight, and custom activities
+-- (kite surfing, dancing, biking…). One row = one occurrence on a date.
+CREATE TABLE IF NOT EXISTS tracks (
+  id TEXT PRIMARY KEY,
+  entry_id TEXT,
+  date TEXT NOT NULL,
+  name TEXT NOT NULL,      -- e.g. 'meditation', 'knee pain', 'weight', 'kite surfing'
+  category TEXT,           -- 'practice' | 'symptom' | 'measurement' | 'activity' | 'other'
+  value REAL,              -- numeric value if any (minutes, severity 0-10, kg, …)
+  unit TEXT,               -- 'min', '/10', 'kg', 'lb', …
+  notes TEXT
+);
+
 CREATE TABLE IF NOT EXISTS interpretations (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -106,6 +121,8 @@ CREATE INDEX IF NOT EXISTS idx_infections_date ON infections(date);
 CREATE INDEX IF NOT EXISTS idx_wellbeing_date ON wellbeing(date);
 CREATE INDEX IF NOT EXISTS idx_day_context_date ON day_context(date);
 CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(date);
+CREATE INDEX IF NOT EXISTS idx_tracks_date ON tracks(date);
+CREATE INDEX IF NOT EXISTS idx_tracks_name ON tracks(name);
 `
 
 // Table list used by the generic export routines.
@@ -117,6 +134,7 @@ export const TABLES = [
   'wellbeing',
   'day_context',
   'meals',
+  'tracks',
   'interpretations',
 ] as const
 
