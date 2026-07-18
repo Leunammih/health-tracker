@@ -1,27 +1,35 @@
 import { useMemo, useRef, useState } from 'react'
-import { analyseMeal } from '../ai/anthropic'
-import { saveMeal, deleteMeal, recentMeals } from '../db/queries'
+import { analyseMeal, analyseMealText } from '../ai/anthropic'
+import { saveMeal, updateMeal, deleteMeal, recentMeals } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
-import { IconCamera } from '../components/icons'
-import type { MealAnalysis, Ingredient } from '../types'
+import { IconCamera, IconMic } from '../components/icons'
+import type { MealAnalysis, Ingredient, Meal } from '../types'
 
 type Phase = 'input' | 'analysing' | 'review'
+type CaptureMode = 'choose' | 'text'
 
 export default function NutritionTab() {
   const fileRef = useRef<HTMLInputElement>(null)
+  const attachFileRef = useRef<HTMLInputElement>(null)
   const [phase, setPhase] = useState<Phase>('input')
+  const [captureMode, setCaptureMode] = useState<CaptureMode>('choose')
   const [image, setImage] = useState<PreparedImage | null>(null)
   const [analysis, setAnalysis] = useState<MealAnalysis | null>(null)
   const [answer, setAnswer] = useState('')
   const [extraItems, setExtraItems] = useState('')
+  const [describeText, setDescribeText] = useState('')
   const [date, setDate] = useState(todayISO())
   const [savePhoto, setSavePhoto] = useState(isConfigured())
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [existingPhotoPath, setExistingPhotoPath] = useState<string | null>(null)
+  const [entryTime, setEntryTime] = useState<string | null>(null)
 
   const meals = useMemo(() => recentMeals(10), [refreshKey, phase])
 
@@ -40,12 +48,36 @@ export default function NutritionTab() {
     }
   }
 
-  async function reEstimate() {
-    if (!image || !analysis) return
+  async function onDescribe() {
+    if (!describeText.trim()) return
     setError(null)
     setPhase('analysing')
     try {
-      // Feed the current (possibly hand-edited) ingredient list, extra off-photo
+      const res = await analyseMealText(describeText.trim())
+      setAnalysis(res)
+      setPhase('review')
+    } catch (e) {
+      setError(msg(e))
+      setPhase('input')
+    }
+  }
+
+  async function onAttachPhoto(file: File) {
+    setError(null)
+    try {
+      const prepared = await prepareImage(file)
+      setImage(prepared)
+    } catch (e) {
+      setError(msg(e))
+    }
+  }
+
+  async function reEstimate() {
+    if (!analysis) return
+    setError(null)
+    setPhase('analysing')
+    try {
+      // Feed the current (possibly hand-edited) ingredient list, extra
       // items, and any answer back to Claude so it re-estimates from the truth.
       const parts: string[] = []
       const ings = analysis.ingredients.filter((i) => i.name.trim())
@@ -55,9 +87,12 @@ export default function NutritionTab() {
             ings.map((i) => `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join(', '),
         )
       }
-      if (extraItems.trim()) parts.push(`Also eaten, not visible in photo: ${extraItems.trim()}`)
+      if (extraItems.trim()) parts.push(`Also eaten, not previously mentioned: ${extraItems.trim()}`)
       if (answer.trim()) parts.push(answer.trim())
-      const res = await analyseMeal(image.base64, image.mediaType, parts.join('. '))
+      const hint = parts.join('. ')
+      const res = image
+        ? await analyseMeal(image.base64, image.mediaType, hint)
+        : await analyseMealText([describeText.trim(), hint].filter(Boolean).join('. '))
       setAnalysis(res)
       setAnswer('')
       setExtraItems('')
@@ -71,22 +106,66 @@ export default function NutritionTab() {
   async function save() {
     if (!analysis) return
     try {
-      let photoPath: string | null = null
-      if (savePhoto && image && isConfigured()) {
+      let photoPath = existingPhotoPath
+      if (image && savePhoto && isConfigured()) {
         photoPath = await pushPhoto(image.bytes, `${date}-${uid().slice(0, 8)}.jpg`)
       }
-      await saveMeal(analysis, date, nowTime(), photoPath)
-      setNote('Meal saved.')
-      setPhase('input')
-      setImage(null)
-      setAnalysis(null)
-      setAnswer('')
-      setExtraItems('')
+      const hasPhoto = !!photoPath
+      const hasText = !!describeText.trim()
+      const source = hasPhoto && hasText ? 'mixed' : hasPhoto ? 'photo' : 'text'
+      const notes = describeText.trim() || null
+
+      if (editingId) {
+        await updateMeal(editingId, analysis, date, entryTime, photoPath, source, notes)
+        setNote('Meal updated.')
+      } else {
+        await saveMeal(analysis, date, entryTime ?? nowTime(), photoPath, source, notes)
+        setNote('Meal saved.')
+      }
+      resetForm()
       setRefreshKey((k) => k + 1)
       setTimeout(() => setNote(null), 2500)
     } catch (e) {
       setError(msg(e))
     }
+  }
+
+  function resetForm() {
+    setPhase('input')
+    setCaptureMode('choose')
+    setImage(null)
+    setAnalysis(null)
+    setAnswer('')
+    setExtraItems('')
+    setDescribeText('')
+    setEditingId(null)
+    setExistingPhotoPath(null)
+    setEntryTime(null)
+    setDate(todayISO())
+  }
+
+  function startEditMeal(m: Meal) {
+    setError(null)
+    setEditingId(m.id)
+    setExistingPhotoPath(m.photo_path)
+    setEntryTime(m.time)
+    setDate(m.date)
+    setImage(null)
+    setDescribeText(m.notes ?? '')
+    setAnswer('')
+    setExtraItems('')
+    setAnalysis({
+      name: m.name ?? '',
+      ingredients: parseIngredients(m.ingredients),
+      calories: m.calories ?? 0,
+      protein_g: m.protein_g ?? 0,
+      fat_g: m.fat_g ?? 0,
+      carbs_g: m.carbs_g ?? 0,
+      fiber_g: m.fiber_g ?? 0,
+      confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
+      clarifying_questions: [],
+    })
+    setPhase('review')
   }
 
   function patch(p: Partial<MealAnalysis>) {
@@ -126,7 +205,7 @@ export default function NutritionTab() {
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div>
       )}
 
-      {phase === 'input' && (
+      {phase === 'input' && captureMode === 'choose' && (
         <div className="card space-y-3">
           <input
             ref={fileRef}
@@ -143,9 +222,49 @@ export default function NutritionTab() {
           <button className="btn-primary w-full py-6 text-base" onClick={() => fileRef.current?.click()}>
             <IconCamera width={22} height={22} /> Photograph a meal
           </button>
+          <button className="btn-ghost w-full py-4 text-base" onClick={() => setCaptureMode('text')}>
+            <IconMic width={20} height={20} /> Dictate a meal
+          </button>
           <p className="text-xs text-ink-400">
-            Claude estimates ingredients, calories and macros, then asks to confirm portions.
+            Claude estimates ingredients, calories and macros, then asks to confirm portions. No photo? Dictate it
+            instead and attach a picture later if you get one.
           </p>
+        </div>
+      )}
+
+      {phase === 'input' && captureMode === 'text' && (
+        <div className="card space-y-3">
+          <div className="flex items-center gap-2 text-ink-300">
+            <IconMic width={18} height={18} />
+            <span className="text-sm">Dictate or type this meal</span>
+          </div>
+          <div>
+            <label className="label">Date</label>
+            <input
+              type="date"
+              className="field !w-auto"
+              value={date}
+              max={todayISO()}
+              onChange={(e) => setDate(e.target.value)}
+            />
+            {date !== todayISO() && (
+              <p className="mt-1 text-xs text-amber-300">Logging for {fmtDate(date)}.</p>
+            )}
+          </div>
+          <textarea
+            className="field min-h-[7rem]"
+            placeholder="Tap here, then use the mic key on your keyboard. E.g. 'Bowl of oatmeal with a banana and peanut butter, about 350g total' or 'Chicken caesar salad, medium bowl, from the place downstairs'"
+            value={describeText}
+            onChange={(e) => setDescribeText(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <button className="btn-primary flex-1" disabled={!describeText.trim()} onClick={() => void onDescribe()}>
+              Estimate nutrition
+            </button>
+            <button className="btn-ghost" onClick={() => setCaptureMode('choose')}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -160,7 +279,20 @@ export default function NutritionTab() {
 
       {phase === 'review' && analysis && (
         <div className="card space-y-4">
+          {editingId && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+              Editing a saved meal.
+            </div>
+          )}
+
           {image && <img src={image.dataUrl} className="max-h-56 w-full rounded-xl object-cover" alt="meal" />}
+
+          {!image && describeText.trim() && (
+            <div className="rounded-lg bg-ink-900 px-3 py-2 text-xs text-ink-400">
+              <div className="mb-0.5 text-ink-500">Your description</div>
+              {describeText}
+            </div>
+          )}
 
           <div>
             <label className="label">Dish</label>
@@ -211,7 +343,7 @@ export default function NutritionTab() {
           </div>
 
           <div>
-            <label className="label">Ate something not in the photo?</label>
+            <label className="label">Ate something not accounted for above?</label>
             <textarea
               className="field min-h-[3rem]"
               placeholder="e.g. 'a cup of blueberries, one kiwi, a slice of bread with almond butter'"
@@ -248,7 +380,36 @@ export default function NutritionTab() {
             <input type="date" className="field !w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
 
-          {isConfigured() && (
+          <input
+            ref={attachFileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void onAttachPhoto(f)
+              e.target.value = ''
+            }}
+          />
+          {!image && (
+            <div>
+              {existingPhotoPath ? (
+                <div className="flex items-center justify-between rounded-lg bg-ink-900 px-3 py-2 text-xs text-ink-400">
+                  <span>📷 Photo already attached</span>
+                  <button className="text-brand-300 underline" onClick={() => attachFileRef.current?.click()}>
+                    Replace
+                  </button>
+                </div>
+              ) : (
+                <button className="btn-ghost flex w-full items-center justify-center gap-2 !py-2 text-sm" onClick={() => attachFileRef.current?.click()}>
+                  <IconCamera width={16} height={16} /> Attach a photo{editingId ? '' : ' (optional — or add it later)'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {isConfigured() && image && (
             <label className="flex items-center gap-2 text-sm text-ink-300">
               <input type="checkbox" checked={savePhoto} onChange={(e) => setSavePhoto(e.target.checked)} />
               Also save the photo to Dropbox
@@ -257,30 +418,27 @@ export default function NutritionTab() {
 
           <div className="flex gap-2">
             <button className="btn-primary flex-1" onClick={() => void save()}>
-              Save meal
+              {editingId ? 'Save changes' : 'Save meal'}
             </button>
-            <button
-              className="btn-ghost"
-              onClick={() => {
-                setPhase('input')
-                setAnalysis(null)
-                setImage(null)
-              }}
-            >
+            <button className="btn-ghost" onClick={resetForm}>
               Cancel
             </button>
           </div>
         </div>
       )}
 
-      {phase === 'input' && meals.length > 0 && (
+      {phase === 'input' && captureMode === 'choose' && meals.length > 0 && (
         <div className="space-y-2">
           <div className="label">Recent meals</div>
           {meals.map((m) => (
             <div key={m.id} className="card flex items-center justify-between gap-2 !p-3">
               <div className="min-w-0">
                 <div className="text-sm text-white">{m.name}</div>
-                <div className="text-xs text-ink-400">{fmtDate(m.date)}</div>
+                <div className="text-xs text-ink-400">
+                  {fmtDate(m.date)}
+                  {m.photo_path ? ' · 📷' : ''}
+                  {m.source === 'text' ? ' · 🎙' : ''}
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <div className="text-right text-xs text-ink-300">
@@ -289,13 +447,22 @@ export default function NutritionTab() {
                     P{fmt(m.protein_g)} · F{fmt(m.fat_g)} · C{fmt(m.carbs_g)} · Fb{fmt(m.fiber_g)}
                   </div>
                 </div>
-                <button
-                  className="rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
-                  onClick={() => void removeMeal(m.id)}
-                  aria-label="Delete meal"
-                >
-                  Delete
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    className="rounded-lg px-2 py-1 text-xs text-ink-300 hover:bg-ink-700"
+                    onClick={() => startEditMeal(m)}
+                    aria-label="Edit meal"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                    onClick={() => void removeMeal(m.id)}
+                    aria-label="Delete meal"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -318,6 +485,16 @@ function MacroField({ label, value, onChange }: { label: string; value: number; 
       />
     </div>
   )
+}
+
+function parseIngredients(json: string | null): Ingredient[] {
+  if (!json) return []
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
 }
 
 function fmt(v: number | null): string {

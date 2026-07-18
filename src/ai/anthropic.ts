@@ -97,7 +97,24 @@ export async function analyseMeal(
     tool_choice: { type: 'tool', name: MEAL_TOOL.name },
     messages: [{ role: 'user', content }],
   })
-  const input = firstToolInput(res.content, MEAL_TOOL.name)
+  return normaliseMeal(firstToolInput(res.content, MEAL_TOOL.name))
+}
+
+// ---- Meal text (dictated) analysis ----
+
+export async function analyseMealText(text: string): Promise<MealAnalysis> {
+  const res = await client().messages.create({
+    model: model(),
+    max_tokens: 1536,
+    system: mealSystemPrompt(),
+    tools: [MEAL_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: MEAL_TOOL.name },
+    messages: [{ role: 'user', content: text }],
+  })
+  return normaliseMeal(firstToolInput(res.content, MEAL_TOOL.name))
+}
+
+function normaliseMeal(input: ToolInput): MealAnalysis {
   return {
     name: (input.name as string) ?? 'Meal',
     ingredients: (input.ingredients as MealAnalysis['ingredients']) ?? [],

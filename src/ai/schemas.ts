@@ -136,7 +136,7 @@ export const DIARY_TOOL = {
 
 export const MEAL_TOOL = {
   name: 'record_meal_nutrition',
-  description: 'Estimate the nutrition of a meal from a photo. Give best-estimate macros and ask clarifying questions when portion sizes or hidden ingredients (oil, sauces) are uncertain.',
+  description: 'Estimate the nutrition of a meal from a photo and/or a written description. Give best-estimate macros and ask clarifying questions when portion sizes or hidden ingredients (oil, sauces) are uncertain.',
   input_schema: {
     type: 'object',
     properties: {

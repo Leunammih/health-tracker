@@ -51,6 +51,10 @@ have to reconstruct state from chat. Dates are absolute.
   charts with tap-to-see-detail (value, time of day, notes). `tracks` gained a `time`
   column (schema v4); pain/discomfort now also logs a standalone "stomach pain" track
   and is asked about as a follow-up question, same as energy/mood (2026-07-18)
+- [x] Meals: dictated entries (pick a date, describe verbally/by typing, Claude
+  estimates macros via `analyseMealText`) alongside photos; `meals` gained
+  `source`/`notes` columns (schema v5); Recent meals rows gained an Edit button to
+  correct a saved meal in place and attach/replace a photo after the fact (2026-07-18)
 - [ ] Calorie/protein goals + progress display
 - [ ] Supplements (start date, composition via photo/name, periodic re-check via B2 queue)
 

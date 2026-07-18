@@ -28,6 +28,12 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   stomach ache as a standalone `tracks` "stomach pain" symptom, and asks about
   unmentioned stomach/joint pain as a follow-up question. Verified in-browser by
   seeding `tracks` rows directly (no live API key in this session).
+- **Meals: dictated entries + edit** — NutritionTab now has "Dictate a meal" (pick a
+  date, type/dictate a description, Claude estimates macros via `analyseMealText`)
+  alongside the existing photo flow. Recent meals rows have an **Edit** button next to
+  Delete, opening the same review form pre-filled for in-place correction, including
+  attaching/replacing a photo after the fact. `meals` gained `source`/`notes` columns
+  (schema **v5**). Verified in-browser end-to-end with a temporary mock (no live key).
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →

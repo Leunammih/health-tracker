@@ -53,6 +53,12 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'tracks', 'time')) {
     target.run('ALTER TABLE tracks ADD COLUMN time TEXT')
   }
+  if (!hasColumn(target, 'meals', 'source')) {
+    target.run("ALTER TABLE meals ADD COLUMN source TEXT NOT NULL DEFAULT 'photo'")
+  }
+  if (!hasColumn(target, 'meals', 'notes')) {
+    target.run('ALTER TABLE meals ADD COLUMN notes TEXT')
+  }
 }
 
 export async function initDb(): Promise<Database> {

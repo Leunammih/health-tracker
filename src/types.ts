@@ -92,6 +92,8 @@ export interface Meal {
   photo_path: string | null
   confidence: string | null
   confirmed: number // 0/1
+  source: string // 'photo' | 'text' | 'mixed'
+  notes: string | null // raw dictated description, if any
 }
 
 export type TrackCategory = 'practice' | 'symptom' | 'measurement' | 'activity' | 'other'

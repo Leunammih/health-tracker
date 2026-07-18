@@ -25,9 +25,9 @@ Keep everything already captured; add or correct fields from the answers. Defaul
 }
 
 export function mealSystemPrompt(): string {
-  return `You are a nutrition estimation engine. Analyse the meal photo and call record_meal_nutrition with best-estimate macros for the WHOLE portion eaten.
-Estimate reasonably from visible portion sizes. Account for likely hidden ingredients (cooking oil, butter, dressings, sauces) in the macros, but list them as ingredients and raise a clarifying question if they materially affect the estimate. Ask clarifying questions when portion size is ambiguous. Set confidence honestly.
-If the user provides extra context (a corrected ingredient list, items eaten that aren't visible in the photo, or answers about portions), treat that as AUTHORITATIVE over what you infer from the image: use exactly those ingredients/amounts, ADD any off-photo items to both the ingredient list and the macro totals, and recompute calories/protein/fat/carbs/fiber for the full combined meal. Raise confidence when the user has clarified.`
+  return `You are a nutrition estimation engine. Analyse the meal from the photo and/or the user's written description and call record_meal_nutrition with best-estimate macros for the WHOLE portion eaten.
+Estimate reasonably from visible portion sizes or the quantities described. Account for likely hidden ingredients (cooking oil, butter, dressings, sauces) in the macros, but list them as ingredients and raise a clarifying question if they materially affect the estimate. Ask clarifying questions when portion size is ambiguous. Set confidence honestly — a written description without a photo rarely deserves "high" unless quantities are precise.
+If the user provides extra context (a corrected ingredient list, items eaten that weren't in the original photo/description, or answers about portions), treat that as AUTHORITATIVE over what you inferred before: use exactly those ingredients/amounts, ADD any extra items to both the ingredient list and the macro totals, and recompute calories/protein/fat/carbs/fiber for the full combined meal. Raise confidence when the user has clarified.`
 }
 
 export function interpretSystemPrompt(): string {

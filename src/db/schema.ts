@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -83,7 +83,9 @@ CREATE TABLE IF NOT EXISTS meals (
   ingredients TEXT,
   photo_path TEXT,
   confidence TEXT,
-  confirmed INTEGER NOT NULL DEFAULT 1
+  confirmed INTEGER NOT NULL DEFAULT 1,
+  source TEXT NOT NULL DEFAULT 'photo',
+  notes TEXT
 );
 
 -- Generic time-series for anything the user wants to track/graph beyond the

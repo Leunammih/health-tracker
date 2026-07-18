@@ -3,6 +3,28 @@
 Reverse-chronological log of what changed and why. Keep entries short. See PLAN.md
 for the roadmap and status checkboxes.
 
+## 2026-07-18 (2)
+- **Meals: dictated entries + edit.** `meals` gains `source` ('photo'|'text'|'mixed')
+  and `notes` (the raw dictated text) columns (schema v4→v5, migration-guarded).
+  NutritionTab now offers "Dictate a meal" alongside "Photograph a meal" — pick a
+  date (backdatable), type/dictate a description, and Claude estimates macros via
+  new `analyseMealText` (`src/ai/anthropic.ts`, shares the `record_meal_nutrition`
+  tool and a generalized `mealSystemPrompt` with the photo path). The review screen
+  works the same for both: editable macros/ingredients, re-estimate from
+  corrections, and now an "Attach a photo" control so a photo can be added at
+  save time or skipped entirely ("add it later").
+  Recent meals rows gained an **Edit** button next to Delete — opens the same
+  review form pre-filled from the saved row (via new `updateMeal` in
+  `src/db/queries.ts`) so name/macros/ingredients/date can be corrected in place,
+  and a photo can be attached to a previously photo-less (dictated) entry, or
+  replaced. `source` is recomputed from what's actually present (photo/notes) each
+  save, so attaching a photo to a dictated meal marks it `mixed`.
+  Verified in-browser: typechecks + builds clean; full dictate→review→save→edit→
+  save round-trip exercised with a temporary in-file mock of `analyseMealText`
+  (no live API key in this session), confirmed the saved row updates in place
+  (not duplicated) and the 🎙/📷 source markers render correctly; mock reverted
+  before committing.
+
 ## 2026-07-18
 - **Insights: meditation/breath work, movement, and pain charts.** Schema v3→v4:
   `tracks` gained a `time` column ('HH:MM', migration-guarded). The diary prompt/tool

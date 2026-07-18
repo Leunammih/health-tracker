@@ -149,18 +149,45 @@ export function deleteEntryRows(entryId: string): void {
 
 // ---- Meals ----
 
-export async function saveMeal(a: MealAnalysis, date: string, time: string | null, photoPath: string | null): Promise<string> {
+export async function saveMeal(
+  a: MealAnalysis,
+  date: string,
+  time: string | null,
+  photoPath: string | null,
+  source: string,
+  notes: string | null,
+): Promise<string> {
   const id = uid()
   exec(
     `INSERT INTO meals(id, date, time, name, calories, protein_g, fat_g, carbs_g, fiber_g,
-      ingredients, photo_path, confidence, confirmed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+      ingredients, photo_path, confidence, confirmed, source, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
     [
       id, date, time, a.name, a.calories, a.protein_g, a.fat_g, a.carbs_g, a.fiber_g,
-      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence,
+      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes,
     ],
   )
   await persist()
   return id
+}
+
+export async function updateMeal(
+  id: string,
+  a: MealAnalysis,
+  date: string,
+  time: string | null,
+  photoPath: string | null,
+  source: string,
+  notes: string | null,
+): Promise<void> {
+  exec(
+    `UPDATE meals SET date=?, time=?, name=?, calories=?, protein_g=?, fat_g=?, carbs_g=?, fiber_g=?,
+      ingredients=?, photo_path=?, confidence=?, source=?, notes=? WHERE id=?`,
+    [
+      date, time, a.name, a.calories, a.protein_g, a.fat_g, a.carbs_g, a.fiber_g,
+      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes, id,
+    ],
+  )
+  await persist()
 }
 
 export async function deleteMeal(id: string): Promise<void> {
