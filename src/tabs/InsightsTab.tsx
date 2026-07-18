@@ -12,6 +12,75 @@ const RANGES = [
   { label: '90d', days: 90 },
 ]
 
+// Fixed-order categorical palette (dark-surface validated) — color follows the
+// series identity, never its rank, so the same name always gets the same hue.
+const PALETTE = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767', '#d55181', '#d95926']
+
+const PRACTICE_RE = /medit|breath/i
+const MOVEMENT_RE = /danc|stretch|bik|cycl|walk/i
+
+const PRACTICE_SERIES = [
+  { key: 'Meditation', color: PALETTE[0] },
+  { key: 'Breath work', color: PALETTE[1] },
+]
+const MOVEMENT_SERIES = [
+  { key: 'Dancing', color: PALETTE[0] },
+  { key: 'Stretching', color: PALETTE[1] },
+  { key: 'Biking', color: PALETTE[2] },
+  { key: 'Walking', color: PALETTE[3] },
+]
+
+function practiceLabel(name: string): string {
+  return /breath/i.test(name) ? 'Breath work' : 'Meditation'
+}
+function movementLabel(name: string): string {
+  if (/danc/i.test(name)) return 'Dancing'
+  if (/stretch/i.test(name)) return 'Stretching'
+  if (/bik|cycl/i.test(name)) return 'Biking'
+  return 'Walking'
+}
+function titleCase(name: string): string {
+  return name.replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+interface TrackPoint {
+  value: number
+  unit: string | null
+  time: string | null
+  notes: string | null
+}
+interface MergedRow {
+  date: string
+  rawDate: string
+  meta: Record<string, TrackPoint>
+}
+
+// Merge tracks matching `matches` into one row per date, keyed by a canonical
+// series name (so e.g. "stretch" and "stretching" land on the same line).
+function buildMergedRows(
+  tracks: Track[],
+  matches: (name: string, category: string | null) => boolean,
+  canonicalize: (name: string) => string,
+): { rows: MergedRow[]; keys: string[] } {
+  const byDate = new Map<string, MergedRow>()
+  const keys = new Set<string>()
+  for (const t of tracks) {
+    if (t.value == null || !matches(t.name, t.category)) continue
+    const key = canonicalize(t.name)
+    keys.add(key)
+    let row = byDate.get(t.date)
+    if (!row) {
+      row = { date: fmtDate(t.date), rawDate: t.date, meta: {} }
+      byDate.set(t.date, row)
+    }
+    row.meta[key] = { value: t.value, unit: t.unit, time: t.time, notes: t.notes }
+  }
+  return {
+    rows: [...byDate.values()].sort((a, b) => a.rawDate.localeCompare(b.rawDate)),
+    keys: [...keys],
+  }
+}
+
 export default function InsightsTab() {
   const [days, setDays] = useState(30)
   const since = daysAgoISO(days)
@@ -28,10 +97,25 @@ export default function InsightsTab() {
     [since],
   )
 
-  // Group tracks by name; numeric ones get a line chart, the rest a count.
+  // Meditation/breath work, movement (dancing/stretching/biking/walking), and
+  // pain/discomfort (any "symptom"-category track) each get their own combined
+  // multi-line chart; everything else falls through to the generic per-name cards.
+  const practice = useMemo(() => buildMergedRows(tracks, (n) => PRACTICE_RE.test(n), practiceLabel), [tracks])
+  const movement = useMemo(() => buildMergedRows(tracks, (n) => MOVEMENT_RE.test(n), movementLabel), [tracks])
+  const pain = useMemo(() => buildMergedRows(tracks, (_n, cat) => cat === 'symptom', titleCase), [tracks])
+
+  const practiceSeries = PRACTICE_SERIES.filter((s) => practice.keys.includes(s.key))
+  const movementSeries = MOVEMENT_SERIES.filter((s) => movement.keys.includes(s.key))
+  const painSeries = useMemo(
+    () => [...pain.keys].sort().map((key, i) => ({ key, color: PALETTE[i % PALETTE.length] })),
+    [pain.keys],
+  )
+
+  // Group remaining tracks by name; numeric ones get a line chart, the rest a count.
   const trackGroups = useMemo(() => {
     const byName = new Map<string, Track[]>()
     for (const t of tracks) {
+      if (PRACTICE_RE.test(t.name) || MOVEMENT_RE.test(t.name) || t.category === 'symptom') continue
       const arr = byName.get(t.name) ?? []
       arr.push(t)
       byName.set(t.name, arr)
@@ -145,10 +229,126 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
+      {practiceSeries.length > 0 && (
+        <MultiTrackChart title="Meditation & breath work (min)" rows={practice.rows} series={practiceSeries} />
+      )}
+
+      {movementSeries.length > 0 && (
+        <MultiTrackChart title="Movement (min)" rows={movement.rows} series={movementSeries} />
+      )}
+
+      {painSeries.length > 0 && (
+        <MultiTrackChart title="Pain & discomfort (0-10)" rows={pain.rows} series={painSeries} yDomain={[0, 10]} />
+      )}
+
       {trackGroups.map((g) => (
         <TrackCard key={g.name} group={g} />
       ))}
     </div>
+  )
+}
+
+// A dot rendered only where this series actually has a value on that date,
+// clickable to surface the full record (value, time of day, and any notes —
+// e.g. which meditation method or what preceded a pain flare-up).
+function makeDot(seriesKey: string, color: string, onSelect: (row: MergedRow) => void) {
+  return (props: { cx?: number; cy?: number; payload?: MergedRow }) => {
+    const { cx, cy, payload } = props
+    if (!payload || cx == null || cy == null) return <circle key={seriesKey} cx={0} cy={0} r={0} fill="none" stroke="none" />
+    const point = payload.meta[seriesKey]
+    if (point == null) {
+      // No value for this series on this date — render nothing visible, but
+      // still a valid SVG node (recharts calls this for every row, not null).
+      return <circle key={`${seriesKey}-${payload.rawDate}`} cx={cx} cy={cy} r={0} fill="none" stroke="none" />
+    }
+    return (
+      <circle
+        key={`${seriesKey}-${payload.rawDate}`}
+        cx={cx}
+        cy={cy}
+        r={4}
+        fill={color}
+        stroke="#0b1120"
+        strokeWidth={1}
+        style={{ cursor: 'pointer' }}
+        onClick={() => onSelect(payload)}
+      />
+    )
+  }
+}
+
+function MultiTrackChart({
+  title,
+  rows,
+  series,
+  yDomain,
+}: {
+  title: string
+  rows: MergedRow[]
+  series: { key: string; color: string }[]
+  yDomain?: [number, number]
+}) {
+  const [selected, setSelected] = useState<
+    { label: string; color: string; date: string; value: number; unit: string | null; time: string | null; notes: string | null } | null
+  >(null)
+
+  const vals = rows.flatMap((r) => series.map((s) => r.meta[s.key]?.value).filter((v): v is number => v != null))
+  let domain = yDomain
+  if (!domain && vals.length) {
+    const min = Math.min(...vals)
+    const max = Math.max(...vals)
+    const pad = (max - min || Math.max(1, Math.abs(max) * 0.05)) * 0.5
+    domain = [Math.floor(Math.max(0, min - pad)), Math.ceil(max + pad)]
+  }
+
+  return (
+    <ChartCard title={title}>
+      <ResponsiveContainer width="100%" height={170}>
+        <LineChart data={rows} margin={{ left: -20, right: 8, top: 8 }}>
+          <CartesianGrid stroke="#1b2740" vertical={false} />
+          <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} />
+          <YAxis domain={domain} tick={{ fill: '#6b7a99', fontSize: 11 }} allowDecimals={false} />
+          <Tooltip contentStyle={tooltipStyle} />
+          {series.map((s) => (
+            <Line
+              key={s.key}
+              type="monotone"
+              isAnimationActive={false}
+              dataKey={(row: MergedRow) => row.meta[s.key]?.value}
+              name={s.key}
+              stroke={s.color}
+              strokeWidth={2}
+              connectNulls={false}
+              dot={makeDot(s.key, s.color, (row) => {
+                const p = row.meta[s.key]
+                if (!p) return
+                setSelected({ label: s.key, color: s.color, date: row.date, value: p.value, unit: p.unit, time: p.time, notes: p.notes })
+              })}
+              activeDot={{ r: 5 }}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+      <Legend items={series.map((s) => [s.color, s.key] as [string, string])} />
+      <div className="mt-2 rounded-lg bg-ink-900 px-3 py-2 text-xs">
+        {selected ? (
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 font-medium text-white">
+              <span className="h-2 w-2 rounded-full" style={{ background: selected.color }} />
+              {selected.label} · {selected.date}
+            </div>
+            <div className="text-ink-300">
+              {selected.value}
+              {selected.unit ? ` ${selected.unit}` : ''}
+              {selected.time ? ` · ${selected.time}` : ''}
+            </div>
+            {selected.notes && <div className="text-ink-300">{selected.notes}</div>}
+          </div>
+        ) : (
+          <span className="text-ink-400">Tap a point to see details</span>
+        )}
+      </div>
+    </ChartCard>
   )
 }
 

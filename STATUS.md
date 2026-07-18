@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-11_
+_Last updated: 2026-07-18_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -13,12 +13,21 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
 - **Phase A** — storage-location panel, Log Q&A improvements, meal inline editing, delayed soreness.
 - **Dropbox sync** — replaced Nextcloud. Code complete + verified with a mocked API.
 - **Phase B** — B1 generic `tracks` table + weight + Insights charts; B2 next-day soreness
-  check-ins; B3 tap-to-view/edit a saved entry. Schema at **v3** (migrations in
-  `src/db/sqlite.ts` `runMigrations`, PRAGMA-guarded).
+  check-ins; B3 tap-to-view/edit a saved entry.
 - **Phase C1** — bulk/range track entry by dictation. A track item can carry a
   `recurrence` (start/end + optional weekdays) or explicit `dates[]`; `saveDiaryExtraction`
   expands it into one `tracks` row per date (`expandDateRange`/`weekdayNums` in
-  `src/lib/dates.ts`). No new schema. Date logic verified; live dictation path needs the API key.
+  `src/lib/dates.ts`).
+- **Phase C2** — Insights: combined "Meditation & breath work", "Movement" (dancing/
+  stretching/biking/walking), and "Pain & discomfort" (any symptom-category track,
+  e.g. stomach/knee/shoulder/wrist) multi-line charts, each a fixed-order categorical
+  palette merged by date. Tapping a point shows a persistent detail panel (value, time
+  of day, notes) via a custom clickable dot — see `MultiTrackChart` in
+  `src/tabs/InsightsTab.tsx`. `tracks` gained a `time` column (schema **v4**); the diary
+  prompt now captures time-of-day + method/teacher notes for practices, logs a one-off
+  stomach ache as a standalone `tracks` "stomach pain" symptom, and asks about
+  unmentioned stomach/joint pain as a follow-up question. Verified in-browser by
+  seeding `tracks` rows directly (no live API key in this session).
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →

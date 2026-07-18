@@ -47,6 +47,10 @@ have to reconstruct state from chat. Dates are absolute.
   items carry an optional `recurrence` (start/end + weekdays) or explicit `dates[]`;
   `saveDiaryExtraction` expands them into one `tracks` row per date via
   `expandDateRange`/`weekdayNums` in `src/lib/dates.ts` (2026-07-11)
+- [x] C2 Insights: combined meditation/breath-work, movement, and pain/discomfort
+  charts with tap-to-see-detail (value, time of day, notes). `tracks` gained a `time`
+  column (schema v4); pain/discomfort now also logs a standalone "stomach pain" track
+  and is asked about as a follow-up question, same as energy/mood (2026-07-18)
 - [ ] Calorie/protein goals + progress display
 - [ ] Supplements (start date, composition via photo/name, periodic re-check via B2 queue)
 

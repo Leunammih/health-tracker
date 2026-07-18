@@ -305,7 +305,7 @@ function SavedDetail({ detail }: { detail: EntryDetail }) {
     { label: 'Infections', items: detail.infections.map((i) => [i.kind, i.severity, i.preceded_by && `before: ${i.preceded_by}`].filter(Boolean).join(' · ')) },
     { label: 'Energy / Mood', items: detail.wellbeing.map((w) => [w.energy != null && `energy ${w.energy}`, w.mood != null && `mood ${w.mood}`].filter(Boolean).join(' · ')) },
     { label: 'Day context', items: detail.day_context.map((d) => [d.stress_load != null && `stress ${d.stress_load}`, d.work, d.travel, d.retreat, d.relaxation, d.tasks].filter(Boolean).join(' · ')) },
-    { label: 'Tracked', items: detail.tracks.map((t) => [t.name, t.value != null && `${t.value}${t.unit ? ` ${t.unit}` : ''}`, t.notes].filter(Boolean).join(' · ')) },
+    { label: 'Tracked', items: detail.tracks.map((t) => [t.name, t.value != null && `${t.value}${t.unit ? ` ${t.unit}` : ''}`, t.time && `at ${t.time}`, t.notes].filter(Boolean).join(' · ')) },
   ].filter((r) => r.items.filter(Boolean).length)
 
   if (!rows.length) return <p className="text-xs text-ink-400">No structured data was saved from this entry.</p>
@@ -331,7 +331,7 @@ function ExtractionPreview({ data }: { data: DiaryExtraction }) {
     { label: 'Infections', items: data.infections.map((i) => [i.kind, i.severity, i.preceded_by?.length && `before: ${i.preceded_by.join(', ')}`].filter(Boolean).join(' · ')) },
     { label: 'Energy / Mood', items: data.wellbeing.map((w) => [w.energy != null && `energy ${w.energy}`, w.mood != null && `mood ${w.mood}`].filter(Boolean).join(' · ')) },
     { label: 'Day context', items: data.day_context.map((d) => [d.stress_load != null && `stress ${d.stress_load}`, d.work, d.travel, d.retreat, d.relaxation, d.tasks].filter(Boolean).join(' · ')) },
-    { label: 'Tracked', items: (data.tracks ?? []).map((t) => [t.name, t.value != null && `${t.value}${t.unit ? ` ${t.unit}` : ''}`, t.notes].filter(Boolean).join(' · ')) },
+    { label: 'Tracked', items: (data.tracks ?? []).map((t) => [t.name, t.value != null && `${t.value}${t.unit ? ` ${t.unit}` : ''}`, t.time && `at ${t.time}`, t.notes].filter(Boolean).join(' · ')) },
   ].filter((r) => r.items.filter(Boolean).length)
 
   if (!rows.length) return <p className="text-sm text-ink-400">Nothing structured was detected.</p>

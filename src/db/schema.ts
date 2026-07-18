@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS tracks (
   category TEXT,           -- 'practice' | 'symptom' | 'measurement' | 'activity' | 'other'
   value REAL,              -- numeric value if any (minutes, severity 0-10, kg, …)
   unit TEXT,               -- 'min', '/10', 'kg', 'lb', …
+  time TEXT,                -- 'HH:MM' time of day, if mentioned
   notes TEXT
 );
 

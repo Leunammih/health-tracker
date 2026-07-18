@@ -104,6 +104,7 @@ export interface Track {
   category: string | null
   value: number | null
   unit: string | null
+  time: string | null // 'HH:MM' time of day, if mentioned
   notes: string | null
 }
 
@@ -184,6 +185,7 @@ export interface ExtractedTrack {
   category?: TrackCategory
   value?: number
   unit?: string
+  time?: string // 'HH:MM' time of day, if mentioned
   notes?: string
 }
 

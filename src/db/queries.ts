@@ -116,9 +116,9 @@ export async function saveDiaryExtraction(
     const name = t.name.trim().toLowerCase()
     for (const date of dates) {
       exec(
-        `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, notes)
-         VALUES (?,?,?,?,?,?,?,?)`,
-        [uid(), entryId, date, name, t.category ?? null, t.value ?? null, t.unit ?? null, t.notes ?? null],
+        `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [uid(), entryId, date, name, t.category ?? null, t.value ?? null, t.unit ?? null, t.time ?? null, t.notes ?? null],
       )
     }
   }

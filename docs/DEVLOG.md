@@ -3,6 +3,27 @@
 Reverse-chronological log of what changed and why. Keep entries short. See PLAN.md
 for the roadmap and status checkboxes.
 
+## 2026-07-18
+- **Insights: meditation/breath work, movement, and pain charts.** Schema v3→v4:
+  `tracks` gained a `time` column ('HH:MM', migration-guarded). The diary prompt/tool
+  now captures time-of-day for practices and asks the method/teacher (e.g. "Joe
+  Dispenza", "9D breathwork") into `notes`; a one-off stomach ache now logs as a
+  `tracks` "stomach pain" symptom (not just inside a full `gut_events` episode) so it
+  trends alongside knee/shoulder/wrist/joint pain. Follow-up questions now also probe
+  for unmentioned stomach pain/discomfort or ongoing joint/body pain, same as
+  energy/mood/stress.
+  InsightsTab (`src/tabs/InsightsTab.tsx`) adds three combined multi-line charts, each
+  merging same-named tracks by date with a fixed-order categorical palette: "Meditation
+  & breath work" (name matches `/medit|breath/`), "Movement" (dancing/stretching/
+  biking/walking, `/danc|stretch|bik|cycl|walk/`), and "Pain & discomfort" (any
+  `category === 'symptom'` track, y-domain fixed 0–10). Tapping a point sets a
+  persistent detail panel below the chart (value, unit, time, notes) via a custom
+  per-series `dot` click handler — not just the default hover tooltip. Generic
+  per-name track cards now skip tracks already covered by these three. Verified
+  in-browser by seeding tracks directly through `saveDiaryExtraction` (no API key in
+  this session) — all three charts render, colors/legends correct, click-to-detail
+  works, then cleaned up the seed entry.
+
 ## 2026-07-11
 - **Phase C1 — bulk/range track entry.** A `tracks` item can now carry a `recurrence`
   (`start_date`/`end_date` + optional `weekdays`) or an explicit `dates[]` instead of a

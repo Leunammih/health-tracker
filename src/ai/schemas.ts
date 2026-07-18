@@ -90,7 +90,7 @@ export const DIARY_TOOL = {
       tracks: {
         type: 'array',
         description:
-          'Generic trackable items to graph over time that are NOT exercise-with-soreness bouts (those go in activities). Use for: meditation and other practices; ongoing symptoms like knee/joint/back pain; body measurements like weight; and light/named activities (kite surfing, dancing, biking, swimming). One entry per occurrence — EXCEPT when the user describes a repeated/recurring habit over a span ("meditated every morning for three weeks", "walked Mon/Wed/Fri last month"): emit ONE entry with a recurrence (start_date + end_date, plus weekdays if only some days), not one entry per day. The app expands the recurrence into individual dated rows.',
+          'Generic trackable items to graph over time that are NOT exercise-with-soreness bouts (those go in activities). Use for: meditation and breath work and other practices; ongoing pain/discomfort such as stomach pain, knee/joint pain, shoulder pain, wrist pain, or back pain (category "symptom", value = 0-10 severity if given); body measurements like weight; and light/named activities (kite surfing, dancing, stretching, biking, walking, swimming). One entry per occurrence — EXCEPT when the user describes a repeated/recurring habit over a span ("meditated every morning for three weeks", "walked Mon/Wed/Fri last month"): emit ONE entry with a recurrence (start_date + end_date, plus weekdays if only some days), not one entry per day. The app expands the recurrence into individual dated rows.',
         items: {
           type: 'object',
           properties: {
@@ -114,11 +114,12 @@ export const DIARY_TOOL = {
               description: 'Explicit list of ISO YYYY-MM-DD dates for irregular repeats that are not a clean range. Alternative to recurrence.',
               items: { type: 'string' },
             },
-            name: { type: 'string', description: "short lowercase label, e.g. 'meditation', 'knee pain', 'weight', 'kite surfing'" },
+            name: { type: 'string', description: "short lowercase label, e.g. 'meditation', 'breath work', 'knee pain', 'stomach pain', 'weight', 'kite surfing'" },
             category: { type: 'string', enum: ['practice', 'symptom', 'measurement', 'activity', 'other'] },
             value: { type: 'number', description: 'numeric value if any: minutes for practices/activities, 0-10 severity for symptoms, the number for measurements' },
             unit: { type: 'string', description: "'min', '/10', 'kg', 'lb', etc." },
-            notes: { type: 'string' },
+            time: { type: 'string', description: "HH:MM 24h time of day, only if the user mentioned a specific time (e.g. '7am meditation' -> '07:00'). Omit if not mentioned." },
+            notes: { type: 'string', description: "Any identifying detail the user gave — named method, technique, teacher, or app (e.g. 'Joe Dispenza', '9D breathwork', 'box breathing', 'Wim Hof'; for pain, what it felt like or what preceded it)." },
           },
         },
       },
