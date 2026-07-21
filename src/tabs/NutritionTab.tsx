@@ -529,7 +529,10 @@ export default function NutritionTab() {
           {meals.map((m) => (
             <div key={m.id} className="card flex items-center justify-between gap-2 !p-3">
               <div className="min-w-0">
-                <div className="text-sm text-white">{m.name}</div>
+                {/* Real meal names run long ("Homemade Nut & Seed Cereal with Rice
+                    Milk") and wrapped to four lines, pushing rows past 200px so only
+                    three fitted on screen. Two lines, then ellipsis. */}
+                <div className="line-clamp-2 text-sm text-white">{m.name}</div>
                 <div className="text-xs text-ink-400">
                   {fmtDate(m.date)}
                   {m.photo_path ? ' · 📷' : ''}

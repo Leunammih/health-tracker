@@ -33,20 +33,20 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'dancing', label: 'Dancing', match: /danc/i, color: '#3987e5', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
   { key: 'biking', label: 'Biking', match: /bik|cycl/i, color: '#22c55e', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
   { key: 'walking', label: 'Walking', match: /walk|hike|hiking/i, color: '#14b8a6', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'running', label: 'Running', match: /run|jog/i, color: '#fb7185', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'stretching', label: 'Stretching', match: /stretch|mobility/i, color: '#f97316', group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
+  { key: 'running', label: 'Running', match: /run|jog/i, color: '#84cc16', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'stretching', label: 'Stretching', match: /stretch|mobility/i, color: '#818cf8', group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
   { key: 'swimming', label: 'Swimming', match: /swim/i, color: '#06b6d4', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
   { key: 'yoga', label: 'Yoga', match: /yoga/i, color: '#c084fc', group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
 
   // --- practices (minutes) ---
-  { key: 'meditation', label: 'Meditation', match: /medit/i, color: '#a78bfa', group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
+  { key: 'meditation', label: 'Meditation', match: /medit/i, color: '#8b5cf6', group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
   { key: 'breath work', label: 'Breath work', match: /breath/i, color: '#2dd4bf', group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
 
   // --- symptoms (0-10, low is good → reversed axis) ---
   { key: 'knee pain', label: 'Knee pain', match: /knee/i, color: '#ef4444', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   { key: 'wrist pain', label: 'Wrist pain', match: /wrist/i, color: '#f97316', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
-  { key: 'back pain', label: 'Back pain', match: /back/i, color: '#d55181', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
-  { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: '#e66767', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'back pain', label: 'Back pain', match: /back/i, color: '#db2777', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: '#be123c', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   { key: 'stomach pain', label: 'Stomach pain', match: /stomach|belly|gut|abdom/i, color: '#d95926', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
 
   // --- measurements ---
@@ -75,6 +75,15 @@ export function defForName(name: string): TrackDef | undefined {
     TRACK_DEFS.find((d) => d.key === n) ??
     TRACK_DEFS.find((d) => d.store !== 'wellbeing' && d.match.test(n))
   )
+}
+
+// The one spelling a name should be stored and compared under. Dictation produces
+// variants of the same thing ("breathwork" vs "breath work"), and comparing raw
+// strings makes them look like two different metrics — they then show up twice in
+// the tap-to-log grid under the same label and colour. Route every name through the
+// registry first so known aliases collapse; unknown names just normalise casing.
+export function canonicalTrackName(name: string): string {
+  return defForName(name)?.key ?? name.trim().toLowerCase()
 }
 
 // Stable colour for any track name: its definition's colour, else a hash into the

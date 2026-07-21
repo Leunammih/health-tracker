@@ -9,6 +9,7 @@ import {
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
+  canonicalTrackName,
 } from '../lib/metrics'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
@@ -43,9 +44,6 @@ export default function InsightsTab() {
   const [sheet, setSheet] = useState<{ name: string; category: string | null; date?: string } | null>(null)
 
   const since = daysAgoISO(days)
-  // One shared X axis for every chart — a day with no entry still gets a column,
-  // so the graphs stack into readable vertical columns for the same date.
-  const spine = useMemo(() => dateSpine(since), [since])
 
   const { wb, gut, inf, meals, ctx, tracks, acts, known } = useMemo(
     () => ({
@@ -60,6 +58,26 @@ export default function InsightsTab() {
     }),
     [since, refresh],
   )
+
+  // One shared X axis for every chart — a day with no entry still gets a column, so
+  // the graphs stack into readable vertical columns for the same date.
+  //
+  // It starts at the first day that actually holds data, not at the range boundary.
+  // Two reasons: 13 days of history inside a 30d window left ~55% of every chart
+  // blank, and the plateau charts draw a missing day at 0, so the empty lead-in
+  // rendered as a flat "did nothing" line across days that were never logged at all.
+  // On a health tracker those are opposite claims — a sick day with no entry is not
+  // a day of zero movement — so the axis stops where the record does.
+  const spine = useMemo(() => {
+    const dated: { date: string }[][] = [wb, gut, inf, meals, ctx, tracks, acts]
+    // ISO dates sort lexicographically, so plain string compare finds the earliest.
+    const earliest = dated
+      .flat()
+      .map((r) => r.date)
+      .filter(Boolean)
+      .reduce<string | null>((min, d) => (min === null || d < min ? d : min), null)
+    return dateSpine(earliest !== null && earliest > since ? earliest : since)
+  }, [wb, gut, inf, meals, ctx, tracks, acts, since])
 
   // --- movement & exercise: activities (workouts) + movement-category tracks,
   // merged per canonical name per day, rendered as rounded plateaus over a 0 line.
@@ -191,10 +209,15 @@ export default function InsightsTab() {
   }, [tracks])
 
   // Chips for the tap-to-log sheet: the standard items plus anything already logged.
+  // Keyed by canonical name, so a stored spelling variant ("breathwork") folds into
+  // the registry entry it matches instead of listing twice under the same label.
   const logItems = useMemo(() => {
     const seen = new Map<string, string | null>()
     for (const d of QUICK_LOG_ITEMS) seen.set(d.key, null)
-    for (const k of known) if (!seen.has(k.name)) seen.set(k.name, k.category)
+    for (const k of known) {
+      const key = canonicalTrackName(k.name)
+      if (!seen.has(key)) seen.set(key, k.category)
+    }
     return [...seen.entries()].map(([name, category]) => ({ name, category }))
   }, [known])
 

@@ -1,6 +1,7 @@
 import { getDb, persist } from './sqlite'
 import { uid } from '../lib/id'
 import { nowISO, todayISO, daysAgoISO, expandDateRange, weekdayNums } from '../lib/dates'
+import { canonicalTrackName } from '../lib/metrics'
 import type {
   DiaryExtraction,
   Entry,
@@ -125,7 +126,7 @@ export async function saveDiaryExtraction(
     } else {
       dates = [t.date ?? entryDate]
     }
-    const name = t.name.trim().toLowerCase()
+    const name = canonicalTrackName(t.name)
     for (const date of dates) {
       exec(
         `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
@@ -297,7 +298,7 @@ export async function upsertTrackValue(
   unit: string | null,
   notes?: string | null,
 ): Promise<void> {
-  const key = name.trim().toLowerCase()
+  const key = canonicalTrackName(name)
   const keptNotes =
     notes === undefined
       ? all<{ notes: string | null }>(
