@@ -39,9 +39,16 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     `analyseMealsText` splits a dictation on breakfast/lunch/dinner/snack (and day
     words) into several meals, each independently dated/timed; editable review list,
     save-all.
-  - No schema migration in any D-phase (still **v5**). Recharts note: its line-draw
-    animation stalls at frame 1 under React 18 StrictMode — `isAnimationActive={false}`
-    is required on every `Line`/`Bar`.
+  - No schema migration in the D-phase itself. Recharts note: its line-draw animation
+    stalls at frame 1 under React 18 StrictMode — `isAnimationActive={false}` is
+    required on every `Line`/`Bar`.
+- **Quick entry rework (2026-07-21)** — fixed sliders resetting each other (a panel-wide
+  refresh counter reset every row on any save; plus count-based ordering reshuffled rows).
+  Draft state now lives in the panel, ordering is deterministic. Auto-save replaced by a
+  per-row **Save** button plus **Save N changed**. Each entry can carry a **note**
+  (also on the Insights tap-to-log sheet). **Energy and mood** are now quick entries —
+  they live on the `wellbeing` table, reached via a `store` discriminator on `TrackDef`.
+  Schema **v6** (`wellbeing.energy_notes`, `mood_notes`).
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →

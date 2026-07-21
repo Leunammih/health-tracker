@@ -59,6 +59,14 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'meals', 'notes')) {
     target.run('ALTER TABLE meals ADD COLUMN notes TEXT')
   }
+  // v6: energy and mood quick entries each carry their own note, separate from
+  // the day-level `notes` the diary extraction writes.
+  if (!hasColumn(target, 'wellbeing', 'energy_notes')) {
+    target.run('ALTER TABLE wellbeing ADD COLUMN energy_notes TEXT')
+  }
+  if (!hasColumn(target, 'wellbeing', 'mood_notes')) {
+    target.run('ALTER TABLE wellbeing ADD COLUMN mood_notes TEXT')
+  }
 }
 
 export async function initDb(): Promise<Database> {

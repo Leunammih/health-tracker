@@ -19,6 +19,10 @@ export interface TrackDef {
   max: number
   step: number
   lowerIsBetter?: boolean
+  // Which table this metric lives in. Defaults to 'tracks'. Energy and mood are
+  // columns on the `wellbeing` table instead, so quick entries have to read/write
+  // them through a different path — see upsertWellbeingField in db/queries.ts.
+  store?: 'tracks' | 'wellbeing'
 }
 
 // Colours are dark-surface validated and follow series identity, never rank, so
@@ -48,6 +52,11 @@ export const TRACK_DEFS: TrackDef[] = [
   // --- measurements ---
   { key: 'weight', label: 'Weight', match: /weight/i, color: '#38bdf8', group: 'other', unit: 'kg', min: 40, max: 150, step: 1 },
 
+  // --- energy & mood (0-10, high is good). Stored on the `wellbeing` table, not
+  // `tracks`; colours match the existing "Energy & mood" chart in InsightsTab. ---
+  { key: 'energy', label: 'Energy', match: /^energy$/i, color: '#2dd4bf', group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
+  { key: 'mood', label: 'Mood', match: /^mood$/i, color: '#a78bfa', group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
+
   // --- release (10% steps; 0% at top, 100% at bottom) ---
   { key: 'release', label: 'Release 💦', match: /release/i, color: '#ec4899', group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true },
 ]
@@ -56,9 +65,16 @@ export const TRACK_DEFS: TrackDef[] = [
 // gets a stable colour rather than a random one per render.
 const FALLBACK = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767', '#d55181', '#d95926']
 
+// Resolve a free-form name to its definition. The fuzzy regex pass deliberately
+// SKIPS wellbeing-stored defs: this runs against arbitrary names read out of the
+// `tracks` table, and a track happening to be called "energy" must not be routed
+// to the wellbeing table. Only an exact key match reaches those.
 export function defForName(name: string): TrackDef | undefined {
   const n = name.trim().toLowerCase()
-  return TRACK_DEFS.find((d) => d.key === n) ?? TRACK_DEFS.find((d) => d.match.test(n))
+  return (
+    TRACK_DEFS.find((d) => d.key === n) ??
+    TRACK_DEFS.find((d) => d.store !== 'wellbeing' && d.match.test(n))
+  )
 }
 
 // Stable colour for any track name: its definition's colour, else a hash into the
@@ -114,9 +130,21 @@ export const QUICK_LOG_ITEMS: TrackDef[] = QUICK_LOG_KEYS
 
 // The tracks.category value to store for a given definition.
 export function categoryForDef(def: TrackDef): string {
+  if (def.store === 'wellbeing') return 'wellbeing' // never actually written to tracks
   if (def.group === 'symptom') return 'symptom'
   if (def.group === 'practice') return 'practice'
   if (def.group === 'movement') return 'activity'
   if (def.group === 'wellbeing') return 'release'
   return 'other'
 }
+
+// Always shown in the Log tab's quick-entry panel, whether or not they've been
+// logged recently — they're the two daily questions worth a one-tap answer.
+// Deliberately NOT in QUICK_LOG_KEYS: that list also seeds the Insights tap-to-log
+// picker, which writes exclusively to `tracks` and would put energy somewhere the
+// "Energy & mood" chart can't see it.
+export const PINNED_QUICK_ENTRY_KEYS = ['energy', 'mood'] as const
+
+export const PINNED_QUICK_ENTRY_ITEMS: TrackDef[] = PINNED_QUICK_ENTRY_KEYS
+  .map((k) => TRACK_DEFS.find((d) => d.key === k))
+  .filter((d): d is TrackDef => d != null)

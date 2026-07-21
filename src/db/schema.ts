@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS wellbeing (
   date TEXT NOT NULL,
   energy INTEGER,
   mood INTEGER,
-  notes TEXT
+  notes TEXT,          -- day-level note (from diary extraction)
+  energy_notes TEXT,   -- note attached to the energy quick entry
+  mood_notes TEXT      -- note attached to the mood quick entry
 );
 
 CREATE TABLE IF NOT EXISTS day_context (

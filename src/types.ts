@@ -57,7 +57,9 @@ export interface Wellbeing {
   date: string
   energy: number | null
   mood: number | null
-  notes: string | null
+  notes: string | null // day-level note from diary extraction
+  energy_notes: string | null // note attached to the energy quick entry
+  mood_notes: string | null // note attached to the mood quick entry
 }
 
 export interface DayContext {

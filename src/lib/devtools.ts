@@ -6,9 +6,11 @@
 //   __ht.run(sql, params)  run any statement
 //   __ht.wipe()            clear every table
 import { getDb, persist } from '../db/sqlite'
+import { saveDiaryExtraction } from '../db/queries'
 import { uid } from './id'
 import { dateSpine } from './dates'
 import { daysAgoISO } from './dates'
+import type { DiaryExtraction } from '../types'
 
 export function installDevtools(): void {
   if (!import.meta.env.DEV) return
@@ -21,6 +23,14 @@ export function installDevtools(): void {
       const r = getDb().exec(sql)
       return r.length ? r[0].values : []
     },
+    // Run the diary save path with a hand-written extraction, so the routing and
+    // merge rules can be exercised without spending an API call.
+    saveExtraction: (partial: Partial<DiaryExtraction>, entryDate: string) =>
+      saveDiaryExtraction('(devtools)', 'text', {
+        summary: '', activities: [], gut_events: [], infections: [],
+        wellbeing: [], day_context: [], tracks: [], follow_up_questions: [],
+        ...partial,
+      }, entryDate),
     wipe: async () => {
       for (const t of ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks']) {
         getDb().run(`DELETE FROM ${t}`)

@@ -53,6 +53,13 @@ export const IconMic = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 )
 
+export const IconNote = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    <path d="M14 6l4 4" />
+  </svg>
+)
+
 export const IconCamera = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M3 8a2 2 0 0 1 2-2h2l1.5-2h7L19 6h0a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />

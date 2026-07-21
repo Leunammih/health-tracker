@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import DayStrip from './DayStrip'
 import { colorForTrack, labelForTrack, scaleForTrack } from '../lib/metrics'
-import { upsertTrackValue, trackValueOn, lastTrackValueOnOrBefore, tracksSince } from '../db/queries'
+import { upsertTrackValue, trackRowOn, lastTrackValueOnOrBefore, tracksSince } from '../db/queries'
 import { fmtDate } from '../lib/dates'
+import { IconNote } from './icons'
 
 // Tap a tracked item (knee pain, dancing, breath work…) → pick a day → drag the
 // slider → confirm. The sheet stays open after confirming so several days can be
@@ -26,7 +27,10 @@ export default function QuickLogSheet({
   const [date, setDate] = useState(initialDate ?? today)
   const [value, setValue] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null) // transient confirmation
+  const [noteDraft, setNoteDraft] = useState('')
+  const [noteTouched, setNoteTouched] = useState(false)
+  const [noteOpen, setNoteOpen] = useState(false)
   const [version, setVersion] = useState(0)
 
   const scale = scaleForTrack(name, category)
@@ -39,29 +43,35 @@ export default function QuickLogSheet({
     return new Set(rows.map((t) => t.date))
   }, [dates, name, version])
 
-  // When the day changes: show that day's saved value, or fall back to the most
-  // recent earlier value (the user's "default is the value of the day before").
+  // When the day changes: show that day's saved value and note, or fall back to the
+  // most recent earlier value (the user's "default is the value of the day before").
   useEffect(() => {
-    const existing = trackValueOn(date, name)
+    const row = trackRowOn(date, name)
     const fallback = lastTrackValueOnOrBefore(date, name)
-    setValue(existing ?? fallback ?? 0)
-    setNote(null)
+    setValue(row?.value ?? fallback ?? 0)
+    setNoteDraft(row?.notes ?? '')
+    setNoteTouched(false)
+    setStatus(null)
   }, [date, name, version])
 
-  async function save(forDate: string, v: number | null) {
+  // `withNote` only when committing the day currently on screen — the bulk helpers
+  // below omit it so every other day keeps its own note.
+  async function save(forDate: string, v: number | null, withNote = false) {
     setBusy(true)
     try {
-      await upsertTrackValue(forDate, name, category, v, v == null ? null : scale.unit)
+      const noteArg = withNote && noteTouched ? (noteDraft.trim() || null) : undefined
+      await upsertTrackValue(forDate, name, category, v, v == null ? null : scale.unit, noteArg)
       setVersion((k) => k + 1)
       onChanged()
-      setNote(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${v}${scale.unit} for ${fmtDate(forDate)}`)
-      setTimeout(() => setNote(null), 2000)
+      setStatus(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${v}${scale.unit} for ${fmtDate(forDate)}`)
+      setTimeout(() => setStatus(null), 2000)
     } finally {
       setBusy(false)
     }
   }
 
-  // Copy the current slider value onto the last N days in one go.
+  // Copy the current slider value onto the last N days in one go. Notes are left
+  // alone — each day keeps whatever it already had.
   async function applyLastNDays(n: number) {
     setBusy(true)
     try {
@@ -71,8 +81,8 @@ export default function QuickLogSheet({
       }
       setVersion((k) => k + 1)
       onChanged()
-      setNote(`Saved ${value}${scale.unit} for the last ${n} days`)
-      setTimeout(() => setNote(null), 2200)
+      setStatus(`Saved ${value}${scale.unit} for the last ${n} days`)
+      setTimeout(() => setStatus(null), 2200)
     } finally {
       setBusy(false)
     }
@@ -120,9 +130,28 @@ export default function QuickLogSheet({
         </div>
 
         <button
+          type="button"
+          onClick={() => setNoteOpen((o) => !o)}
+          aria-expanded={noteOpen}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-ink-800 px-3 py-2 text-xs text-ink-300 hover:bg-ink-700"
+        >
+          <IconNote width={14} height={14} />
+          {noteDraft.trim() ? 'Edit note' : 'Add note'}
+          {noteDraft.trim() && !noteOpen && <span className="h-1.5 w-1.5 rounded-full bg-brand-400" />}
+        </button>
+        {noteOpen && (
+          <textarea
+            className="field mt-2 min-h-[2.75rem] !py-2"
+            placeholder="Additional information — e.g. 'right knee only, worse on stairs'"
+            value={noteDraft}
+            onChange={(e) => { setNoteDraft(e.target.value); setNoteTouched(true) }}
+          />
+        )}
+
+        <button
           className="btn-primary mt-3 w-full"
           disabled={busy}
-          onClick={() => void save(date, value)}
+          onClick={() => void save(date, value, true)}
         >
           Save {value}{scale.unit} for {fmtDate(date)}
         </button>
@@ -153,7 +182,7 @@ export default function QuickLogSheet({
           </button>
         </div>
 
-        <div className="mt-3 h-4 text-center text-xs text-brand-300">{note}</div>
+        <div className="mt-3 h-4 text-center text-xs text-brand-300">{status}</div>
       </div>
     </div>
   )

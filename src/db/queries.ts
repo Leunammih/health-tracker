@@ -85,12 +85,24 @@ export async function saveDiaryExtraction(
     )
   }
   for (const w of data.wellbeing ?? []) {
-    // one row per day: replace an existing same-day row
+    // One row per day. Merge rather than replace: the extraction omits (rather than
+    // nulls) anything the user didn't mention, so a diary entry that talks about mood
+    // must not wipe an energy value a quick entry already saved for that day.
     const date = w.date ?? entryDate
+    const prev = wellbeingOn(date)
     exec('DELETE FROM wellbeing WHERE date = ?', [date])
-    exec('INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes) VALUES (?,?,?,?,?,?)', [
-      uid(), entryId, date, w.energy ?? null, w.mood ?? null, w.notes ?? null,
-    ])
+    exec(
+      `INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes, energy_notes, mood_notes)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        uid(), entryId, date,
+        w.energy ?? prev?.energy ?? null,
+        w.mood ?? prev?.mood ?? null,
+        w.notes ?? prev?.notes ?? null,
+        prev?.energy_notes ?? null,
+        prev?.mood_notes ?? null,
+      ],
+    )
   }
   for (const d of data.day_context ?? []) {
     const date = d.date ?? entryDate
@@ -249,12 +261,14 @@ export const mealsSince = (dateISO: string) =>
   all<Meal>('SELECT * FROM meals WHERE date >= ? ORDER BY date', [dateISO])
 export const tracksSince = (dateISO: string) =>
   all<Track>('SELECT * FROM tracks WHERE date >= ? ORDER BY date', [dateISO])
-// Distinct track names logged since a date, most-logged first. Drives the Log tab's
-// quick-entry panel: "everything I've been tracking lately", ready to fill in.
+// Distinct track names logged since a date. Drives the Log tab's quick-entry panel:
+// "everything I've been tracking lately", ready to fill in. Ordered by name, NOT by
+// count — a count-based order reshuffles the panel every time a row is saved (an
+// upsert changes COUNT(*)), which reads as sliders swapping places under your thumb.
 export const trackNamesSince = (dateISO: string) =>
-  all<{ name: string; category: string | null; n: number }>(
-    `SELECT name, MAX(category) as category, COUNT(*) as n FROM tracks
-     WHERE date >= ? GROUP BY name ORDER BY n DESC`,
+  all<{ name: string; category: string | null }>(
+    `SELECT name, MAX(category) as category FROM tracks
+     WHERE date >= ? GROUP BY name ORDER BY name`,
     [dateISO],
   )
 
@@ -270,21 +284,33 @@ export const allTrackNames = () =>
 // Set one value for one item on one day. Quick-logging is "one value per item per
 // day", so this replaces any existing row for that name+date rather than stacking
 // duplicates the charts would then have to reconcile. A null value clears the day.
+//
+// `notes` is deliberately tri-state: omit it to KEEP whatever note is already on the
+// row, pass null to clear it, pass a string to set it. Callers that only touch the
+// value (the Insights tap-to-log sheet, the bulk apply-to-last-N-days helpers) must
+// omit it, or the DELETE+INSERT below would silently drop the note.
 export async function upsertTrackValue(
   date: string,
   name: string,
   category: string | null,
   value: number | null,
   unit: string | null,
-  notes: string | null = null,
+  notes?: string | null,
 ): Promise<void> {
   const key = name.trim().toLowerCase()
+  const keptNotes =
+    notes === undefined
+      ? all<{ notes: string | null }>(
+          'SELECT notes FROM tracks WHERE date = ? AND name = ? LIMIT 1',
+          [date, key],
+        )[0]?.notes ?? null
+      : notes
   exec('DELETE FROM tracks WHERE date = ? AND name = ?', [date, key])
   if (value != null) {
     exec(
       `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
        VALUES (?,?,?,?,?,?,?,?,?)`,
-      [uid(), null, date, key, category, value, unit, null, notes],
+      [uid(), null, date, key, category, value, unit, null, keptNotes],
     )
   }
   await persist()
@@ -299,6 +325,15 @@ export function trackValueOn(date: string, name: string): number | null {
   return r[0]?.value ?? null
 }
 
+// Value + note in one read, for prefilling a quick-entry row.
+export function trackRowOn(date: string, name: string): { value: number | null; notes: string | null } | null {
+  const r = all<{ value: number | null; notes: string | null }>(
+    'SELECT value, notes FROM tracks WHERE date = ? AND name = ? LIMIT 1',
+    [date, name.trim().toLowerCase()],
+  )
+  return r[0] ?? null
+}
+
 // The most recent value at or before `date` — used both for infection carry-forward
 // and to default a quick-log slider to the previous day's value.
 export function lastTrackValueOnOrBefore(date: string, name: string): number | null {
@@ -307,6 +342,72 @@ export function lastTrackValueOnOrBefore(date: string, name: string): number | n
     [date, name.trim().toLowerCase()],
   )
   return r[0]?.value ?? null
+}
+
+// ---- Wellbeing (energy / mood) ----
+// Energy and mood live in their own table rather than `tracks`, one row per day
+// holding both. Quick entries therefore have to write a single COLUMN without
+// disturbing its sibling — hence UPDATE in place rather than the DELETE+INSERT
+// used elsewhere.
+
+export type WellbeingField = 'energy' | 'mood'
+
+// Column names are resolved through this whitelist and never interpolated from
+// caller input.
+const WB_COLS: Record<WellbeingField, { value: string; notes: string }> = {
+  energy: { value: 'energy', notes: 'energy_notes' },
+  mood: { value: 'mood', notes: 'mood_notes' },
+}
+
+export function wellbeingOn(date: string): Wellbeing | null {
+  return all<Wellbeing>('SELECT * FROM wellbeing WHERE date = ? LIMIT 1', [date])[0] ?? null
+}
+
+// Most recent value of one field at or before `date` — the "default to your last
+// value" behaviour for a quick-entry slider.
+export function lastWellbeingOnOrBefore(date: string, field: WellbeingField): number | null {
+  const col = WB_COLS[field].value
+  const r = all<{ v: number | null }>(
+    `SELECT ${col} AS v FROM wellbeing WHERE date <= ? AND ${col} IS NOT NULL ORDER BY date DESC LIMIT 1`,
+    [date],
+  )
+  return r[0]?.v ?? null
+}
+
+// Set one field (and optionally its note) for one day. `notes` is tri-state exactly
+// as in upsertTrackValue: omit to keep, null to clear, string to set.
+export async function upsertWellbeingField(
+  date: string,
+  field: WellbeingField,
+  value: number | null,
+  notes?: string | null,
+): Promise<void> {
+  const col = WB_COLS[field]
+  const prev = wellbeingOn(date)
+  if (prev) {
+    const nextNotes = notes === undefined ? (field === 'energy' ? prev.energy_notes : prev.mood_notes) : notes
+    exec(`UPDATE wellbeing SET ${col.value} = ?, ${col.notes} = ? WHERE id = ?`, [value, nextNotes, prev.id])
+    // Drop a row that no longer carries anything at all.
+    const other = field === 'energy' ? prev.mood : prev.energy
+    const otherNote = field === 'energy' ? prev.mood_notes : prev.energy_notes
+    if (value == null && other == null && !nextNotes && !otherNote && !prev.notes) {
+      exec('DELETE FROM wellbeing WHERE id = ?', [prev.id])
+    }
+  } else {
+    exec(
+      `INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes, energy_notes, mood_notes)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [
+        uid(), null, date,
+        field === 'energy' ? value : null,
+        field === 'mood' ? value : null,
+        null,
+        field === 'energy' ? (notes ?? null) : null,
+        field === 'mood' ? (notes ?? null) : null,
+      ],
+    )
+  }
+  await persist()
 }
 
 // Dates in range that already have at least one entry/track/meal — used to mark

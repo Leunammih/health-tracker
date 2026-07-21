@@ -3,6 +3,42 @@
 Reverse-chronological log of what changed and why. Keep entries short. See PLAN.md
 for the roadmap and status checkboxes.
 
+## 2026-07-21 — Quick entry: slider bug, Save buttons, notes, energy/mood
+- **Fixed the slider cross-talk.** Two independent causes. (1) `QuickRow` derived its
+  value from a `useMemo` keyed on a panel-wide `version` counter, and every row's save
+  bumped it — so saving one row re-ran `setValue(initial); setDirty(false)` on *all*
+  rows, resetting sliders mid-edit and letting a value flap when a pending write hadn't
+  landed yet. (2) `trackNamesSince` ordered `BY n DESC` (COUNT(*)), and since
+  `upsertTrackValue` is DELETE+INSERT the counts shifted on every save, physically
+  reshuffling the rows. Fixed by moving all draft state up into the panel (one owner,
+  rows are `memo`'d and presentational) and ordering deterministically by position in
+  `TRACK_DEFS` then label — never by count.
+- **Explicit saves.** The 500 ms debounce auto-save is gone: per-row Save button plus a
+  "Save N changed" bulk button. Removes a silent data-loss path too (the old unmount
+  cleanup cancelled pending writes, so edits within 500 ms of leaving were dropped).
+- **Notes per entry.** A pencil button per row toggles a note field, saved with the
+  value in one write. Also added to the Insights tap-to-log sheet. `tracks.notes`
+  already existed; no migration needed for this part.
+- **`upsertTrackValue` notes are now tri-state** — omit to preserve, `null` to clear.
+  This fixes a latent bug: `QuickLogSheet` called it without notes, so saving from
+  Insights silently wiped any note set in the Log panel. Bulk apply-to-last-N-days now
+  leaves each day's own note intact.
+- **Energy & mood as quick entries.** They live on the `wellbeing` table, not `tracks`,
+  so `TrackDef` gained a `store?: 'tracks' | 'wellbeing'` discriminator and new helpers
+  `wellbeingOn` / `lastWellbeingOnOrBefore` / `upsertWellbeingField` (UPDATE in place, so
+  writing energy can't null mood). Schema **v6**: added `wellbeing.energy_notes` and
+  `mood_notes` so each gets its own note. `saveDiaryExtraction` now MERGES the wellbeing
+  row instead of replacing it, so a diary entry that only mentions mood no longer wipes a
+  quick-entry energy value.
+  - Guard worth remembering: `defForName`'s fuzzy regex pass now **skips** wellbeing defs.
+    It runs against arbitrary `tracks` names, and a track called "energy" must not be
+    routed to the wellbeing table. Only an exact key match reaches those.
+  - Energy/mood are deliberately NOT in `QUICK_LOG_KEYS` (that list also seeds the
+    Insights picker, which writes only to `tracks`); they use `PINNED_QUICK_ENTRY_ITEMS`.
+- `devtools.ts` gained `__ht.saveExtraction(partial, date)` to exercise the diary save
+  path without an API call. Verified all ten checks in-browser, including the v5→v6
+  migration on the existing database.
+
 ## 2026-07-21 — Phase D3 + D4
 - **D3 Logs.** `LogTab` gained a swipeable `DayStrip` (28 days) for the entry date,
   a "this covers more than one day" checkbox that passes `multiDay` through to
