@@ -96,7 +96,7 @@ export interface Meal {
   notes: string | null // raw dictated description, if any
 }
 
-export type TrackCategory = 'practice' | 'symptom' | 'measurement' | 'activity' | 'other'
+export type TrackCategory = 'practice' | 'symptom' | 'measurement' | 'activity' | 'release' | 'other'
 
 export interface Track {
   id: string

@@ -28,6 +28,13 @@ export function daysAgoISO(n: number): string {
   return new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10)
 }
 
+// Every ISO date from `sinceISO` through `untilISO` (default today). Charts render
+// against this shared spine so a day with no entry still occupies a column and all
+// graphs line up vertically for the same date.
+export function dateSpine(sinceISO: string, untilISO: string = todayISO()): string[] {
+  return expandDateRange(sinceISO, untilISO)
+}
+
 const DAY_NAMES: Record<string, number> = {
   sun: 0, sunday: 0,
   mon: 1, monday: 1,

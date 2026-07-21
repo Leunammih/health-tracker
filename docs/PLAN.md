@@ -58,7 +58,65 @@ have to reconstruct state from chat. Dates are absolute.
 - [ ] Calorie/protein goals + progress display
 - [ ] Supplements (start date, composition via photo/name, periodic re-check via B2 queue)
 
-## Phase D — later / data-dependent
+## Phase D — Insights / Logs / Meals overhaul  (planned 2026-07-21)
+
+Built in four chunks, each committed and reviewed before the next.
+
+### Decisions (locked, from the user 2026-07-21)
+- **Release 💦**: a track logged in 10% steps. Axis runs **0% at top → 100% at bottom**.
+  Defaults to a constant 0% line; only days with an explicit entry spike down. The value
+  is the *intensity* of the release (100% = full).
+- **Log date navigation**: a swipeable horizontal **day strip** (chips you flick with a
+  thumb), not an `<input type=range>`. Chips mark which days already have entries.
+- **Infection carry-forward**: severity carries forward indefinitely from the last entry
+  **until explicitly logged as gone / 0**. No auto-expiry.
+- **Good is always at the top.** Metrics where low = good (pain, stress, infection,
+  gut, release) render on a **reversed** Y axis. Movement/practice/energy stay normal.
+
+### D1 — Foundation (data + shared primitives)
+- [ ] `dateSpine()` in `src/lib/dates.ts` — every ISO date in a range, so all charts
+  share one X axis even on days with no entry
+- [ ] New `src/lib/metrics.ts` — single source of truth for: canonical track name →
+  colour (exercise yellow, dancing blue, biking green, …), axis polarity
+  (lower-is-better set), and the quick-log item registry (label, category, unit,
+  min/max/step) used by both Insights tap-to-log and the Log tab quick-add
+- [ ] `Release` as a first-class track: `'release'` added to `TrackCategory` and to the
+  extraction enum so Claude can also route it from dictation
+- [ ] Query primitives: `upsertTrackValue()` (one row per name+date, replaces),
+  `distinctTrackNames()`, `lastTrackValueOnOrBefore()` (powers carry-forward + the
+  "default to yesterday's value" slider)
+
+### D2 — Insights
+- [ ] **Plateau chart** for exercise & movement: rounded-corner step line per activity,
+  continuous left→right, sitting at 0 on days not done, rising to that day's minutes.
+  One colour per activity from the D1 registry. Combines `activities` (workouts) and
+  movement-category `tracks`
+- [ ] **Tap a tracked item → log it**: tapping any series (knee pain, breath work,
+  dancing…) opens an add/edit sheet — pick a day, drag a slider for minutes or 0-10
+  severity, confirm, then pick another day without closing. Includes "same as today"
+  and "yesterday same as today" shortcuts
+- [ ] **Illness chart**: infections + gut pain + stool consistency on one chart, with
+  infection severity carried forward per the locked decision
+- [ ] **Good-at-top polarity** applied across every chart
+- [ ] **Shared date axis** on all charts including calories, so days line up vertically
+  and are readable as one stacked column
+
+### D3 — Logs
+- [ ] Swipeable day strip for the entry date (keeps the existing date field as a fallback)
+- [ ] **Multi-day entry toggle** — tells the extractor the text covers several days
+- [ ] **Expanded quick-entry panel**: last week's logs grouped by category (health,
+  movement, practice…), each with a 5-min-increment slider defaulting to the previous
+  day's value
+- [ ] **Quick-add section** — tap a field to add a new item for the selected day, same
+  5-min increments
+- [ ] **Release 💦** as a 10%-increment quick-log, surfaced on the energy & mood chart
+
+### D4 — Meals
+- [ ] Multi-meal dictation: detect breakfast/lunch/dinner (and multi-day spans) in one
+  dictation and emit several meals instead of one
+- [ ] **Multi-entry toggle** on the meal form so the text is scanned for several meals
+
+## Phase E — later / data-dependent
 - [ ] Eating-pattern quick-adds by time of day
 - [ ] (sync already solved via Dropbox)
 

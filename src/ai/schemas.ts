@@ -115,7 +115,7 @@ export const DIARY_TOOL = {
               items: { type: 'string' },
             },
             name: { type: 'string', description: "short lowercase label, e.g. 'meditation', 'breath work', 'knee pain', 'stomach pain', 'weight', 'kite surfing'" },
-            category: { type: 'string', enum: ['practice', 'symptom', 'measurement', 'activity', 'other'] },
+            category: { type: 'string', enum: ['practice', 'symptom', 'measurement', 'activity', 'release', 'other'] },
             value: { type: 'number', description: 'numeric value if any: minutes for practices/activities, 0-10 severity for symptoms, the number for measurements' },
             unit: { type: 'string', description: "'min', '/10', 'kg', 'lb', etc." },
             time: { type: 'string', description: "HH:MM 24h time of day, only if the user mentioned a specific time (e.g. '7am meditation' -> '07:00'). Omit if not mentioned." },

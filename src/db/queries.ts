@@ -256,6 +256,69 @@ export const trackNames = (dateISO: string) =>
     [dateISO],
   )
 
+// ---- Quick logging (sliders on Insights + the Log tab) ----
+
+// Every track name ever logged, with its category — powers the tap-to-log picker
+// so previously used items (including ad-hoc ones) stay one tap away.
+export const allTrackNames = () =>
+  all<{ name: string; category: string | null; n: number }>(
+    'SELECT name, category, COUNT(*) as n FROM tracks GROUP BY name, category ORDER BY n DESC',
+  )
+
+// Set one value for one item on one day. Quick-logging is "one value per item per
+// day", so this replaces any existing row for that name+date rather than stacking
+// duplicates the charts would then have to reconcile. A null value clears the day.
+export async function upsertTrackValue(
+  date: string,
+  name: string,
+  category: string | null,
+  value: number | null,
+  unit: string | null,
+  notes: string | null = null,
+): Promise<void> {
+  const key = name.trim().toLowerCase()
+  exec('DELETE FROM tracks WHERE date = ? AND name = ?', [date, key])
+  if (value != null) {
+    exec(
+      `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [uid(), null, date, key, category, value, unit, null, notes],
+    )
+  }
+  await persist()
+}
+
+// The value of `name` on `date`, or null if that day has no entry for it.
+export function trackValueOn(date: string, name: string): number | null {
+  const r = all<{ value: number | null }>(
+    'SELECT value FROM tracks WHERE date = ? AND name = ? LIMIT 1',
+    [date, name.trim().toLowerCase()],
+  )
+  return r[0]?.value ?? null
+}
+
+// The most recent value at or before `date` — used both for infection carry-forward
+// and to default a quick-log slider to the previous day's value.
+export function lastTrackValueOnOrBefore(date: string, name: string): number | null {
+  const r = all<{ value: number | null }>(
+    'SELECT value FROM tracks WHERE date <= ? AND name = ? AND value IS NOT NULL ORDER BY date DESC LIMIT 1',
+    [date, name.trim().toLowerCase()],
+  )
+  return r[0]?.value ?? null
+}
+
+// Dates in range that already have at least one entry/track/meal — used to mark
+// the day strip so you can see at a glance which days are already covered.
+export function loggedDates(sinceISO: string): Set<string> {
+  const rows = all<{ date: string }>(
+    `SELECT entry_date AS date FROM entries WHERE entry_date >= ?
+     UNION SELECT date FROM tracks WHERE date >= ?
+     UNION SELECT date FROM meals WHERE date >= ?`,
+    [sinceISO, sinceISO, sinceISO],
+  )
+  return new Set(rows.map((r) => r.date).filter(Boolean))
+}
+
 // ---- Next-day soreness check-ins ----
 // Workouts from the last few days (not today) we haven't yet asked about recovery for.
 export function pendingCheckins(): Activity[] {
