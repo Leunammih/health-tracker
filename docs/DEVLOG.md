@@ -3,6 +3,28 @@
 Reverse-chronological log of what changed and why. Keep entries short. See PLAN.md
 for the roadmap and status checkboxes.
 
+## 2026-07-21 — Phase D1 + D2
+- **D1 foundation.** New `src/lib/metrics.ts` is the single source of truth for canonical
+  track names, colours, axis polarity and slider scales — Insights, the tap-to-log sheet
+  and (next) the Log quick-add all read from it. Added `dateSpine()`, the `release`
+  track category, and query primitives `upsertTrackValue` / `trackValueOn` /
+  `lastTrackValueOnOrBefore` / `allTrackNames` / `loggedDates`.
+- **D2 Insights.** New `PlateauChart` (hand-rolled SVG — no Recharts curve produces a
+  rounded step over a 0 baseline) draws one continuous line per activity, flat at 0 on
+  days not done, rising to a rounded plateau at that day's minutes. New `QuickLogSheet`
+  + `DayStrip`: tap any item → pick a day → slider → confirm, sheet stays open for the
+  next day; plus apply-to-last-3/7-days, same-for-yesterday, clear. Illness chart merges
+  infection severity (carried forward until logged gone), gut pain and Bristol stool.
+  All "low is good" metrics (pain, stress, illness, release) now use a reversed Y axis;
+  every chart shares one `dateSpine` X axis so days line up vertically.
+- **Gotcha:** Recharts' line-draw animation gets stuck at frame 1 under React 18
+  StrictMode (leaves `stroke-dasharray: "20px 1010px"` on a 1030px path → line looks
+  like a stub). Fixed by `isAnimationActive={false}` on every Line/Bar, matching what
+  C2 already did for `MultiTrackChart`.
+- Added `src/lib/devtools.ts` — DEV-only `window.__ht` (`seed()` / `run()` / `wipe()`)
+  so charts can be driven without a live API key. Verified absent from the production
+  bundle. Verified D1+D2 in-browser against 30 days of seeded data.
+
 ## 2026-07-18 (2)
 - **Meals: dictated entries + edit.** `meals` gains `source` ('photo'|'text'|'mixed')
   and `notes` (the raw dictated text) columns (schema v4→v5, migration-guarded).

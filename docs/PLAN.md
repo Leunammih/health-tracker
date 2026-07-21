@@ -73,32 +73,32 @@ Built in four chunks, each committed and reviewed before the next.
 - **Good is always at the top.** Metrics where low = good (pain, stress, infection,
   gut, release) render on a **reversed** Y axis. Movement/practice/energy stay normal.
 
-### D1 — Foundation (data + shared primitives)
-- [ ] `dateSpine()` in `src/lib/dates.ts` — every ISO date in a range, so all charts
+### D1 — Foundation (data + shared primitives)  ✅ DONE (2026-07-21)
+- [x] `dateSpine()` in `src/lib/dates.ts` — every ISO date in a range, so all charts
   share one X axis even on days with no entry
-- [ ] New `src/lib/metrics.ts` — single source of truth for: canonical track name →
+- [x] New `src/lib/metrics.ts` — single source of truth for: canonical track name →
   colour (exercise yellow, dancing blue, biking green, …), axis polarity
   (lower-is-better set), and the quick-log item registry (label, category, unit,
   min/max/step) used by both Insights tap-to-log and the Log tab quick-add
-- [ ] `Release` as a first-class track: `'release'` added to `TrackCategory` and to the
+- [x] `Release` as a first-class track: `'release'` added to `TrackCategory` and to the
   extraction enum so Claude can also route it from dictation
-- [ ] Query primitives: `upsertTrackValue()` (one row per name+date, replaces),
+- [x] Query primitives: `upsertTrackValue()` (one row per name+date, replaces),
   `distinctTrackNames()`, `lastTrackValueOnOrBefore()` (powers carry-forward + the
   "default to yesterday's value" slider)
 
-### D2 — Insights
-- [ ] **Plateau chart** for exercise & movement: rounded-corner step line per activity,
+### D2 — Insights  ✅ DONE (2026-07-21)
+- [x] **Plateau chart** for exercise & movement: rounded-corner step line per activity,
   continuous left→right, sitting at 0 on days not done, rising to that day's minutes.
   One colour per activity from the D1 registry. Combines `activities` (workouts) and
   movement-category `tracks`
-- [ ] **Tap a tracked item → log it**: tapping any series (knee pain, breath work,
+- [x] **Tap a tracked item → log it**: tapping any series (knee pain, breath work,
   dancing…) opens an add/edit sheet — pick a day, drag a slider for minutes or 0-10
   severity, confirm, then pick another day without closing. Includes "same as today"
   and "yesterday same as today" shortcuts
-- [ ] **Illness chart**: infections + gut pain + stool consistency on one chart, with
+- [x] **Illness chart**: infections + gut pain + stool consistency on one chart, with
   infection severity carried forward per the locked decision
-- [ ] **Good-at-top polarity** applied across every chart
-- [ ] **Shared date axis** on all charts including calories, so days line up vertically
+- [x] **Good-at-top polarity** applied across every chart
+- [x] **Shared date axis** on all charts including calories, so days line up vertically
   and are readable as one stacked column
 
 ### D3 — Logs

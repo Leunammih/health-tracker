@@ -3,6 +3,7 @@ import { initDb } from './db/sqlite'
 import { startSync, pullIfNewer } from './sync/manager'
 import { completeAuthFromRedirect } from './sync/dropbox'
 import { loadSettings } from './lib/storage'
+import { installDevtools } from './lib/devtools'
 import SyncBadge from './components/SyncBadge'
 import { IconLog, IconMeal, IconChart, IconBrain, IconSettings } from './components/icons'
 import LogTab from './tabs/LogTab'
@@ -29,6 +30,7 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       await initDb()
+      installDevtools() // no-op in production builds
       // Complete a Dropbox OAuth redirect if we're returning from one, then strip
       // the ?code=…/state from the URL so a refresh doesn't retry the exchange.
       try {
