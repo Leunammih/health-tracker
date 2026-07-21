@@ -249,10 +249,12 @@ export const mealsSince = (dateISO: string) =>
   all<Meal>('SELECT * FROM meals WHERE date >= ? ORDER BY date', [dateISO])
 export const tracksSince = (dateISO: string) =>
   all<Track>('SELECT * FROM tracks WHERE date >= ? ORDER BY date', [dateISO])
-// Distinct track names in range, most-logged first (for building charts).
-export const trackNames = (dateISO: string) =>
-  all<{ name: string; n: number }>(
-    'SELECT name, COUNT(*) as n FROM tracks WHERE date >= ? GROUP BY name ORDER BY n DESC',
+// Distinct track names logged since a date, most-logged first. Drives the Log tab's
+// quick-entry panel: "everything I've been tracking lately", ready to fill in.
+export const trackNamesSince = (dateISO: string) =>
+  all<{ name: string; category: string | null; n: number }>(
+    `SELECT name, MAX(category) as category, COUNT(*) as n FROM tracks
+     WHERE date >= ? GROUP BY name ORDER BY n DESC`,
     [dateISO],
   )
 

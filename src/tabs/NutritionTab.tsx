@@ -1,14 +1,14 @@
 import { useMemo, useRef, useState } from 'react'
-import { analyseMeal, analyseMealText } from '../ai/anthropic'
+import { analyseMeal, analyseMealText, analyseMealsText } from '../ai/anthropic'
 import { saveMeal, updateMeal, deleteMeal, recentMeals } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera, IconMic } from '../components/icons'
-import type { MealAnalysis, Ingredient, Meal } from '../types'
+import type { MealAnalysis, Ingredient, Meal, MultiMealItem } from '../types'
 
-type Phase = 'input' | 'analysing' | 'review'
+type Phase = 'input' | 'analysing' | 'review' | 'multiReview'
 type CaptureMode = 'choose' | 'text'
 
 export default function NutritionTab() {
@@ -26,6 +26,9 @@ export default function NutritionTab() {
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [isMultiMeal, setIsMultiMeal] = useState(false)
+  const [multiMeals, setMultiMeals] = useState<MultiMealItem[] | null>(null)
+  const [savingMulti, setSavingMulti] = useState(false)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [existingPhotoPath, setExistingPhotoPath] = useState<string | null>(null)
@@ -53,12 +56,55 @@ export default function NutritionTab() {
     setError(null)
     setPhase('analysing')
     try {
-      const res = await analyseMealText(describeText.trim())
-      setAnalysis(res)
-      setPhase('review')
+      if (isMultiMeal) {
+        const meals = await analyseMealsText(describeText.trim(), date)
+        setMultiMeals(meals)
+        setPhase('multiReview')
+      } else {
+        const res = await analyseMealText(describeText.trim())
+        setAnalysis(res)
+        setPhase('review')
+      }
     } catch (e) {
       setError(msg(e))
       setPhase('input')
+    }
+  }
+
+  function updateMultiMeal(idx: number, patch: Partial<MultiMealItem>) {
+    setMultiMeals((list) => (list ? list.map((m, i) => (i === idx ? { ...m, ...patch } : m)) : list))
+  }
+  function removeMultiMeal(idx: number) {
+    setMultiMeals((list) => (list ? list.filter((_, i) => i !== idx) : list))
+  }
+
+  async function saveAllMultiMeals() {
+    if (!multiMeals?.length) return
+    setSavingMulti(true)
+    setError(null)
+    try {
+      for (const m of multiMeals) {
+        const analysis: MealAnalysis = {
+          name: m.name,
+          ingredients: m.ingredients,
+          calories: m.calories,
+          protein_g: m.protein_g,
+          fat_g: m.fat_g,
+          carbs_g: m.carbs_g,
+          fiber_g: m.fiber_g,
+          confidence: m.confidence,
+          clarifying_questions: [],
+        }
+        await saveMeal(analysis, m.date, m.meal_time || null, null, 'text', describeText.trim() || null)
+      }
+      setNote(`${multiMeals.length} meals saved.`)
+      resetForm()
+      setRefreshKey((k) => k + 1)
+      setTimeout(() => setNote(null), 2500)
+    } catch (e) {
+      setError(msg(e))
+    } finally {
+      setSavingMulti(false)
     }
   }
 
@@ -142,6 +188,8 @@ export default function NutritionTab() {
     setExistingPhotoPath(null)
     setEntryTime(null)
     setDate(todayISO())
+    setIsMultiMeal(false)
+    setMultiMeals(null)
   }
 
   function startEditMeal(m: Meal) {
@@ -251,20 +299,38 @@ export default function NutritionTab() {
               <p className="mt-1 text-xs text-amber-300">Logging for {fmtDate(date)}.</p>
             )}
           </div>
+          <label className="flex items-center gap-2 text-sm text-ink-300">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-brand-500"
+              checked={isMultiMeal}
+              onChange={(e) => setIsMultiMeal(e.target.checked)}
+            />
+            This is more than one meal
+          </label>
           <textarea
             className="field min-h-[7rem]"
-            placeholder="Tap here, then use the mic key on your keyboard. E.g. 'Bowl of oatmeal with a banana and peanut butter, about 350g total' or 'Chicken caesar salad, medium bowl, from the place downstairs'"
+            placeholder={
+              isMultiMeal
+                ? "E.g. 'Breakfast was oatmeal with a banana. Lunch was a chicken caesar salad. Yesterday's dinner was pasta with meatballs.'"
+                : "Tap here, then use the mic key on your keyboard. E.g. 'Bowl of oatmeal with a banana and peanut butter, about 350g total' or 'Chicken caesar salad, medium bowl, from the place downstairs'"
+            }
             value={describeText}
             onChange={(e) => setDescribeText(e.target.value)}
           />
           <div className="flex gap-2">
             <button className="btn-primary flex-1" disabled={!describeText.trim()} onClick={() => void onDescribe()}>
-              Estimate nutrition
+              {isMultiMeal ? 'Split into meals' : 'Estimate nutrition'}
             </button>
             <button className="btn-ghost" onClick={() => setCaptureMode('choose')}>
               Cancel
             </button>
           </div>
+          {isMultiMeal && (
+            <p className="text-xs text-ink-400">
+              Claude will look for breakfast/lunch/dinner/snack and day words to split this into separate meals.
+            </p>
+          )}
         </div>
       )}
 
@@ -272,7 +338,37 @@ export default function NutritionTab() {
         <div className="card space-y-3">
           {image && <img src={image.dataUrl} className="max-h-56 w-full rounded-xl object-cover" alt="meal" />}
           <div className="flex items-center gap-3 text-ink-300">
-            <span className="h-3 w-3 animate-pulse rounded-full bg-brand-400" /> Estimating nutrition…
+            <span className="h-3 w-3 animate-pulse rounded-full bg-brand-400" />
+            {isMultiMeal ? 'Splitting into meals…' : 'Estimating nutrition…'}
+          </div>
+        </div>
+      )}
+
+      {phase === 'multiReview' && multiMeals && (
+        <div className="card space-y-4">
+          <div>
+            <div className="label">{multiMeals.length} meals found</div>
+            <p className="text-xs text-ink-400">Check each one, adjust if needed, then save them all.</p>
+          </div>
+          <div className="space-y-3">
+            {multiMeals.map((m, i) => (
+              <MultiMealRow key={i} meal={m} onChange={(p) => updateMultiMeal(i, p)} onRemove={() => removeMultiMeal(i)} />
+            ))}
+          </div>
+          {multiMeals.length === 0 && (
+            <p className="text-sm text-ink-400">No meals left — add at least one or cancel.</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              className="btn-primary flex-1"
+              disabled={savingMulti || multiMeals.length === 0}
+              onClick={() => void saveAllMultiMeals()}
+            >
+              {savingMulti ? 'Saving…' : `Save ${multiMeals.length} meal${multiMeals.length === 1 ? '' : 's'}`}
+            </button>
+            <button className="btn-ghost" onClick={resetForm}>
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -466,6 +562,62 @@ export default function NutritionTab() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MultiMealRow({
+  meal,
+  onChange,
+  onRemove,
+}: {
+  meal: MultiMealItem
+  onChange: (patch: Partial<MultiMealItem>) => void
+  onRemove: () => void
+}) {
+  return (
+    <div className="rounded-xl bg-ink-900 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          className="field flex-1 !py-1.5 text-sm"
+          value={meal.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+        />
+        <button
+          className="shrink-0 rounded-lg px-2 py-1 text-ink-400 hover:bg-ink-700 hover:text-red-400"
+          onClick={onRemove}
+          aria-label="Remove meal"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="mb-2 flex items-center gap-2">
+        <input
+          type="date"
+          className="field !w-auto !py-1 text-xs"
+          value={meal.date}
+          max={todayISO()}
+          onChange={(e) => onChange({ date: e.target.value })}
+        />
+        <input
+          type="time"
+          className="field !w-auto !py-1 text-xs"
+          value={meal.meal_time}
+          onChange={(e) => onChange({ meal_time: e.target.value })}
+        />
+      </div>
+      <div className="grid grid-cols-5 gap-1.5">
+        <MacroField label="kcal" value={meal.calories} onChange={(v) => onChange({ calories: v })} />
+        <MacroField label="Prot" value={meal.protein_g} onChange={(v) => onChange({ protein_g: v })} />
+        <MacroField label="Fat" value={meal.fat_g} onChange={(v) => onChange({ fat_g: v })} />
+        <MacroField label="Carb" value={meal.carbs_g} onChange={(v) => onChange({ carbs_g: v })} />
+        <MacroField label="Fiber" value={meal.fiber_g} onChange={(v) => onChange({ fiber_g: v })} />
+      </div>
+      {meal.ingredients.length > 0 && (
+        <div className="mt-1.5 text-xs text-ink-400">
+          {meal.ingredients.map((i) => `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join(', ')}
         </div>
       )}
     </div>

@@ -1,11 +1,13 @@
 import { todayISO } from '../lib/dates'
 
-export function diarySystemPrompt(entryDate: string): string {
+export function diarySystemPrompt(entryDate: string, multiDay = false): string {
   const today = todayISO()
   const backfill = entryDate !== today
   return `You are the parsing engine of a personal health-tracking app. Today's actual calendar date is ${today}.
 ${backfill ? `The user is BACKFILLING a past entry — they are logging for ${entryDate}, not today. ` : ''}The user dictates a free-form diary entry. Extract structured records and call the record_health_log tool.
-
+${multiDay ? `
+IMPORTANT — MULTI-DAY ENTRY: the user has flagged that this text covers SEVERAL DAYS, not one. Do not collapse it into a single day. Split it into separate dated records and give EVERY item its own explicit date instead of defaulting to ${entryDate}. Resolve relative cues ("yesterday", "the day before", "on Monday", "over the weekend") against ${entryDate} as the reference point. ${entryDate} is the most recent day being described, so other days fall on or before it. Where one item repeats across a span, use the tracks "recurrence" field rather than repeating it per day.
+` : ''}
 Rules:
 - Only fill fields the user actually mentioned or clearly implied. Do not invent numbers.
 - Default any date the user doesn't specify to ${entryDate} (the date they are logging for), NOT to today's actual date${backfill ? ' — this is a backfilled entry for a past date' : ''}.
@@ -29,6 +31,13 @@ export function mealSystemPrompt(): string {
   return `You are a nutrition estimation engine. Analyse the meal from the photo and/or the user's written description and call record_meal_nutrition with best-estimate macros for the WHOLE portion eaten.
 Estimate reasonably from visible portion sizes or the quantities described. Account for likely hidden ingredients (cooking oil, butter, dressings, sauces) in the macros, but list them as ingredients and raise a clarifying question if they materially affect the estimate. Ask clarifying questions when portion size is ambiguous. Set confidence honestly — a written description without a photo rarely deserves "high" unless quantities are precise.
 If the user provides extra context (a corrected ingredient list, items eaten that weren't in the original photo/description, or answers about portions), treat that as AUTHORITATIVE over what you inferred before: use exactly those ingredients/amounts, ADD any extra items to both the ingredient list and the macro totals, and recompute calories/protein/fat/carbs/fiber for the full combined meal. Raise confidence when the user has clarified.`
+}
+
+export function multiMealSystemPrompt(referenceDate: string): string {
+  return `You are a nutrition estimation engine. The user dictated a description that covers MORE THAN ONE MEAL — split it into separate meal records and call record_meals with one entry per meal.
+Use words like "breakfast", "lunch", "dinner", "snack", "then", "later", and time mentions to find the meal boundaries — each distinct eating occasion is its own entry, even if two are similar (e.g. "oatmeal for breakfast, then a salad for lunch" is 2 meals).
+The reference date is ${referenceDate}. Default a meal's date to ${referenceDate} unless the user gives a relative or explicit day ("yesterday's dinner", "this morning", "on Tuesday") — resolve those relative to ${referenceDate}. Set meal_time from context: breakfast ~08:00, lunch ~13:00, dinner ~19:00, snack ~16:00, unless the user states a time.
+Estimate macros for each meal independently the same way you would for a single meal: reasonable portions from the quantities described, accounting for likely hidden ingredients (oil, butter, dressings, sauces). Set confidence honestly — rarely "high" without precise quantities.`
 }
 
 export function interpretSystemPrompt(): string {

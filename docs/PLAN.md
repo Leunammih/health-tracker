@@ -101,20 +101,20 @@ Built in four chunks, each committed and reviewed before the next.
 - [x] **Shared date axis** on all charts including calories, so days line up vertically
   and are readable as one stacked column
 
-### D3 — Logs
-- [ ] Swipeable day strip for the entry date (keeps the existing date field as a fallback)
-- [ ] **Multi-day entry toggle** — tells the extractor the text covers several days
-- [ ] **Expanded quick-entry panel**: last week's logs grouped by category (health,
+### D3 — Logs  ✅ DONE (2026-07-21)
+- [x] Swipeable day strip for the entry date (keeps the existing date field as a fallback)
+- [x] **Multi-day entry toggle** — tells the extractor the text covers several days
+- [x] **Expanded quick-entry panel**: last week's logs grouped by category (health,
   movement, practice…), each with a 5-min-increment slider defaulting to the previous
   day's value
-- [ ] **Quick-add section** — tap a field to add a new item for the selected day, same
+- [x] **Quick-add section** — tap a field to add a new item for the selected day, same
   5-min increments
-- [ ] **Release 💦** as a 10%-increment quick-log, surfaced on the energy & mood chart
+- [x] **Release 💦** as a 10%-increment quick-log, surfaced on the energy & mood chart
 
-### D4 — Meals
-- [ ] Multi-meal dictation: detect breakfast/lunch/dinner (and multi-day spans) in one
+### D4 — Meals  ✅ DONE (2026-07-21)
+- [x] Multi-meal dictation: detect breakfast/lunch/dinner (and multi-day spans) in one
   dictation and emit several meals instead of one
-- [ ] **Multi-entry toggle** on the meal form so the text is scanned for several meals
+- [x] **Multi-entry toggle** on the meal form so the text is scanned for several meals
 
 ## Phase E — later / data-dependent
 - [ ] Eating-pattern quick-adds by time of day

@@ -3,6 +3,30 @@
 Reverse-chronological log of what changed and why. Keep entries short. See PLAN.md
 for the roadmap and status checkboxes.
 
+## 2026-07-21 — Phase D3 + D4
+- **D3 Logs.** `LogTab` gained a swipeable `DayStrip` (28 days) for the entry date,
+  a "this covers more than one day" checkbox that passes `multiDay` through to
+  `extractDiary`/`diarySystemPrompt` — the prompt then tells Claude to give every
+  item its own explicit date instead of defaulting to the entry date, and to prefer
+  a track `recurrence` over repeating an item per day. New `QuickEntryPanel`: every
+  track name logged in the last 7 days, grouped by category (movement/practice/
+  health & pain/wellbeing), each with a slider that starts at that day's saved value
+  or falls back to `lastTrackValueOnOrBefore` (the "default to yesterday" behaviour);
+  writes are debounced 500ms so dragging doesn't re-serialize the SQLite blob per
+  tick. An "Add" row of chips covers standard items not yet tracked.
+- **D4 Meals.** New `record_meals` tool + `multiMealSystemPrompt` + `analyseMealsText`
+  split a dictation covering several meals (using breakfast/lunch/dinner/snack and
+  day words as boundaries) into an array, each with its own resolved date and
+  estimated time-of-day. `NutritionTab` gained a "this is more than one meal"
+  checkbox and a `multiReview` phase: an editable list (name, date, time, macros,
+  ingredients) with per-row remove, then "Save N meals" writes each independently
+  via the existing `saveMeal`.
+- Verified both end-to-end in-browser: D3 via the seeded 30-day dataset (day-strip
+  navigation, slider debounce-then-write, per-day value re-derivation on date
+  change); D4 via a temporary DEV-only injection hook (added, exercised, then
+  removed) simulating a 3-meal Claude response, confirming per-meal edit/remove/
+  save-with-correct-dates. No schema change in either chunk.
+
 ## 2026-07-21 — Phase D1 + D2
 - **D1 foundation.** New `src/lib/metrics.ts` is the single source of truth for canonical
   track names, colours, axis polarity and slider scales — Insights, the tap-to-log sheet

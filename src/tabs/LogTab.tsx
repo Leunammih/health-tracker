@@ -2,11 +2,16 @@ import { useMemo, useState } from 'react'
 import { extractDiary, refineDiary } from '../ai/anthropic'
 import {
   saveDiaryExtraction, deleteEntry, recentEntries, entryDetail,
-  pendingCheckins, recordCheckin, dismissCheckin, type EntryDetail,
+  pendingCheckins, recordCheckin, dismissCheckin, loggedDates, type EntryDetail,
 } from '../db/queries'
-import { fmtDate, todayISO } from '../lib/dates'
+import { fmtDate, todayISO, dateSpine, daysAgoISO } from '../lib/dates'
 import { IconMic } from '../components/icons'
+import DayStrip from '../components/DayStrip'
+import QuickEntryPanel from '../components/QuickEntryPanel'
 import type { DiaryExtraction, Activity, Entry } from '../types'
+
+// How far back the date strip lets you swipe.
+const STRIP_DAYS = 27
 
 type Phase = 'input' | 'processing' | 'questions' | 'preview'
 
@@ -22,15 +27,18 @@ export default function LogTab() {
   const [error, setError] = useState<string | null>(null)
   const [savedNote, setSavedNote] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [multiDay, setMultiDay] = useState(false)
 
   const entries = useMemo(() => recentEntries(8), [refreshKey, phase])
   const checkins = useMemo(() => pendingCheckins(), [refreshKey, phase])
+  const strip = useMemo(() => dateSpine(daysAgoISO(STRIP_DAYS)), [])
+  const marked = useMemo(() => loggedDates(daysAgoISO(STRIP_DAYS)), [refreshKey])
 
   async function process() {
     setError(null)
     setPhase('processing')
     try {
-      const res = await extractDiary(raw, entryDate)
+      const res = await extractDiary(raw, entryDate, multiDay)
       setExtraction(res)
       // Only reset answers if the questions actually changed, so re-processing an
       // edited log doesn't wipe answers you've already typed for the same questions.
@@ -108,6 +116,7 @@ export default function LogTab() {
     setAnswers([])
     setExtraNote('')
     setEditingId(null)
+    setMultiDay(false)
   }
 
   return (
@@ -157,22 +166,39 @@ export default function LogTab() {
           </div>
           <div>
             <label className="label">Logging for</label>
-            <input
-              type="date"
-              className="field !w-auto"
-              value={entryDate}
-              max={todayISO()}
-              onChange={(e) => setEntryDate(e.target.value)}
-            />
-            {entryDate !== todayISO() && (
+            <DayStrip dates={strip} selected={entryDate} onSelect={setEntryDate} marked={marked} />
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="date"
+                className="field !w-auto"
+                value={entryDate}
+                max={todayISO()}
+                onChange={(e) => setEntryDate(e.target.value)}
+              />
+              <span className="text-xs text-ink-500">or swipe the strip above</span>
+            </div>
+            {entryDate !== todayISO() && !multiDay && (
               <p className="mt-1 text-xs text-amber-300">
                 Backfilling {fmtDate(entryDate)} — dates you don't mention will default here, not today.
               </p>
             )}
           </div>
+          <label className="flex items-center gap-2 text-sm text-ink-300">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-brand-500"
+              checked={multiDay}
+              onChange={(e) => setMultiDay(e.target.checked)}
+            />
+            This covers more than one day
+          </label>
           <textarea
             className="field min-h-[9rem]"
-            placeholder="Tap here, then use the mic key on your keyboard. E.g. 'Ran 40 min this morning, moderate. Calves got sore afterwards. Bloated after lunch, big client call tomorrow. Energy 6, mood 7.'"
+            placeholder={
+              multiDay
+                ? "E.g. 'Meditated every morning this week, 15 min. Yesterday ran 40 min, calves sore today. Two days ago felt low energy, mood 4.'"
+                : "Tap here, then use the mic key on your keyboard. E.g. 'Ran 40 min this morning, moderate. Calves got sore afterwards. Bloated after lunch, big client call tomorrow. Energy 6, mood 7.'"
+            }
             value={raw}
             onChange={(e) => setRaw(e.target.value)}
           />
@@ -180,10 +206,15 @@ export default function LogTab() {
             {editingId ? 'Re-analyze' : 'Process with Claude'}
           </button>
           <p className="text-xs text-ink-400">
-            Claude sorts it into activities, gut, infections, energy/mood and day context — and asks about
-            anything important you left out.
+            {multiDay
+              ? `Claude will split this into separate dated records instead of filing it all under ${fmtDate(entryDate)}.`
+              : 'Claude sorts it into activities, gut, infections, energy/mood and day context — and asks about anything important you left out.'}
           </p>
         </div>
+      )}
+
+      {phase === 'input' && !editingId && (
+        <QuickEntryPanel date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'processing' && (

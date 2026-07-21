@@ -1,8 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { DiaryExtraction, MealAnalysis } from '../types'
+import type { DiaryExtraction, MealAnalysis, MultiMealItem } from '../types'
 import { loadSettings } from '../lib/storage'
-import { DIARY_TOOL, MEAL_TOOL, INTERPRET_TOOL } from './schemas'
-import { diarySystemPrompt, refineSystemPrompt, mealSystemPrompt, interpretSystemPrompt } from './prompts'
+import { DIARY_TOOL, MEAL_TOOL, MULTI_MEAL_TOOL, INTERPRET_TOOL } from './schemas'
+import {
+  diarySystemPrompt, refineSystemPrompt, mealSystemPrompt, multiMealSystemPrompt, interpretSystemPrompt,
+} from './prompts'
 
 function client(): Anthropic {
   const { anthropicKey } = loadSettings()
@@ -32,11 +34,16 @@ function firstToolInput(content: Block[], name: string): ToolInput {
 
 // ---- Diary extraction ----
 
-export async function extractDiary(rawText: string, entryDate: string): Promise<DiaryExtraction> {
+export async function extractDiary(
+  rawText: string,
+  entryDate: string,
+  multiDay = false,
+): Promise<DiaryExtraction> {
   const res = await client().messages.create({
     model: model(),
-    max_tokens: 2048,
-    system: diarySystemPrompt(entryDate),
+    // A multi-day entry fans out into many more records, so give it more room.
+    max_tokens: multiDay ? 4096 : 2048,
+    system: diarySystemPrompt(entryDate, multiDay),
     tools: [DIARY_TOOL as unknown as Anthropic.Messages.Tool],
     tool_choice: { type: 'tool', name: DIARY_TOOL.name },
     messages: [{ role: 'user', content: rawText }],
@@ -112,6 +119,33 @@ export async function analyseMealText(text: string): Promise<MealAnalysis> {
     messages: [{ role: 'user', content: text }],
   })
   return normaliseMeal(firstToolInput(res.content, MEAL_TOOL.name))
+}
+
+// ---- Multi-meal text (dictated) analysis ----
+
+export async function analyseMealsText(text: string, referenceDate: string): Promise<MultiMealItem[]> {
+  const res = await client().messages.create({
+    model: model(),
+    max_tokens: 3072,
+    system: multiMealSystemPrompt(referenceDate),
+    tools: [MULTI_MEAL_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: MULTI_MEAL_TOOL.name },
+    messages: [{ role: 'user', content: text }],
+  })
+  const input = firstToolInput(res.content, MULTI_MEAL_TOOL.name)
+  const meals = (input.meals as ToolInput[]) ?? []
+  return meals.map((m) => ({
+    date: (m.date as string) || referenceDate,
+    meal_time: (m.meal_time as string) ?? '',
+    name: (m.name as string) ?? 'Meal',
+    ingredients: (m.ingredients as MultiMealItem['ingredients']) ?? [],
+    calories: Number(m.calories ?? 0),
+    protein_g: Number(m.protein_g ?? 0),
+    fat_g: Number(m.fat_g ?? 0),
+    carbs_g: Number(m.carbs_g ?? 0),
+    fiber_g: Number(m.fiber_g ?? 0),
+    confidence: (m.confidence as MultiMealItem['confidence']) ?? 'medium',
+  }))
 }
 
 function normaliseMeal(input: ToolInput): MealAnalysis {

@@ -213,3 +213,19 @@ export interface MealAnalysis {
   confidence: 'low' | 'medium' | 'high'
   clarifying_questions: string[]
 }
+
+// One meal out of a multi-meal dictation — same macro shape as MealAnalysis, plus
+// the date/time Claude assigned it (no clarifying_questions: multi-meal review
+// is a flat list, not a per-meal Q&A loop).
+export interface MultiMealItem {
+  date: string
+  meal_time: string
+  name: string
+  ingredients: Ingredient[]
+  calories: number
+  protein_g: number
+  fat_g: number
+  carbs_g: number
+  fiber_g: number
+  confidence: 'low' | 'medium' | 'high'
+}

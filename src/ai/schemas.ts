@@ -168,6 +168,48 @@ export const MEAL_TOOL = {
   },
 } as const
 
+export const MULTI_MEAL_TOOL = {
+  name: 'record_meals',
+  description:
+    'Split a dictated description covering more than one meal (and possibly more than one day) into separate meal records, each with its own best-estimate macros.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      meals: {
+        type: 'array',
+        description: 'One entry per distinct meal mentioned, in the order eaten.',
+        items: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: 'ISO YYYY-MM-DD this meal was eaten on.' },
+            meal_time: { type: 'string', description: "HH:MM 24h estimate from context (breakfast ~08:00, lunch ~13:00, dinner ~19:00, snack ~16:00) unless the user gave an explicit time." },
+            name: { type: 'string', description: 'Short name of the dish' },
+            ingredients: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  quantity: { type: 'string', description: 'estimated amount, e.g. "150 g", "1 cup cooked"' },
+                },
+                required: ['name', 'quantity'],
+              },
+            },
+            calories: { type: 'number' },
+            protein_g: { type: 'number' },
+            fat_g: { type: 'number' },
+            carbs_g: { type: 'number' },
+            fiber_g: { type: 'number' },
+            confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+          },
+          required: ['date', 'meal_time', 'name', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence'],
+        },
+      },
+    },
+    required: ['meals'],
+  },
+} as const
+
 export const INTERPRET_TOOL = {
   name: 'record_interpretation',
   description: 'Record observed patterns and correlations across the health data.',
