@@ -42,17 +42,32 @@ two files without opening a single `.tsx`.
 
 ## Known problems worth fixing
 
-- **17 categorical chart colours.** Well past the ~8 a reader can actually tell apart,
-  and several already collide on a dark surface (`#f97316` stretching vs `#f97316`
-  wrist pain are *identical*; `#ef4444` / `#e66767` / `#fb7185` / `#d55181` are four
-  near-indistinguishable reds). Needs a grouped palette strategy: hue by group
-  (movement / practice / symptom / wellbeing), value within group.
+Validated against the **real synced database** (13 days of actual logs), not seed data.
+The seed data hid most of these.
+
+- **The palette is already broken.** Stretching and wrist pain share an identical hex
+  (`#f97316`); `#ef4444` / `#e66767` / `#fb7185` / `#d55181` are four indistinguishable
+  reds. Needs a grouped strategy: hue by group (movement / practice / symptom /
+  wellbeing), value within group.
+- **The metric list is open-ended, not fixed at 17.** Dictation invents names —
+  "Muscle Soreness", "Muscle Stiffness", "Shaking" all arrived from real entries and got
+  appended with fallback colours, taking the tap grid to 21. The design must survive an
+  unbounded, user-generated metric list. A fixed 17-swatch palette will not do; it needs
+  a deterministic name→colour function within each group's hue family.
 - **Colour is coupled to logic.** `TrackDef.color` sits in the same record as `match`
   regexes, units and `lowerIsBetter`. Extract colour into a separate presentation
   module *before* restyling, so palette changes never touch matching logic.
-- Dense Insights tab: 17-item tap grid + stat tiles + 4 charts on one scroll.
+- **Charts are mostly empty space.** A 30d range against 13 days of data leaves ~55% of
+  every chart blank. Needs empty-range handling, or auto-fit to the data span.
+- **"No data" is drawn as zero**, so a sick day with nothing logged looks identical to a
+  day of deliberate rest. These mean opposite things and must look different.
+- **Real content breaks the layouts.** Meal titles wrap to 4 lines and blow rows past
+  200 px. The Patterns report is a long-form markdown document — an unstyled wall of
+  grey text, unreadable while unwell. Prose/report typography is a first-class surface
+  here, not an afterthought.
+- The amber API-key banner is sticky and overlaps scrolled content on every tab.
+- Dense Insights tab: 21-item tap grid + stat tiles + 6 charts on one scroll.
 - No light mode. Decide before the token pass — cheap now, expensive later.
-- Nothing distinguishes "no data" from "a value of zero" — meaningful for a sick day.
 
 ## Deliverable wanted from Claude Design
 
@@ -61,9 +76,12 @@ A component library covering the primitives below, dark-first, judged on one can
 Type scale · colour tokens (surface/ink/brand/semantic) · elevation · `.card` ·
 buttons (primary/ghost/destructive, incl. disabled) · text field · select · slider row
 (the quick-entry unit: dot + label + value + slider + Add note + Save) · chip /
-segmented range selector · day strip · stat tile · list row with Edit/Delete ·
-tab bar · banner/callout · empty state · chart frame (axes, gridlines, legend,
-tooltip) + the grouped series palette.
+segmented range selector · day strip · stat tile · list row with Edit/Delete
+(**must hold a 4-line wrapping title**) · tab bar · banner/callout · empty state ·
+**recovery check-in card** (prompt + per-activity row + Save / No issues) ·
+**long-form report typography** (headings, bold, bullets, metadata line) ·
+chart frame (axes, gridlines, legend, tooltip) + the grouped series palette +
+an explicit **no-data vs zero** treatment.
 
 ## Sequencing
 
