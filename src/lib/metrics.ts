@@ -7,6 +7,7 @@
 // `lowerIsBetter` and render on a reversed Y axis.
 
 import { colorForTrack as paletteColor, chartPalette, type PaletteGroup } from './palette'
+import { isLight } from './theme'
 
 export type { PaletteGroup }
 export { chartPalette }
@@ -96,13 +97,15 @@ export function canonicalTrackName(name: string): string {
   return defForName(name)?.key ?? name.trim().toLowerCase()
 }
 
-// Stable colour for any track name: its definition's colour, else a
-// deterministic slot in its (best-guess) group's hue arc — same name → same
-// hue on every render and every chart, even for names dictation invents.
+// Stable colour for any track name: a deterministic slot in its group's hue
+// arc — same name → same hue on every render and every chart, even for names
+// dictation invents. Computed live (not read off TrackDef.color) so it
+// re-derives for the parchment ground the moment the theme toggle flips,
+// rather than freezing at whatever theme was active on page load.
 export function colorForTrack(name: string): string {
   const def = defForName(name)
-  if (def) return def.color
-  return paletteColor(name, paletteGroup(groupForTrack(name)))
+  const group = paletteGroup(def ? def.group : groupForTrack(name))
+  return paletteColor(name, group, isLight())
 }
 
 export function labelForTrack(name: string): string {

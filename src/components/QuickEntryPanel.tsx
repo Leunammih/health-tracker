@@ -296,7 +296,7 @@ export default function QuickEntryPanel({
                 className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1.5 text-xs text-ink-200 hover:bg-ink-700"
                 onClick={() => setExtra((e) => (e.includes(d.key) ? e : [...e, d.key]))}
               >
-                <span className="h-2 w-2 rounded-full" style={{ background: d.color }} />
+                <span className="h-2 w-2 rounded-full" style={{ background: colorForTrack(d.key) }} />
                 {d.label}
               </button>
             ))}

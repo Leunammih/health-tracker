@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
@@ -9,8 +9,9 @@ import {
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
-  canonicalTrackName,
+  canonicalTrackName, chartPalette,
 } from '../lib/metrics'
+import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
 import type { Track } from '../types'
@@ -42,6 +43,7 @@ export default function InsightsTab() {
   const [days, setDays] = useState(30)
   const [refresh, setRefresh] = useState(0)
   const [sheet, setSheet] = useState<{ name: string; category: string | null; date?: string } | null>(null)
+  const light = useTheme() === 'light'
 
   const since = daysAgoISO(days)
 
@@ -93,13 +95,17 @@ export default function InsightsTab() {
     }
     for (const a of acts) add(a.type ?? '', a.date, a.duration_min)
     for (const t of tracks) add(t.name, t.date, t.value)
-    return [...byName.entries()].map(([key, m]) => ({
+    // Spread this chart's own series evenly across the movement hue arc —
+    // guaranteed-distinct within this chart, not just a per-name hash.
+    const keys = [...byName.keys()]
+    const palette = chartPalette(keys, 'movement', light)
+    return keys.map((key) => ({
       key,
       label: labelForTrack(key),
-      color: colorForTrack(key),
-      values: spine.map((d) => m.get(d) ?? null),
+      color: palette[key],
+      values: spine.map((d) => byName.get(key)!.get(d) ?? null),
     }))
-  }, [acts, tracks, spine])
+  }, [acts, tracks, spine, light])
 
   // --- practices: meditation / breath work, same plateau treatment.
   const practiceSeries = useMemo<PlateauSeries[]>(() => {
@@ -112,13 +118,15 @@ export default function InsightsTab() {
       m.set(t.date, (m.get(t.date) ?? 0) + t.value)
       byName.set(key, m)
     }
-    return [...byName.entries()].map(([key, m]) => ({
+    const keys = [...byName.keys()]
+    const palette = chartPalette(keys, 'practice', light)
+    return keys.map((key) => ({
       key,
       label: labelForTrack(key),
-      color: colorForTrack(key),
-      values: spine.map((d) => m.get(d) ?? null),
+      color: palette[key],
+      values: spine.map((d) => byName.get(key)!.get(d) ?? null),
     }))
-  }, [tracks, spine])
+  }, [tracks, spine, light])
 
   // --- pain & discomfort: every symptom-category track, on a reversed axis.
   const painKeys = useMemo(() => {
@@ -128,6 +136,9 @@ export default function InsightsTab() {
   }, [tracks])
 
   const painRows = useMemo(() => buildRows(spine, tracks, painKeys), [spine, tracks, painKeys])
+  // Spread within the symptom arc — every pain line in this one chart stays
+  // clearly distinct, not just individually hashed.
+  const painPalette = useMemo(() => chartPalette(painKeys, 'symptom', light), [painKeys, light])
 
   // --- energy / mood (0-10, high is good) + release (0-100, 0 at top).
   // Release defaults to a constant 0 line and only dips on days with an entry.
@@ -143,9 +154,31 @@ export default function InsightsTab() {
     release: releaseByDate.get(d) ?? 0,
   }))
   const hasRelease = releaseByDate.size > 0
+  const colEnergy = colorForTrack('energy')
+  const colMood = colorForTrack('mood')
+  const colRelease = colorForTrack('release')
+  // Release rests at a constant 0% along the top of its axis, so dotting every
+  // day would draw a dotted rail across the chart. Only mark days it actually
+  // happened — a closure so it can use the theme-aware release colour above.
+  const releaseDot = useCallback(
+    (props: { cx?: number; cy?: number; index?: number; payload?: { release?: number; rawDate?: string } }) => {
+      const { cx, cy, payload, index } = props
+      // Recharts calls this for every row, so each returned node needs its own
+      // key — keying the empty case by date/index avoids duplicate-key warnings.
+      const key = payload?.rawDate ?? `release-${index ?? 0}`
+      const v = payload?.release ?? 0
+      if (cx == null || cy == null || v <= 0) {
+        return <circle key={key} cx={0} cy={0} r={0} fill="none" stroke="none" />
+      }
+      return <circle key={key} cx={cx} cy={cy} r={3} fill={colRelease} stroke="var(--bg)" strokeWidth={1} />
+    },
+    [colRelease],
+  )
 
   const ctxByDate = new Map(ctx.map((c) => [c.date, c]))
   const stressData = spine.map((d) => ({ date: fmtDate(d), stress: ctxByDate.get(d)?.stress_load ?? null }))
+  // Not a registered track — a single fixed slot in the illness/clay arc.
+  const colStress = useMemo(() => chartPalette(['Stress'], 'illness', light).Stress, [light])
 
   // --- illness: infection severity carried forward until logged as gone (0),
   // plus gut pain and Bristol stool consistency on the same reversed axis.
@@ -171,6 +204,10 @@ export default function InsightsTab() {
   }, [inf, gut, spine])
 
   const hasIllness = illnessData.some((r) => r.infection != null || r.gutPain != null || r.stool != null)
+  const illnessPalette = useMemo(
+    () => chartPalette(['Infection', 'Gut pain', 'Stool'], 'illness', light),
+    [light],
+  )
 
   // --- calories on the shared spine so bars line up with everything above.
   const kcalByDate = new Map<string, number>()
@@ -227,28 +264,25 @@ export default function InsightsTab() {
     <div className="space-y-4">
       <div className="flex gap-2">
         {RANGES.map((r) => (
-          <button
-            key={r.days}
-            onClick={() => setDays(r.days)}
-            className={`chip ${days === r.days ? '!border-brand-500 !text-brand-300' : ''}`}
-          >
+          <button key={r.days} onClick={() => setDays(r.days)} className={days === r.days ? 'chip-on' : 'chip'}>
             {r.label}
           </button>
         ))}
       </div>
 
-      {/* Tap any item to log it for a day with a slider. */}
+      {/* Tap any item to log it for a day with a slider. Big square-ish tiles,
+          not cramped chips — few taps, forgiving targets while unwell. */}
       <div className="card">
         <div className="label mb-2">Tap to log</div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="grid grid-cols-4 gap-2">
           {logItems.map((it) => (
             <button
               key={it.name}
-              className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1.5 text-xs text-ink-200 hover:bg-ink-700"
+              className="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-2xl bg-ink-900/60 px-1 py-2.5 text-center hover:bg-ink-700"
               onClick={() => setSheet({ name: it.name, category: it.category ?? categoryOf(it.name) })}
             >
-              <span className="h-2 w-2 rounded-full" style={{ background: colorForTrack(it.name) }} />
-              {labelForTrack(it.name)}
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorForTrack(it.name) }} />
+              <span className="text-[11px] leading-tight text-ink-300">{labelForTrack(it.name)}</span>
             </button>
           ))}
         </div>
@@ -270,22 +304,22 @@ export default function InsightsTab() {
         <ChartCard title="Energy & mood">
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
-              <CartesianGrid stroke="#1b2740" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: '#6b7a99', fontSize: 11 }} />
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               {hasRelease && (
-                <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: '#ec4899', fontSize: 10 }} />
+                <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: colRelease, fontSize: 10 }} />
               )}
               <Tooltip contentStyle={tooltipStyle} />
-              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="energy" stroke="#2dd4bf" strokeWidth={2} dot={false} connectNulls />
-              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="mood" stroke="#a78bfa" strokeWidth={2} dot={false} connectNulls />
+              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="energy" stroke={colEnergy} strokeWidth={2} dot={false} connectNulls />
+              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="mood" stroke={colMood} strokeWidth={2} dot={false} connectNulls />
               {hasRelease && (
                 <Line
                   isAnimationActive={false}
                   yAxisId="r"
                   type="monotone"
                   dataKey="release"
-                  stroke="#ec4899"
+                  stroke={colRelease}
                   strokeWidth={2}
                   dot={releaseDot}
                 />
@@ -294,9 +328,9 @@ export default function InsightsTab() {
           </ResponsiveContainer>
           <Legend
             items={[
-              ['#2dd4bf', 'Energy'],
-              ['#a78bfa', 'Mood'],
-              ...(hasRelease ? ([['#ec4899', 'Release 💦 (0% top)']] as [string, string][]) : []),
+              [colEnergy, 'Energy'],
+              [colMood, 'Mood'],
+              ...(hasRelease ? ([[colRelease, 'Release 💦 (0% top)']] as [string, string][]) : []),
             ]}
           />
         </ChartCard>
@@ -306,11 +340,11 @@ export default function InsightsTab() {
         <ChartCard title="Stress load" hint="low is good — high stress sits at the bottom">
           <ResponsiveContainer width="100%" height={150}>
             <LineChart data={stressData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="#1b2740" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: '#6b7a99', fontSize: 11 }} />
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
+              <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke={colStress} strokeWidth={2} dot={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -320,17 +354,23 @@ export default function InsightsTab() {
         <ChartCard title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={illnessData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="#1b2740" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: '#6b7a99', fontSize: 11 }} />
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />
-              <ReferenceLine y={4} stroke="#334155" strokeDasharray="3 3" />
-              <Line isAnimationActive={false} type="monotone" dataKey="infection" name="Infection" stroke="#e66767" strokeWidth={2} dot={false} connectNulls />
-              <Line isAnimationActive={false} type="monotone" dataKey="gutPain" name="Gut pain" stroke="#d95926" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-              <Line isAnimationActive={false} type="monotone" dataKey="stool" name="Stool (Bristol)" stroke="#9085e9" strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+              <ReferenceLine y={4} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
+              <Line isAnimationActive={false} type="monotone" dataKey="infection" name="Infection" stroke={illnessPalette.Infection} strokeWidth={2} dot={false} connectNulls />
+              <Line isAnimationActive={false} type="monotone" dataKey="gutPain" name="Gut pain" stroke={illnessPalette['Gut pain']} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+              <Line isAnimationActive={false} type="monotone" dataKey="stool" name="Stool (Bristol)" stroke={illnessPalette.Stool} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>
-          <Legend items={[['#e66767', 'Infection'], ['#d95926', 'Gut pain'], ['#9085e9', 'Stool (Bristol, 4 ideal)']]} />
+          <Legend
+            items={[
+              [illnessPalette.Infection, 'Infection'],
+              [illnessPalette['Gut pain'], 'Gut pain'],
+              [illnessPalette.Stool, 'Stool (Bristol, 4 ideal)'],
+            ]}
+          />
         </ChartCard>
       )}
 
@@ -358,9 +398,9 @@ export default function InsightsTab() {
         <ChartCard title="Pain & discomfort (0-10)" hint="low is good — worse pain sits at the bottom">
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={painRows} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="#1b2740" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: '#6b7a99', fontSize: 11 }} />
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />
               {painKeys.map((k) => (
                 <Line isAnimationActive={false}
@@ -368,7 +408,7 @@ export default function InsightsTab() {
                   type="monotone"
                   dataKey={k}
                   name={labelForTrack(k)}
-                  stroke={colorForTrack(k)}
+                  stroke={painPalette[k]}
                   strokeWidth={2}
                   dot={{ r: 2 }}
                   connectNulls
@@ -378,8 +418,8 @@ export default function InsightsTab() {
           </ResponsiveContainer>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
             {painKeys.map((k) => (
-              <button key={k} className="flex items-center gap-1.5 hover:text-white" onClick={() => setSheet({ name: k, category: 'symptom' })}>
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorForTrack(k) }} />
+              <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: 'symptom' })}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: painPalette[k] }} />
                 {labelForTrack(k)}
               </button>
             ))}
@@ -391,11 +431,11 @@ export default function InsightsTab() {
         <ChartCard title="Daily calories">
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={calData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="#1b2740" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: '#6b7a99', fontSize: 11 }} />
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />
-              <Bar isAnimationActive={false} dataKey="kcal" fill="#0d9488" radius={[4, 4, 0, 0]} />
+              <Bar isAnimationActive={false} dataKey="kcal" fill="var(--accent-deep)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs text-ink-300">
@@ -423,25 +463,6 @@ export default function InsightsTab() {
       )}
     </div>
   )
-}
-
-// Release rests at a constant 0% along the top of its axis, so dotting every day
-// would draw a dotted rail across the chart. Only mark the days it actually happened.
-function releaseDot(props: {
-  cx?: number
-  cy?: number
-  index?: number
-  payload?: { release?: number; rawDate?: string }
-}) {
-  const { cx, cy, payload, index } = props
-  // Recharts calls this for every row, so each returned node needs its own key —
-  // keying the empty case by date/index avoids duplicate-key warnings.
-  const key = payload?.rawDate ?? `release-${index ?? 0}`
-  const v = payload?.release ?? 0
-  if (cx == null || cy == null || v <= 0) {
-    return <circle key={key} cx={0} cy={0} r={0} fill="none" stroke="none" />
-  }
-  return <circle key={key} cx={cx} cy={cy} r={3} fill="#ec4899" stroke="#0b1120" strokeWidth={1} />
 }
 
 // One row per spine date with a column per track name (null where unlogged).
@@ -484,14 +505,14 @@ function TrackCard({
       <ChartCard title={title}>
         <ResponsiveContainer width="100%" height={150}>
           <LineChart data={group.series} margin={{ left: -20, right: 8, top: 8 }}>
-            <CartesianGrid stroke="#1b2740" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: '#6b7a99', fontSize: 11 }} interval="preserveStartEnd" />
-            <YAxis domain={domain} reversed={reversed} tick={{ fill: '#6b7a99', fontSize: 11 }} allowDecimals={false} />
+            <CartesianGrid stroke="var(--line)" vertical={false} />
+            <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+            <YAxis domain={domain} reversed={reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} allowDecimals={false} />
             <Tooltip contentStyle={tooltipStyle} />
             <Line isAnimationActive={false} type="monotone" dataKey="value" stroke={colorForTrack(group.name)} strokeWidth={2} dot={{ r: 2 }} />
           </LineChart>
         </ResponsiveContainer>
-        <button className="mt-1 text-xs text-ink-400 hover:text-white" onClick={onLog}>
+        <button className="mt-1 text-xs text-ink-400 hover:text-cream" onClick={onLog}>
           + Log {labelForTrack(group.name)}
         </button>
       </ChartCard>
@@ -500,7 +521,7 @@ function TrackCard({
   const latest = group.series.at(-1)
   return (
     <button className="card flex w-full items-center justify-between !py-3 text-left" onClick={onLog}>
-      <div className="text-sm text-white">{title}</div>
+      <div className="text-sm text-cream">{title}</div>
       <div className="text-xs text-ink-300">
         {latest ? `latest ${latest.value}` : `${group.count}×`}
         {group.count > 1 && latest ? ` · ${group.count}×` : ''}
@@ -509,7 +530,7 @@ function TrackCard({
   )
 }
 
-const tooltipStyle = { background: '#111a2e', border: '1px solid #1b2740', borderRadius: 12, color: '#e6ecf5' }
+const tooltipStyle = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--text)' }
 
 function ChartCard({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -524,8 +545,8 @@ function ChartCard({ title, hint, children }: { title: string; hint?: string; ch
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="card !p-3 text-center">
-      <div className="text-2xl font-semibold text-white">{value}</div>
-      <div className="text-[11px] text-ink-400">{label}</div>
+      <div className="font-serif text-2xl leading-none text-cream">{value}</div>
+      <div className="mt-1 text-[11px] text-ink-400">{label}</div>
     </div>
   )
 }
@@ -533,7 +554,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 function Avg({ label, v }: { label: string; v: number }) {
   return (
     <div>
-      <div className="font-semibold text-white">{Math.round(v)}g</div>
+      <div className="font-semibold text-cream">{Math.round(v)}g</div>
       <div className="text-ink-400">{label}/day</div>
     </div>
   )

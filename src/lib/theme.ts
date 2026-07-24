@@ -4,6 +4,7 @@
 // code that can't rely on CSS cascade (SVG stroke attributes, palette.ts) reads
 // getTheme()/subscribeTheme() instead. Mirrors the subscribeSync pattern in
 // sync/manager.ts.
+import { useEffect, useState } from 'react'
 import { loadSettings, saveSettings, type Theme } from './storage'
 
 export type { Theme }
@@ -41,4 +42,12 @@ export function subscribeTheme(fn: (t: Theme) => void): () => void {
   subs.add(fn)
   fn(theme)
   return () => subs.delete(fn)
+}
+
+// For components whose colours are computed in JS rather than CSS (SVG chart
+// strokes via palette.ts) — re-renders whenever the toggle in Settings flips.
+export function useTheme(): Theme {
+  const [t, setT] = useState(theme)
+  useEffect(() => subscribeTheme(setT), [])
+  return t
 }

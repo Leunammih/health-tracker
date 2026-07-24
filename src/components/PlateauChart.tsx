@@ -79,6 +79,13 @@ export default function PlateauChart({
   // Date labels: show roughly 5 across the range so they stay legible on a phone.
   const labelEvery = Math.max(1, Math.round(n / 5))
 
+  // No-data vs. zero: a day where every series is null means nobody logged
+  // anything at all that day, which is not the same claim as "did zero" — a
+  // sick day with nothing recorded shouldn't read as a day of deliberate
+  // rest. Those days get a dashed ring at the baseline instead of the plain
+  // plateau floor every other series already draws through.
+  const noEntry = (i: number) => series.every((s) => s.values[i] == null)
+
   return (
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ overflow: 'visible' }}>
@@ -87,8 +94,8 @@ export default function PlateauChart({
           const val = max * f
           return (
             <g key={f}>
-              <line x1={PAD.left} x2={W - PAD.right} y1={y(val)} y2={y(val)} stroke="#1b2740" strokeWidth={1} />
-              <text x={PAD.left - 4} y={y(val) + 3} textAnchor="end" fill="#6b7a99" fontSize={9}>
+              <line x1={PAD.left} x2={W - PAD.right} y1={y(val)} y2={y(val)} stroke="var(--line)" strokeWidth={1} />
+              <text x={PAD.left - 4} y={y(val) + 3} textAnchor="end" fill="var(--faint)" fontSize={9}>
                 {Math.round(val)}
               </text>
             </g>
@@ -118,10 +125,26 @@ export default function PlateauChart({
           )
         })}
 
+        {/* no-entry rings — see noEntry() above */}
+        {dates.map((d, i) =>
+          noEntry(i) ? (
+            <circle
+              key={`ne-${d}`}
+              cx={cx(i)}
+              cy={bottom}
+              r={3}
+              fill="none"
+              stroke="var(--faint)"
+              strokeWidth={1.3}
+              strokeDasharray="2 2"
+            />
+          ) : null,
+        )}
+
         {/* X labels */}
         {dates.map((d, i) =>
           i % labelEvery === 0 ? (
-            <text key={d} x={cx(i)} y={H - 5} textAnchor="middle" fill="#6b7a99" fontSize={9}>
+            <text key={d} x={cx(i)} y={H - 5} textAnchor="middle" fill="var(--faint)" fontSize={9}>
               {fmtDate(d)}
             </text>
           ) : null,
