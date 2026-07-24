@@ -527,41 +527,39 @@ export default function NutritionTab() {
         <div className="space-y-2">
           <div className="label">Recent meals</div>
           {meals.map((m) => (
-            <div key={m.id} className="card flex items-center justify-between gap-2 !p-3">
-              <div className="min-w-0">
+            <div key={m.id} className="card flex items-start gap-3.5">
+              <div className="min-w-0 flex-1">
                 {/* Real meal names run long ("Homemade Nut & Seed Cereal with Rice
-                    Milk") and wrapped to four lines, pushing rows past 200px so only
-                    three fitted on screen. Two lines, then ellipsis. */}
-                <div className="line-clamp-2 text-sm text-white">{m.name}</div>
-                <div className="text-xs text-ink-400">
+                    Milk") — the row holds the full wrapped title (up to ~4 lines)
+                    rather than truncating it. */}
+                <div className="text-[15px] leading-snug text-cream">{m.name}</div>
+                <div className="mt-1.5 text-xs text-ink-500">
                   {fmtDate(m.date)}
                   {m.photo_path ? ' · 📷' : ''}
                   {m.source === 'text' ? ' · 🎙' : ''}
                 </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <div className="text-right text-xs text-ink-300">
-                  <div className="text-sm font-semibold text-white">{m.calories ?? '—'} kcal</div>
-                  <div>
+                <div className="mt-2 text-[13px] text-ink-300">
+                  {m.calories ?? '—'} kcal ·{' '}
+                  <span className="text-ink-500">
                     P{fmt(m.protein_g)} · F{fmt(m.fat_g)} · C{fmt(m.carbs_g)} · Fb{fmt(m.fiber_g)}
-                  </div>
+                  </span>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    className="rounded-lg px-2 py-1 text-xs text-ink-300 hover:bg-ink-700"
-                    onClick={() => startEditMeal(m)}
-                    aria-label="Edit meal"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="rounded-lg px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
-                    onClick={() => void removeMeal(m.id)}
-                    aria-label="Delete meal"
-                  >
-                    Delete
-                  </button>
-                </div>
+              </div>
+              <div className="flex shrink-0 flex-col gap-1.5">
+                <button
+                  className="btn-ghost !h-[38px] w-16 !px-0 !py-0 text-xs"
+                  onClick={() => startEditMeal(m)}
+                  aria-label="Edit meal"
+                >
+                  Edit
+                </button>
+                <button
+                  className="btn-destructive !h-[38px] w-16 !px-0 !py-0 text-xs"
+                  onClick={() => void removeMeal(m.id)}
+                  aria-label="Delete meal"
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))}
