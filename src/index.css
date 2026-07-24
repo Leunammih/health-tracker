@@ -1,9 +1,67 @@
+/* Self-hosted webfonts (offline PWA — no CDN @import). Latin-only subsets and
+   only the weights the app-scale type ramp actually uses — the full @import
+   pulls in cyrillic/greek/vietnamese subsets too, which just bloats the
+   service-worker precache for a single English-speaking user. */
+@import '@fontsource/jost/latin-200.css';
+@import '@fontsource/jost/latin-300.css';
+@import '@fontsource/jost/latin-400.css';
+@import '@fontsource/jost/latin-500.css';
+@import '@fontsource/cormorant-garamond/latin-300.css';
+@import '@fontsource/cormorant-garamond/latin-400.css';
+@import '@fontsource/cormorant-garamond/latin-500.css';
+@import '@fontsource/cormorant-garamond/latin-300-italic.css';
+@import '@fontsource/cormorant-garamond/latin-400-italic.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* MindBodyWorkFlow tokens, ported from the Claude Design output (project
+   c7aa4381-…, ui_kits/app/HealthTrackerKit.dc.html) and rescaled to app
+   dimensions. Dark is the default; `.parchment` on <html> (set by
+   src/lib/theme.ts) swaps every var below to the light world. Tailwind's
+   ink/brand/cream keys resolve through these vars (see tailwind.config.js),
+   so the whole component layer is theme-reactive without per-tab changes. */
 :root {
   color-scheme: dark;
+
+  --bg: #0e1b1a;
+  --bg-soft: #112120;
+  --surface: #152826;
+  --surface-2: #1b3330;
+  --surface-3: #234039; /* hover/pressed tone — one step lighter than surface-2 */
+  --line: rgba(244, 238, 223, 0.09);
+
+  --text: #f4eedf; /* cream */
+  --muted-bright: #dbe2dd; /* sage-200 — the app's most-used secondary text tone */
+  --muted: #aab4a7; /* sage-500 */
+  --faint: #77816f; /* sage-700 */
+
+  --accent: #f4a259; /* ember-500 — primary */
+  --accent-bright: #f6c267; /* ember-300 — small dots/icons/active tab */
+  --accent-deep: #c97b2d; /* ember-700 — hover/deep, destructive border */
+  --accent-dim: rgba(244, 162, 89, 0.14);
+}
+
+:root.parchment {
+  color-scheme: light;
+
+  --bg: #f4eedf;
+  --bg-soft: #ede4cf;
+  --surface: #faf5e9;
+  --surface-2: #efe6d2;
+  --surface-3: #e3d8be;
+  --line: rgba(46, 58, 54, 0.16);
+
+  --text: #2e3a36;
+  --muted-bright: #3f4a44;
+  --muted: #5c6756;
+  --faint: #8c927f;
+
+  --accent: #c97b2d; /* ember-deep reads better on cream than ember-500 */
+  --accent-bright: #a8621f;
+  --accent-deep: #a8621f;
+  --accent-dim: rgba(201, 123, 45, 0.12);
 }
 
 html,
@@ -14,8 +72,8 @@ body,
 
 body {
   margin: 0;
-  background: #0b1120;
-  color: #e6ecf5;
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
 }
@@ -42,18 +100,24 @@ select {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 font-medium transition active:scale-[0.98] disabled:opacity-40 disabled:active:scale-100;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-500;
+    @apply btn bg-brand-500 text-ink-900 hover:bg-brand-400;
   }
   .btn-ghost {
-    @apply btn bg-ink-700 text-ink-300 hover:bg-ink-600;
+    @apply btn bg-transparent border border-ink-700 text-cream hover:bg-ink-800;
+  }
+  .btn-destructive {
+    @apply btn bg-transparent border border-brand-600/50 text-brand-500 hover:bg-brand-600/10;
   }
   .field {
-    @apply w-full rounded-xl bg-ink-900 border border-ink-700 px-3 py-2.5 text-white placeholder:text-ink-400 focus:border-brand-500 focus:outline-none;
+    @apply w-full rounded-xl bg-ink-900 border border-ink-700 px-3 py-2.5 text-cream placeholder:text-ink-400 focus:border-brand-500 focus:outline-none;
   }
   .label {
     @apply text-xs font-medium uppercase tracking-wide text-ink-400 mb-1 block;
   }
   .chip {
     @apply rounded-full px-3 py-1 text-sm border border-ink-600 text-ink-300;
+  }
+  .chip-on {
+    @apply chip !border-transparent bg-brand-500 !text-ink-900;
   }
 }

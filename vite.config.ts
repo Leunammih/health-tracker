@@ -16,8 +16,8 @@ export default defineConfig({
         name: 'Health Tracker',
         short_name: 'Health',
         description: 'Personal health, gut, infection and nutrition tracker',
-        theme_color: '#0f766e',
-        background_color: '#0b1120',
+        theme_color: '#0e1b1a',
+        background_color: '#0e1b1a',
         display: 'standalone',
         orientation: 'portrait',
         icons: [
@@ -27,7 +27,9 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,wasm}'],
+        // woff2: self-hosted Cormorant Garamond + Jost must precache for the
+        // offline PWA guarantee, same as everything else here.
+        globPatterns: ['**/*.{js,css,html,svg,png,wasm,woff2}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
