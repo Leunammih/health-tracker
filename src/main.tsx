@@ -2,7 +2,10 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
+import { initTheme } from './lib/theme'
 import './index.css'
+
+initTheme() // apply the stored light/dark preference before first paint
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

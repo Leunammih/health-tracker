@@ -2,12 +2,15 @@
 //  - Settings (API key, Dropbox config, model) in localStorage.
 //  - The SQLite database blob cached in IndexedDB for fast offline load.
 
+export type Theme = 'dark' | 'light'
+
 export interface Settings {
   anthropicKey: string
   model: string
   dropboxAppKey: string // the Dropbox app's public "App key" (safe on-device; PKCE client)
   dropboxRefreshToken: string // obtained via OAuth PKCE; used to mint short-lived access tokens
   syncEnabled: boolean
+  theme: Theme
 }
 
 const SETTINGS_KEY = 'ht.settings.v1'
@@ -18,6 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dropboxAppKey: '',
   dropboxRefreshToken: '',
   syncEnabled: false,
+  theme: 'dark',
 }
 
 export function loadSettings(): Settings {
