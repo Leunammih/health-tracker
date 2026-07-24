@@ -95,11 +95,11 @@ export default function QuickLogSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white">
+          <div className="flex items-center gap-2 text-cream">
             <span className="h-3 w-3 rounded-full" style={{ background: color }} />
-            <span className="font-semibold">{label}</span>
+            <span className="text-[17px]">{label}</span>
           </div>
-          <button className="text-sm text-ink-400 hover:text-white" onClick={onClose}>
+          <button className="text-sm text-ink-400 hover:text-cream" onClick={onClose}>
             Done
           </button>
         </div>
@@ -109,9 +109,9 @@ export default function QuickLogSheet({
 
         <div className="mt-4 flex items-baseline justify-between">
           <div className="label !mb-0">{scale.unit === '/10' ? 'Level' : scale.unit === '%' ? 'Intensity' : 'Duration'}</div>
-          <div className="text-2xl font-semibold text-white">
+          <div className="font-serif text-2xl leading-none text-cream">
             {value}
-            <span className="ml-1 text-sm text-ink-400">{scale.unit}</span>
+            <span className="ml-1 font-sans text-sm text-ink-400">{scale.unit}</span>
           </div>
         </div>
         <input

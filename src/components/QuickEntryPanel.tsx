@@ -342,45 +342,27 @@ const QuickRow = memo(function QuickRow({
   const hasNote = !!(draft.noteTouched ? draft.note.trim() : saved.note)
 
   return (
-    <div className="py-1">
-      <div className="flex items-center gap-2">
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-white">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+    <div className="py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] text-cream">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
           <span className="truncate">{labelForTrack(name)}</span>
           {saved.value != null && !dirty && (
-            <span className="shrink-0 text-[10px] text-brand-400">saved</span>
+            <span className="shrink-0 text-[10px] text-brand-500">saved</span>
           )}
           {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-label="unsaved" />}
         </span>
 
-        <span className={`shrink-0 text-sm tabular-nums ${dirty || saved.value != null ? 'text-white' : 'text-ink-500'}`}>
-          {draft.value}
-          <span className="ml-0.5 text-[10px] text-ink-400">{scale.unit}</span>
+        <span className="flex shrink-0 items-baseline gap-1">
+          <span
+            className={`font-serif text-xl leading-none ${
+              dirty || saved.value != null ? 'text-cream' : 'text-ink-400'
+            }`}
+          >
+            {draft.value}
+          </span>
+          <span className="text-[11px] text-ink-400">{scale.unit}</span>
         </span>
-
-        <button
-          type="button"
-          aria-label={hasNote ? 'Edit note' : 'Add note'}
-          aria-expanded={noteOpen}
-          onClick={() => setNoteOpen((o) => !o)}
-          className={`relative grid h-8 w-8 shrink-0 place-items-center rounded-lg ${
-            noteOpen ? 'bg-ink-600 text-white' : 'bg-ink-700 text-ink-300'
-          }`}
-        >
-          <IconNote width={14} height={14} />
-          {hasNote && !noteOpen && (
-            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-brand-400" />
-          )}
-        </button>
-
-        <button
-          type="button"
-          disabled={!canSave}
-          onClick={onSave}
-          className="btn-primary shrink-0 !px-3 !py-1.5 text-xs"
-        >
-          {justSaved ? '✓' : 'Save'}
-        </button>
       </div>
 
       <input
@@ -390,13 +372,40 @@ const QuickRow = memo(function QuickRow({
         step={scale.step}
         value={draft.value}
         onChange={(e) => onChange({ value: Number(e.target.value) })}
-        className="w-full"
+        className="mt-1 w-full"
         style={{ accentColor: color }}
       />
 
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={hasNote ? 'Edit note' : 'Add note'}
+          aria-expanded={noteOpen}
+          onClick={() => setNoteOpen((o) => !o)}
+          className={`relative flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl border text-xs ${
+            noteOpen ? 'border-ink-600 bg-ink-700 text-cream' : 'border-ink-700 text-ink-300'
+          }`}
+        >
+          <IconNote width={13} height={13} />
+          {hasNote ? 'Edit note' : 'Add note'}
+          {hasNote && !noteOpen && (
+            <span className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-brand-500" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className="btn-primary h-9 shrink-0 !px-4 !py-0 text-xs"
+        >
+          {justSaved ? '✓ Saved' : 'Save'}
+        </button>
+      </div>
+
       {noteOpen && (
         <textarea
-          className="field mt-1 min-h-[2.75rem] !py-2"
+          className="field mt-2 min-h-[2.75rem] !py-2"
           placeholder="Additional information — e.g. 'right knee only, worse on stairs'"
           value={draft.note}
           onChange={(e) => onChange({ note: e.target.value, noteTouched: true })}

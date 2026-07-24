@@ -23,6 +23,7 @@ export default {
           800: 'var(--surface)',
           700: 'var(--surface-2)',
           600: 'var(--surface-3)',
+          500: 'var(--faint)', // was previously undefined — text-ink-500 silently no-op'd
           400: 'var(--muted)',
           300: 'var(--muted-bright)',
         },

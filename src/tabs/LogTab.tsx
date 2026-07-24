@@ -8,6 +8,7 @@ import { fmtDate, todayISO, dateSpine, daysAgoISO } from '../lib/dates'
 import { IconMic } from '../components/icons'
 import DayStrip from '../components/DayStrip'
 import QuickEntryPanel from '../components/QuickEntryPanel'
+import { colorForTrack } from '../lib/metrics'
 import type { DiaryExtraction, Activity, Entry } from '../types'
 
 // How far back the date strip lets you swipe.
@@ -133,19 +134,30 @@ export default function LogTab() {
       )}
 
       {phase === 'input' && checkins.length > 0 && (
-        <div className="card space-y-3 border-brand-500/30">
-          <div className="label !text-brand-300">Recovery check-in</div>
-          <p className="text-xs text-ink-400">
-            How did these feel in the days after? (Soreness usually shows up a day or two later.)
-          </p>
-          {checkins.map((a) => (
-            <CheckinRow
-              key={a.id}
-              activity={a}
-              onDone={() => setRefreshKey((k) => k + 1)}
-              onError={(m) => setError(m)}
-            />
-          ))}
+        <div
+          className="space-y-4 rounded-2xl border border-brand-600/25 p-5"
+          style={{ background: 'linear-gradient(160deg, var(--surface-2), var(--surface))' }}
+        >
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-brand-500">✦</span>
+              <span className="label !mb-0 !text-brand-500">Recovery check-in</span>
+            </div>
+            <p className="font-serif text-xl leading-tight text-cream">How have these felt since?</p>
+            <p className="mt-2 text-sm font-light leading-relaxed text-ink-300">
+              Soreness often shows up a day or two later. No rush — answer whenever you can.
+            </p>
+          </div>
+          <div className="space-y-3">
+            {checkins.map((a) => (
+              <CheckinRow
+                key={a.id}
+                activity={a}
+                onDone={() => setRefreshKey((k) => k + 1)}
+                onError={(m) => setError(m)}
+              />
+            ))}
+          </div>
         </div>
       )}
 
@@ -273,7 +285,7 @@ export default function LogTab() {
         <div className="card space-y-4">
           <div>
             <div className="label">Summary · {fmtDate(entryDate)}</div>
-            <p className="text-sm text-white">{extraction.summary || 'Log entry'}</p>
+            <p className="text-sm text-cream">{extraction.summary || 'Log entry'}</p>
           </div>
           <ExtractionPreview data={extraction} />
           <div className="flex gap-2">
@@ -347,7 +359,7 @@ function SavedDetail({ detail }: { detail: EntryDetail }) {
         <div key={r.label}>
           <div className="label !mb-0.5">{r.label}</div>
           {r.items.filter(Boolean).map((it, i) => (
-            <div key={i} className="text-sm text-white">{it}</div>
+            <div key={i} className="text-sm text-cream">{it}</div>
           ))}
         </div>
       ))}
@@ -374,7 +386,7 @@ function ExtractionPreview({ data }: { data: DiaryExtraction }) {
           <div className="label">{r.label}</div>
           <div className="space-y-1">
             {r.items.filter(Boolean).map((it, i) => (
-              <div key={i} className="rounded-lg bg-ink-900 px-3 py-2 text-sm text-white">
+              <div key={i} className="rounded-lg bg-ink-900 px-3 py-2 text-sm text-cream">
                 {it}
               </div>
             ))}
@@ -396,7 +408,8 @@ function CheckinRow({
 }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const label = [activity.type, activity.duration_min && `${activity.duration_min}m`].filter(Boolean).join(' · ')
+  const duration = activity.duration_min ? `${activity.duration_min}m` : null
+  const color = colorForTrack(activity.type || 'activity')
 
   async function save() {
     if (!text.trim()) return
@@ -423,22 +436,28 @@ function CheckinRow({
   }
 
   return (
-    <div className="rounded-xl bg-ink-900 p-3">
-      <div className="mb-1 text-sm text-white">
-        {label || 'Workout'} <span className="text-ink-400">· {fmtDate(activity.date)}</span>
+    <div className="rounded-xl p-3" style={{ background: 'rgba(11,20,19,.35)' }}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2 text-[15px] text-cream">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+          <span className="truncate">{activity.type || 'Workout'}</span>
+        </span>
+        <span className="shrink-0 text-xs text-ink-400">
+          {[duration, fmtDate(activity.date)].filter(Boolean).join(' · ')}
+        </span>
       </div>
       <textarea
         className="field min-h-[2.75rem]"
-        placeholder="e.g. 'calves sore for 2 days, gentle walk helped' — or leave blank"
+        placeholder="How does your body feel today?"
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
       <div className="mt-2 flex gap-2">
+        <button className="btn-ghost flex-1 !py-2 text-sm" disabled={busy} onClick={() => void dismiss()}>
+          No issues
+        </button>
         <button className="btn-primary flex-1 !py-2 text-sm" disabled={busy || !text.trim()} onClick={() => void save()}>
           Save
-        </button>
-        <button className="btn-ghost !py-2 text-sm" disabled={busy} onClick={() => void dismiss()}>
-          No issues
         </button>
       </div>
     </div>

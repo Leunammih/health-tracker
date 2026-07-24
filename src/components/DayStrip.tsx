@@ -42,18 +42,20 @@ export default function DayStrip({
             key={d}
             ref={isSel ? selRef : undefined}
             onClick={() => onSelect(d)}
-            className={`relative shrink-0 snap-center rounded-xl px-3 py-2 text-center transition ${
-              isSel ? 'bg-brand-500 text-white' : 'bg-ink-800 text-ink-300 hover:bg-ink-700'
+            className={`relative shrink-0 snap-center rounded-2xl px-3 py-2.5 text-center transition ${
+              isSel ? 'bg-brand-500' : 'hover:bg-ink-800'
             }`}
           >
-            <div className="text-[10px] uppercase opacity-70">
+            <div className={`text-[10px] uppercase tracking-wide ${isSel ? 'text-ink-900/70' : 'text-ink-400'}`}>
               {day.toLocaleDateString(undefined, { weekday: 'short' })}
             </div>
-            <div className="text-sm font-semibold leading-tight">{day.getDate()}</div>
+            <div className={`text-sm font-medium leading-tight ${isSel ? 'text-ink-900' : 'text-cream'}`}>
+              {day.getDate()}
+            </div>
             {has && (
               <span
                 className={`absolute inset-x-0 bottom-1 mx-auto h-1 w-1 rounded-full ${
-                  isSel ? 'bg-white/80' : 'bg-brand-400'
+                  isSel ? 'bg-ink-900/50' : 'bg-brand-500'
                 }`}
               />
             )}
