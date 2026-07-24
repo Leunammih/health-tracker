@@ -6,7 +6,19 @@
 // low number is the good outcome (pain, stress, illness, release) set
 // `lowerIsBetter` and render on a reversed Y axis.
 
+import { colorForTrack as paletteColor, chartPalette, type PaletteGroup } from './palette'
+
+export type { PaletteGroup }
+export { chartPalette }
+
 export type MetricGroup = 'practice' | 'movement' | 'symptom' | 'wellbeing' | 'other'
+
+// The palette module's hue families don't include 'other' (fallback groups
+// like weight measurements) — those land in the symptom arc, same as any
+// unregistered name, so a stray track never picks a forbidden or clashing hue.
+function paletteGroup(g: MetricGroup): PaletteGroup {
+  return g === 'other' ? 'symptom' : g
+}
 
 export interface TrackDef {
   key: string // canonical key stored in tracks.name
@@ -25,45 +37,43 @@ export interface TrackDef {
   store?: 'tracks' | 'wellbeing'
 }
 
-// Colours are dark-surface validated and follow series identity, never rank, so
-// the same activity is always the same hue across every chart.
+// Colours are derived from the group-hue palette module (src/lib/palette.ts),
+// never hand-authored here — that's the whole point of extracting colour into
+// its own presentation module: a palette change never touches this registry,
+// and this registry never risks a forbidden or colliding hue again.
 export const TRACK_DEFS: TrackDef[] = [
   // --- movement & exercise (minutes) ---
-  { key: 'exercise', label: 'Exercise', match: /workout|strength|gym|exercise|training/i, color: '#eab308', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'dancing', label: 'Dancing', match: /danc/i, color: '#3987e5', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'biking', label: 'Biking', match: /bik|cycl/i, color: '#22c55e', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'walking', label: 'Walking', match: /walk|hike|hiking/i, color: '#14b8a6', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'running', label: 'Running', match: /run|jog/i, color: '#84cc16', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'stretching', label: 'Stretching', match: /stretch|mobility/i, color: '#818cf8', group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
-  { key: 'swimming', label: 'Swimming', match: /swim/i, color: '#06b6d4', group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
-  { key: 'yoga', label: 'Yoga', match: /yoga/i, color: '#c084fc', group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
+  { key: 'exercise', label: 'Exercise', match: /workout|strength|gym|exercise|training/i, color: paletteColor('exercise', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'dancing', label: 'Dancing', match: /danc/i, color: paletteColor('dancing', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'biking', label: 'Biking', match: /bik|cycl/i, color: paletteColor('biking', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'walking', label: 'Walking', match: /walk|hike|hiking/i, color: paletteColor('walking', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'running', label: 'Running', match: /run|jog/i, color: paletteColor('running', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'stretching', label: 'Stretching', match: /stretch|mobility/i, color: paletteColor('stretching', 'movement'), group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
+  { key: 'swimming', label: 'Swimming', match: /swim/i, color: paletteColor('swimming', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
+  { key: 'yoga', label: 'Yoga', match: /yoga/i, color: paletteColor('yoga', 'movement'), group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
 
   // --- practices (minutes) ---
-  { key: 'meditation', label: 'Meditation', match: /medit/i, color: '#8b5cf6', group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
-  { key: 'breath work', label: 'Breath work', match: /breath/i, color: '#2dd4bf', group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
+  { key: 'meditation', label: 'Meditation', match: /medit/i, color: paletteColor('meditation', 'practice'), group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
+  { key: 'breath work', label: 'Breath work', match: /breath/i, color: paletteColor('breath work', 'practice'), group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
 
   // --- symptoms (0-10, low is good → reversed axis) ---
-  { key: 'knee pain', label: 'Knee pain', match: /knee/i, color: '#ef4444', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
-  { key: 'wrist pain', label: 'Wrist pain', match: /wrist/i, color: '#f97316', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
-  { key: 'back pain', label: 'Back pain', match: /back/i, color: '#db2777', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
-  { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: '#be123c', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
-  { key: 'stomach pain', label: 'Stomach pain', match: /stomach|belly|gut|abdom/i, color: '#d95926', group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'knee pain', label: 'Knee pain', match: /knee/i, color: paletteColor('knee pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'wrist pain', label: 'Wrist pain', match: /wrist/i, color: paletteColor('wrist pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'back pain', label: 'Back pain', match: /back/i, color: paletteColor('back pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: paletteColor('shoulder pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'stomach pain', label: 'Stomach pain', match: /stomach|belly|gut|abdom/i, color: paletteColor('stomach pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
 
   // --- measurements ---
-  { key: 'weight', label: 'Weight', match: /weight/i, color: '#38bdf8', group: 'other', unit: 'kg', min: 40, max: 150, step: 1 },
+  { key: 'weight', label: 'Weight', match: /weight/i, color: paletteColor('weight', 'symptom'), group: 'other', unit: 'kg', min: 40, max: 150, step: 1 },
 
   // --- energy & mood (0-10, high is good). Stored on the `wellbeing` table, not
   // `tracks`; colours match the existing "Energy & mood" chart in InsightsTab. ---
-  { key: 'energy', label: 'Energy', match: /^energy$/i, color: '#2dd4bf', group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
-  { key: 'mood', label: 'Mood', match: /^mood$/i, color: '#a78bfa', group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
+  { key: 'energy', label: 'Energy', match: /^energy$/i, color: paletteColor('energy', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
+  { key: 'mood', label: 'Mood', match: /^mood$/i, color: paletteColor('mood', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
 
   // --- release (10% steps; 0% at top, 100% at bottom) ---
-  { key: 'release', label: 'Release 💦', match: /release/i, color: '#ec4899', group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true },
+  { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true },
 ]
-
-// Fallback hues for names with no explicit definition, so an unknown track still
-// gets a stable colour rather than a random one per render.
-const FALLBACK = ['#3987e5', '#199e70', '#c98500', '#008300', '#9085e9', '#e66767', '#d55181', '#d95926']
 
 // Resolve a free-form name to its definition. The fuzzy regex pass deliberately
 // SKIPS wellbeing-stored defs: this runs against arbitrary names read out of the
@@ -86,14 +96,13 @@ export function canonicalTrackName(name: string): string {
   return defForName(name)?.key ?? name.trim().toLowerCase()
 }
 
-// Stable colour for any track name: its definition's colour, else a hash into the
-// fallback palette (same name → same hue on every render and every chart).
+// Stable colour for any track name: its definition's colour, else a
+// deterministic slot in its (best-guess) group's hue arc — same name → same
+// hue on every render and every chart, even for names dictation invents.
 export function colorForTrack(name: string): string {
   const def = defForName(name)
   if (def) return def.color
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
-  return FALLBACK[h % FALLBACK.length]
+  return paletteColor(name, paletteGroup(groupForTrack(name)))
 }
 
 export function labelForTrack(name: string): string {
