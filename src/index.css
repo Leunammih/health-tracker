@@ -136,8 +136,16 @@ select {
   .btn-ghost {
     @apply btn bg-transparent border border-ink-700 text-cream hover:bg-ink-800;
   }
+  /* Raw rgb()/opacity here, not a Tailwind border-brand-600/50-style utility:
+     that opacity-modifier form only resolves when the exact class also shows
+     up as a literal scanned string somewhere in content — inside @apply with
+     no other usage, Tailwind's JIT can't generate it and the build fails. */
   .btn-destructive {
-    @apply btn bg-transparent border border-brand-600/50 text-brand-500 hover:bg-brand-600/10;
+    @apply btn bg-transparent text-brand-500;
+    border: 1px solid rgb(var(--accent-deep-rgb) / 0.5);
+  }
+  .btn-destructive:hover {
+    background: var(--accent-dim);
   }
   .field {
     @apply w-full rounded-xl bg-ink-900 border border-ink-700 px-3 py-2.5 text-cream placeholder:text-ink-400 focus:border-brand-500 focus:outline-none;
