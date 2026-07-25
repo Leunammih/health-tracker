@@ -436,7 +436,7 @@ function CheckinRow({
   }
 
   return (
-    <div className="rounded-xl p-3" style={{ background: 'rgba(11,20,19,.35)' }}>
+    <div className="rounded-xl p-3" style={{ background: 'var(--surface-3)' }}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2 text-[15px] text-cream">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
