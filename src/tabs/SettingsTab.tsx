@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { loadSettings, saveSettings, getLastLocalSave, type Settings } from '../lib/storage'
+import { useTheme, setTheme } from '../lib/theme'
 import { testConnection, beginAuth, disconnect, isConfigured } from '../sync/dropbox'
 import { pullIfNewer } from '../sync/manager'
 import { counts } from '../db/queries'
@@ -17,6 +18,7 @@ function fmtWhen(iso: string | null): string {
 }
 
 export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
+  const theme = useTheme()
   const [s, setS] = useState<Settings>(loadSettings())
   const [saved, setSaved] = useState(false)
   const [test, setTest] = useState<string | null>(null)
@@ -88,6 +90,22 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
   return (
     <div className="space-y-4">
       <section className="card space-y-3">
+        <div className="label">Appearance</div>
+        <div className="flex gap-2">
+          <button className={theme === 'dark' ? 'chip-on' : 'chip'} onClick={() => setTheme('dark')}>
+            Dark
+          </button>
+          <button className={theme === 'light' ? 'chip-on' : 'chip'} onClick={() => setTheme('light')}>
+            Parchment
+          </button>
+        </div>
+        <p className="text-xs text-ink-400">
+          Dark is recommended for low light and one-handed use at night. Parchment is the same brand, lit for
+          daytime.
+        </p>
+      </section>
+
+      <section className="card space-y-3">
         <div className="label">Claude API</div>
         <div>
           <label className="label">Anthropic API key</label>
@@ -127,7 +145,7 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
               </button>
             </div>
             {test && <p className="text-xs text-ink-300">{test}</p>}
-            <button className="btn-ghost w-full !text-red-400" onClick={disconnectDropbox}>
+            <button className="btn-destructive w-full" onClick={disconnectDropbox}>
               Disconnect Dropbox
             </button>
           </>
