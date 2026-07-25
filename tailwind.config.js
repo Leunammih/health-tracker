@@ -4,9 +4,14 @@
 // triplet for this, and a plain var wrapping it for direct CSS/inline-style
 // use. This is Tailwind's documented pattern for opacity-modifier-compatible
 // CSS-variable colours.
+// Modern rgb()-with-slash syntax, not legacy comma rgba() — the -rgb vars
+// hold SPACE-separated triplets (e.g. "244 162 89"), and `rgba(var(--x), .5)`
+// expands to the invalid `rgba(244 162 89, .5)`, which browsers silently drop
+// (every colour rendered transparent for any class Tailwind ran through its
+// opacity machinery, which turned out to be nearly all of them).
 function withOpacity(variable) {
   return ({ opacityValue }) =>
-    opacityValue !== undefined ? `rgba(var(${variable}), ${opacityValue})` : `rgb(var(${variable}))`
+    opacityValue !== undefined ? `rgb(var(${variable}) / ${opacityValue})` : `rgb(var(${variable}))`
 }
 
 /** @type {import('tailwindcss').Config} */
