@@ -59,22 +59,30 @@ export default function App() {
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col">
       <header className="safe-top sticky top-0 z-10 flex items-center justify-between border-b border-ink-700 bg-ink-900/90 px-4 py-3 backdrop-blur">
-        <h1 className="text-lg font-semibold tracking-tight text-white">
+        <h1 className="font-serif text-xl font-normal tracking-tight text-cream">
           {TABS.find((t) => t.id === tab)?.label}
         </h1>
         <SyncBadge />
       </header>
 
-      {needsKey && tab !== 'settings' && (
-        <button
-          onClick={() => setTab('settings')}
-          className="mx-4 mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-left text-sm text-amber-200"
-        >
-          Add your Anthropic API key in Settings to enable AI features →
-        </button>
-      )}
-
       <main className="flex-1 overflow-y-auto px-4 py-4">
+        {/* Was previously rendered between the sticky header and this scroll
+            region, in the outer flex column — so it never scrolled and sat
+            fixed over content on every tab. Living inside <main> now, it
+            scrolls away like everything else. */}
+        {needsKey && tab !== 'settings' && (
+          <button
+            onClick={() => setTab('settings')}
+            className="mb-4 flex w-full items-start gap-3 rounded-2xl border border-brand-600/30 bg-brand-500/10 px-4 py-3 text-left text-sm text-cream"
+          >
+            <span className="shrink-0 text-brand-500">✦</span>
+            <span>
+              Add your Anthropic API key in Settings to enable AI features.{' '}
+              <span className="text-brand-500">Open Settings →</span>
+            </span>
+          </button>
+        )}
+
         {tab === 'log' && <LogTab />}
         {tab === 'nutrition' && <NutritionTab />}
         {tab === 'insights' && <InsightsTab />}
