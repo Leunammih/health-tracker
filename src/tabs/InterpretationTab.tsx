@@ -103,14 +103,14 @@ function renderInline(text: string): (string | JSX.Element)[] {
   return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
       return (
-        <strong key={i} className="font-semibold text-white">
+        <strong key={i} className="font-medium text-cream">
           {part.slice(2, -2)}
         </strong>
       )
     }
     if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
       return (
-        <em key={i} className="italic text-ink-200">
+        <em key={i} className="font-serif not-italic text-brand-400">
           {part.slice(1, -1)}
         </em>
       )
@@ -119,21 +119,23 @@ function renderInline(text: string): (string | JSX.Element)[] {
   })
 }
 
+// Scannable in ten seconds, then read one bullet properly without losing your
+// place — an ember ✦ bullet with a bold lead phrase, not a wall of grey text.
 function Report({ text }: { text: string }) {
   const lines = cleanReport(text).split('\n').filter((l) => l.trim() !== '')
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2.5">
       {lines.map((line, i) => {
         const bullet = line.match(/^\s*[-*]\s+(.*)$/)
         return bullet ? (
-          <div key={i} className="flex gap-2 text-sm leading-relaxed text-ink-300">
-            <span aria-hidden className="mt-[3px] shrink-0 text-ink-600">
-              •
+          <div key={i} className="flex gap-2.5 text-sm font-light leading-relaxed text-ink-300">
+            <span aria-hidden className="shrink-0 text-brand-500">
+              ✦
             </span>
             <span className="min-w-0">{renderInline(bullet[1])}</span>
           </div>
         ) : (
-          <p key={i} className="text-sm leading-relaxed text-ink-300">
+          <p key={i} className="text-sm font-light leading-relaxed text-ink-300">
             {renderInline(line)}
           </p>
         )
@@ -144,22 +146,24 @@ function Report({ text }: { text: string }) {
 
 function InterpretationCard({ log }: { log: Interpretation }) {
   return (
-    <div className="card space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-ink-400">
+    <div className="card space-y-4">
+      <div className="flex items-center gap-2 border-b border-ink-700 pb-3 text-xs text-ink-500">
+        <span className="text-brand-500">✦</span>
+        <span>
           {fmtDate(log.created_at)} · {log.period_covered}
-        </div>
-        <div className="text-[10px] text-ink-600">{log.model}</div>
+        </span>
+        <span className="text-ink-600">·</span>
+        <span>{log.model}</span>
       </div>
       {log.patterns && (
         <div>
-          <div className="label">Patterns</div>
+          <div className="label !text-brand-500">Patterns</div>
           <Report text={log.patterns} />
         </div>
       )}
       {log.correlations && (
         <div>
-          <div className="label">Correlations</div>
+          <div className="label !text-brand-500">Correlations</div>
           <Report text={log.correlations} />
         </div>
       )}
