@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-25_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -49,6 +49,22 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   (also on the Insights tap-to-log sheet). **Energy and mood** are now quick entries —
   they live on the `wellbeing` table, reached via a `store` discriminator on `TrackDef`.
   Schema **v6** (`wellbeing.energy_notes`, `mood_notes`).
+
+- **UI redesign (2026-07-25)** — MindBodyWorkFlow design system (Claude Design project
+  `c7aa4381-…`) ported end to end, 13 commits (`e8d4bf4`..`b18450e`). Ink-teal/ember
+  tokens as CSS custom properties in `src/index.css`, self-hosted Cormorant Garamond +
+  Jost (`@fontsource`, no CDN). New `src/lib/palette.ts`: deterministic group-hue oklch
+  colour rule (movement/practice/wellbeing/symptom/illness arcs), replacing every
+  hand-authored hex in `metrics.ts` — also retired two forbidden brand hues and a
+  colour collision. Added a real **light/parchment toggle** (`src/lib/theme.ts` +
+  Settings, not originally in scope but requested) — every tab verified in both
+  themes. `PlateauChart` gained a no-data-vs-zero dashed ring (BASELINE bug #3).
+  4-line meal titles now wrap instead of truncating. Fixed the amber banner's
+  scroll-overlap bug (BASELINE bug). Along the way, fixed two Tailwind
+  colour-opacity/CSS-var bugs (legacy `rgba()` with space-separated vars; `@apply`-only
+  opacity classes never generating) that would have silently broken translucent
+  ember/ink tints app-wide. Full BASELINE.md checklist re-verified against seeded data
+  in both themes before pushing.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
