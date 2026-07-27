@@ -87,7 +87,8 @@ CREATE TABLE IF NOT EXISTS meals (
   confidence TEXT,
   confirmed INTEGER NOT NULL DEFAULT 1,
   source TEXT NOT NULL DEFAULT 'photo',
-  notes TEXT
+  notes TEXT,
+  meal_type TEXT
 );
 
 -- Generic time-series for anything the user wants to track/graph beyond the

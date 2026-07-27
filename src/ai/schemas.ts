@@ -141,6 +141,11 @@ export const MEAL_TOOL = {
     type: 'object',
     properties: {
       name: { type: 'string', description: 'Short name of the dish' },
+      meal_type: {
+        type: 'string',
+        enum: ['breakfast', 'lunch', 'dinner', 'snack'],
+        description: 'Infer from context/time of day if the user did not say it explicitly.',
+      },
       ingredients: {
         type: 'array',
         items: {
@@ -164,7 +169,7 @@ export const MEAL_TOOL = {
         description: 'Questions to confirm portions or hidden ingredients. Empty if confident.',
       },
     },
-    required: ['name', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence', 'clarifying_questions'],
+    required: ['name', 'meal_type', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence', 'clarifying_questions'],
   },
 } as const
 
@@ -183,6 +188,7 @@ export const MULTI_MEAL_TOOL = {
           properties: {
             date: { type: 'string', description: 'ISO YYYY-MM-DD this meal was eaten on.' },
             meal_time: { type: 'string', description: "HH:MM 24h estimate from context (breakfast ~08:00, lunch ~13:00, dinner ~19:00, snack ~16:00) unless the user gave an explicit time." },
+            meal_type: { type: 'string', enum: ['breakfast', 'lunch', 'dinner', 'snack'], description: 'The eating-occasion keyword that identified this as a separate meal, or inferred from meal_time.' },
             name: { type: 'string', description: 'Short name of the dish' },
             ingredients: {
               type: 'array',
@@ -202,7 +208,7 @@ export const MULTI_MEAL_TOOL = {
             fiber_g: { type: 'number' },
             confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
           },
-          required: ['date', 'meal_time', 'name', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence'],
+          required: ['date', 'meal_time', 'meal_type', 'name', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence'],
         },
       },
     },

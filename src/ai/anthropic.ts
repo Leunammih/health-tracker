@@ -145,6 +145,7 @@ export async function analyseMealsText(text: string, referenceDate: string): Pro
     carbs_g: Number(m.carbs_g ?? 0),
     fiber_g: Number(m.fiber_g ?? 0),
     confidence: (m.confidence as MultiMealItem['confidence']) ?? 'medium',
+    meal_type: m.meal_type as MultiMealItem['meal_type'],
   }))
 }
 
@@ -159,6 +160,7 @@ function normaliseMeal(input: ToolInput): MealAnalysis {
     fiber_g: Number(input.fiber_g ?? 0),
     confidence: (input.confidence as MealAnalysis['confidence']) ?? 'medium',
     clarifying_questions: (input.clarifying_questions as string[]) ?? [],
+    meal_type: input.meal_type as MealAnalysis['meal_type'],
   }
 }
 

@@ -129,9 +129,15 @@ export default function InsightsTab() {
   }, [tracks, spine, light])
 
   // --- pain & discomfort: every symptom-category track, on a reversed axis.
+  // Infection and stool are symptom-group too, but they render on the Illness & gut
+  // chart below instead — excluded here so they don't show up in both places.
   const painKeys = useMemo(() => {
     const s = new Set<string>()
-    for (const t of tracks) if (t.value != null && groupForTrack(t.name, t.category) === 'symptom') s.add(t.name)
+    for (const t of tracks) {
+      if (t.value == null || groupForTrack(t.name, t.category) !== 'symptom') continue
+      if (t.name === 'infection' || t.name === 'stool') continue
+      s.add(t.name)
+    }
     return [...s].sort()
   }, [tracks])
 
@@ -182,13 +188,20 @@ export default function InsightsTab() {
 
   // --- illness: infection severity carried forward until logged as gone (0),
   // plus gut pain and Bristol stool consistency on the same reversed axis.
+  // Sources are diary-extracted infections/gut_events AND manually tap-logged
+  // 'infection'/'stool' tracks (src/lib/metrics.ts) — either can set a day's value,
+  // and both participate in infection's carry-forward walk below.
   const illnessData = useMemo(() => {
     const infByDate = new Map<string, number>()
     for (const i of inf) {
       const s = severityScore(i.severity)
       if (s != null) infByDate.set(i.date, s)
     }
+    for (const t of tracks) if (t.name === 'infection' && t.value != null) infByDate.set(t.date, t.value)
     const gutByDate = new Map(gut.map((g) => [g.date, g]))
+    const stoolTrackByDate = new Map(
+      tracks.filter((t) => t.name === 'stool' && t.value != null).map((t) => [t.date, t.value as number]),
+    )
     let carried: number | null = null
     return spine.map((d) => {
       if (infByDate.has(d)) carried = infByDate.get(d) as number
@@ -198,10 +211,10 @@ export default function InsightsTab() {
         rawDate: d,
         infection: carried,
         gutPain: g?.pain ?? null,
-        stool: g?.stool_consistency ?? null,
+        stool: stoolTrackByDate.get(d) ?? g?.stool_consistency ?? null,
       }
     })
-  }, [inf, gut, spine])
+  }, [inf, gut, tracks, spine])
 
   const hasIllness = illnessData.some((r) => r.infection != null || r.gutPain != null || r.stool != null)
   const illnessPalette = useMemo(
@@ -241,7 +254,9 @@ export default function InsightsTab() {
       name,
       unit: rows.find((r) => r.unit)?.unit ?? '',
       count: rows.length,
-      series: rows.filter((r) => r.value != null).map((r) => ({ date: fmtDate(r.date), value: r.value as number })),
+      series: rows
+        .filter((r) => r.value != null)
+        .map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: r.value as number })),
     }))
   }, [tracks])
 
@@ -448,7 +463,7 @@ export default function InsightsTab() {
       )}
 
       {trackGroups.map((g) => (
-        <TrackCard key={g.name} group={g} onLog={() => setSheet({ name: g.name, category: null })} />
+        <TrackCard key={g.name} group={g} spine={spine} onLog={() => setSheet({ name: g.name, category: null })} />
       ))}
 
       {sheet && (
@@ -488,9 +503,11 @@ function categoryOf(name: string): string | null {
 
 function TrackCard({
   group,
+  spine,
   onLog,
 }: {
-  group: { name: string; unit: string; count: number; series: { date: string; value: number }[] }
+  group: { name: string; unit: string; count: number; series: { date: string; rawDate: string; value: number }[] }
+  spine: string[]
   onLog: () => void
 }) {
   const title = labelForTrack(group.name) + (group.unit ? ` (${group.unit})` : '')
@@ -501,15 +518,20 @@ function TrackCard({
     const max = Math.max(...vals)
     const pad = (max - min || Math.max(1, Math.abs(max) * 0.05)) * 0.5
     const domain: [number, number] = [Math.floor(min - pad), Math.ceil(max + pad)]
+    // Aligned to the shared spine (like every other chart in this tab) rather than
+    // just the days this track was actually logged, so it stacks into the same
+    // vertical columns as everything else for the same date.
+    const byDate = new Map(group.series.map((s) => [s.rawDate, s.value]))
+    const data = spine.map((d) => ({ date: fmtDate(d), value: byDate.get(d) ?? null }))
     return (
       <ChartCard title={title}>
         <ResponsiveContainer width="100%" height={150}>
-          <LineChart data={group.series} margin={{ left: -20, right: 8, top: 8 }}>
+          <LineChart data={data} margin={{ left: -20, right: 8, top: 8 }}>
             <CartesianGrid stroke="var(--line)" vertical={false} />
             <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis domain={domain} reversed={reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} allowDecimals={false} />
             <Tooltip contentStyle={tooltipStyle} />
-            <Line isAnimationActive={false} type="monotone" dataKey="value" stroke={colorForTrack(group.name)} strokeWidth={2} dot={{ r: 2 }} />
+            <Line isAnimationActive={false} type="monotone" dataKey="value" stroke={colorForTrack(group.name)} strokeWidth={2} dot={{ r: 2 }} connectNulls />
           </LineChart>
         </ResponsiveContainer>
         <button className="mt-1 text-xs text-ink-400 hover:text-cream" onClick={onLog}>

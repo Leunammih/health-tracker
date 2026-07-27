@@ -173,10 +173,10 @@ export async function saveMeal(
   const id = uid()
   exec(
     `INSERT INTO meals(id, date, time, name, calories, protein_g, fat_g, carbs_g, fiber_g,
-      ingredients, photo_path, confidence, confirmed, source, notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)`,
+      ingredients, photo_path, confidence, confirmed, source, notes, meal_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`,
     [
       id, date, time, a.name, a.calories, a.protein_g, a.fat_g, a.carbs_g, a.fiber_g,
-      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes,
+      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes, a.meal_type ?? null,
     ],
   )
   await persist()
@@ -194,10 +194,10 @@ export async function updateMeal(
 ): Promise<void> {
   exec(
     `UPDATE meals SET date=?, time=?, name=?, calories=?, protein_g=?, fat_g=?, carbs_g=?, fiber_g=?,
-      ingredients=?, photo_path=?, confidence=?, source=?, notes=? WHERE id=?`,
+      ingredients=?, photo_path=?, confidence=?, source=?, notes=?, meal_type=? WHERE id=?`,
     [
       date, time, a.name, a.calories, a.protein_g, a.fat_g, a.carbs_g, a.fiber_g,
-      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes, id,
+      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes, a.meal_type ?? null, id,
     ],
   )
   await persist()

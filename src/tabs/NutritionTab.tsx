@@ -6,10 +6,20 @@ import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera, IconMic } from '../components/icons'
-import type { MealAnalysis, Ingredient, Meal, MultiMealItem } from '../types'
+import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
 
 type Phase = 'input' | 'analysing' | 'review' | 'multiReview'
 type CaptureMode = 'choose' | 'text'
+
+const MEAL_TYPES: { value: MealType; label: string }[] = [
+  { value: 'breakfast', label: 'Breakfast' },
+  { value: 'lunch', label: 'Lunch' },
+  { value: 'dinner', label: 'Dinner' },
+  { value: 'snack', label: 'Snack' },
+]
+function mealTypeLabel(t: string | null): string {
+  return MEAL_TYPES.find((m) => m.value === t)?.label ?? ''
+}
 
 export default function NutritionTab() {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -33,6 +43,7 @@ export default function NutritionTab() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [existingPhotoPath, setExistingPhotoPath] = useState<string | null>(null)
   const [entryTime, setEntryTime] = useState<string | null>(null)
+  const [ingredientsDirty, setIngredientsDirty] = useState(false)
 
   const meals = useMemo(() => recentMeals(10), [refreshKey, phase])
 
@@ -44,6 +55,7 @@ export default function NutritionTab() {
       setPhase('analysing')
       const res = await analyseMeal(prepared.base64, prepared.mediaType)
       setAnalysis(res)
+      setIngredientsDirty(false)
       setPhase('review')
     } catch (e) {
       setError(msg(e))
@@ -63,6 +75,7 @@ export default function NutritionTab() {
       } else {
         const res = await analyseMealText(describeText.trim())
         setAnalysis(res)
+        setIngredientsDirty(false)
         setPhase('review')
       }
     } catch (e) {
@@ -94,6 +107,7 @@ export default function NutritionTab() {
           fiber_g: m.fiber_g,
           confidence: m.confidence,
           clarifying_questions: [],
+          meal_type: m.meal_type,
         }
         await saveMeal(analysis, m.date, m.meal_time || null, null, 'text', describeText.trim() || null)
       }
@@ -139,9 +153,10 @@ export default function NutritionTab() {
       const res = image
         ? await analyseMeal(image.base64, image.mediaType, hint)
         : await analyseMealText([describeText.trim(), hint].filter(Boolean).join('. '))
-      setAnalysis(res)
+      setAnalysis((prev) => ({ ...res, meal_type: prev?.meal_type ?? res.meal_type }))
       setAnswer('')
       setExtraItems('')
+      setIngredientsDirty(false)
       setPhase('review')
     } catch (e) {
       setError(msg(e))
@@ -187,6 +202,7 @@ export default function NutritionTab() {
     setEditingId(null)
     setExistingPhotoPath(null)
     setEntryTime(null)
+    setIngredientsDirty(false)
     setDate(todayISO())
     setIsMultiMeal(false)
     setMultiMeals(null)
@@ -202,6 +218,7 @@ export default function NutritionTab() {
     setDescribeText(m.notes ?? '')
     setAnswer('')
     setExtraItems('')
+    setIngredientsDirty(false)
     setAnalysis({
       name: m.name ?? '',
       ingredients: parseIngredients(m.ingredients),
@@ -212,6 +229,36 @@ export default function NutritionTab() {
       fiber_g: m.fiber_g ?? 0,
       confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
       clarifying_questions: [],
+      meal_type: (m.meal_type as MealAnalysis['meal_type']) ?? undefined,
+    })
+    setPhase('review')
+  }
+
+  // Same pre-fill as edit, but WITHOUT setting editingId — save() then falls through to
+  // saveMeal() (a new row) instead of updateMeal() (overwriting the original). Defaults
+  // to today/now since a duplicate means "eating this again", not backdating the source.
+  function duplicateMeal(m: Meal) {
+    setError(null)
+    setEditingId(null)
+    setExistingPhotoPath(m.photo_path)
+    setEntryTime(null)
+    setDate(todayISO())
+    setImage(null)
+    setDescribeText(m.notes ?? '')
+    setAnswer('')
+    setExtraItems('')
+    setIngredientsDirty(false)
+    setAnalysis({
+      name: m.name ?? '',
+      ingredients: parseIngredients(m.ingredients),
+      calories: m.calories ?? 0,
+      protein_g: m.protein_g ?? 0,
+      fat_g: m.fat_g ?? 0,
+      carbs_g: m.carbs_g ?? 0,
+      fiber_g: m.fiber_g ?? 0,
+      confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
+      clarifying_questions: [],
+      meal_type: (m.meal_type as MealAnalysis['meal_type']) ?? undefined,
     })
     setPhase('review')
   }
@@ -226,12 +273,15 @@ export default function NutritionTab() {
       const ingredients = a.ingredients.map((ing, i) => (i === idx ? { ...ing, [field]: value } : ing))
       return { ...a, ingredients }
     })
+    setIngredientsDirty(true)
   }
   function addIngredient() {
     setAnalysis((a) => (a ? { ...a, ingredients: [...a.ingredients, { name: '', quantity: '' }] } : a))
+    setIngredientsDirty(true)
   }
   function removeIngredient(idx: number) {
     setAnalysis((a) => (a ? { ...a, ingredients: a.ingredients.filter((_, i) => i !== idx) } : a))
+    setIngredientsDirty(true)
   }
 
   async function removeMeal(id: string) {
@@ -465,15 +515,38 @@ export default function NutritionTab() {
             </div>
           )}
 
-          {(answer.trim() || extraItems.trim() || analysis.clarifying_questions.length > 0) && (
+          {(answer.trim() || extraItems.trim() || analysis.clarifying_questions.length > 0 || ingredientsDirty) && (
             <button className="btn-ghost w-full" onClick={() => void reEstimate()}>
               Re-estimate from edits, extra items & answers
             </button>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <label className="label !mb-0">Date</label>
             <input type="date" className="field !w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+            <label className="label !mb-0">Time</label>
+            <input
+              type="time"
+              className="field !w-auto"
+              value={entryTime ?? ''}
+              onChange={(e) => setEntryTime(e.target.value || null)}
+            />
+          </div>
+
+          <div>
+            <label className="label">Meal type</label>
+            <div className="flex flex-wrap gap-1.5">
+              {MEAL_TYPES.map((t) => (
+                <button
+                  key={t.value}
+                  type="button"
+                  className={analysis.meal_type === t.value ? 'chip-on' : 'chip'}
+                  onClick={() => patch({ meal_type: t.value })}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <input
@@ -535,6 +608,8 @@ export default function NutritionTab() {
                 <div className="text-[15px] leading-snug text-cream">{m.name}</div>
                 <div className="mt-1.5 text-xs text-ink-500">
                   {fmtDate(m.date)}
+                  {m.time ? ` · ${m.time}` : ''}
+                  {m.meal_type ? ` · ${mealTypeLabel(m.meal_type)}` : ''}
                   {m.photo_path ? ' · 📷' : ''}
                   {m.source === 'text' ? ' · 🎙' : ''}
                 </div>
@@ -552,6 +627,13 @@ export default function NutritionTab() {
                   aria-label="Edit meal"
                 >
                   Edit
+                </button>
+                <button
+                  className="btn-ghost !h-[38px] w-16 !px-0 !py-0 text-xs"
+                  onClick={() => duplicateMeal(m)}
+                  aria-label="Duplicate meal"
+                >
+                  Duplicate
                 </button>
                 <button
                   className="btn-destructive !h-[38px] w-16 !px-0 !py-0 text-xs"
@@ -608,6 +690,18 @@ function MultiMealRow({
           value={meal.meal_time}
           onChange={(e) => onChange({ meal_time: e.target.value })}
         />
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {MEAL_TYPES.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            className={(meal.meal_type === t.value ? 'chip-on' : 'chip') + ' !py-1 text-xs'}
+            onClick={() => onChange({ meal_type: t.value })}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
       <div className="grid grid-cols-5 gap-1.5">
         <MacroField label="kcal" value={meal.calories} onChange={(v) => onChange({ calories: v })} />

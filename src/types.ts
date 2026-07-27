@@ -96,6 +96,7 @@ export interface Meal {
   confirmed: number // 0/1
   source: string // 'photo' | 'text' | 'mixed'
   notes: string | null // raw dictated description, if any
+  meal_type: string | null // 'breakfast' | 'lunch' | 'dinner' | 'snack'
 }
 
 export type TrackCategory = 'practice' | 'symptom' | 'measurement' | 'activity' | 'release' | 'other'
@@ -204,6 +205,8 @@ export interface DiaryExtraction {
   summary: string
 }
 
+export type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+
 export interface MealAnalysis {
   name: string
   ingredients: Ingredient[]
@@ -214,6 +217,7 @@ export interface MealAnalysis {
   fiber_g: number
   confidence: 'low' | 'medium' | 'high'
   clarifying_questions: string[]
+  meal_type?: MealType
 }
 
 // One meal out of a multi-meal dictation — same macro shape as MealAnalysis, plus
@@ -230,4 +234,5 @@ export interface MultiMealItem {
   carbs_g: number
   fiber_g: number
   confidence: 'low' | 'medium' | 'high'
+  meal_type?: MealType
 }

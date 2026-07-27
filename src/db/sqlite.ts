@@ -67,6 +67,9 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'wellbeing', 'mood_notes')) {
     target.run('ALTER TABLE wellbeing ADD COLUMN mood_notes TEXT')
   }
+  if (!hasColumn(target, 'meals', 'meal_type')) {
+    target.run('ALTER TABLE meals ADD COLUMN meal_type TEXT')
+  }
 }
 
 export async function initDb(): Promise<Database> {

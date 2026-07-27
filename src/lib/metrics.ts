@@ -64,6 +64,13 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: paletteColor('shoulder pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   { key: 'stomach pain', label: 'Stomach pain', match: /stomach|belly|gut|abdom/i, color: paletteColor('stomach pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
 
+  // --- illness (manual tap-to-log; merged into the Illness & gut chart in
+  // InsightsTab.tsx alongside the AI-diary-extracted infections/gut_events data) ---
+  { key: 'infection', label: 'Infection', match: /infection/i, color: paletteColor('infection', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  // Key stays "stool" (not "stool consistency") so it reuses the same palette.ts KNOWN
+  // colour as the Illness & gut chart's own "Stool" series — same metric, same hue.
+  { key: 'stool', label: 'Stool consistency', match: /stool|bristol/i, color: paletteColor('stool', 'symptom'), group: 'symptom', unit: '', min: 1, max: 7, step: 1 },
+
   // --- measurements ---
   { key: 'weight', label: 'Weight', match: /weight/i, color: paletteColor('weight', 'symptom'), group: 'other', unit: 'kg', min: 40, max: 150, step: 1 },
 
@@ -142,6 +149,7 @@ export const QUICK_LOG_KEYS = [
   'exercise', 'dancing', 'biking', 'walking', 'running', 'stretching', 'swimming', 'yoga',
   'meditation', 'breath work',
   'knee pain', 'wrist pain', 'back pain', 'shoulder pain', 'stomach pain',
+  'infection', 'stool',
   'release',
 ] as const
 

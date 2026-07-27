@@ -24,6 +24,11 @@ const GROUP_ORDER: { group: MetricGroup; title: string }[] = [
 // thumb when a save changes a row count.
 const DEF_INDEX = new Map(TRACK_DEFS.map((d, i) => [d.key, i]))
 
+// Items a plain "+5 min, tap again to add more" chip makes sense for — duration-based
+// movement/practice metrics. Pain/symptom (/10) and release (%) don't fit a running
+// increment, so they stay in the categorized slider list above instead.
+const QUICK_LOG_STEP_ITEMS = QUICK_LOG_ITEMS.filter((d) => d.unit === 'min')
+
 interface Item {
   name: string
   category: string | null
@@ -89,6 +94,8 @@ export default function QuickEntryPanel({
   const [extra, setExtra] = useState<string[]>([]) // items added via quick-add this session
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState<string | null>(null)
+  const [qlBusy, setQlBusy] = useState<string | null>(null)
+  const [qlFlash, setQlFlash] = useState<string | null>(null)
 
   // Names logged in the last 7 days. Independent of `date` (the window is relative to
   // today), and the panel unmounts between log phases, so this never needs refreshing
@@ -212,6 +219,35 @@ export default function QuickEntryPanel({
     }
   }
 
+  // One tap = one step (5 min) added to today's total for that item, written straight
+  // to the DB — no slider stop-off. Also folds the item into the categorized list above
+  // (via `extra`) so its slider reflects the new total and can be fine-tuned from there.
+  async function tapQuickLog(def: TrackDef) {
+    setQlBusy(def.key)
+    try {
+      const current = trackRowOn(date, def.key)?.value ?? 0
+      const next = Math.min(current + def.step, def.max)
+      await upsertTrackValue(date, def.key, categoryForDef(def), next, def.unit)
+      setSaved((prev) => {
+        const next2 = new Map(prev)
+        next2.set(def.key, { value: next, note: prev.get(def.key)?.note ?? null })
+        return next2
+      })
+      setDrafts((prev) => {
+        const next2 = new Map(prev)
+        const cur = prev.get(def.key)
+        next2.set(def.key, cur ? { ...cur, value: next } : { value: next, note: '', noteTouched: false })
+        return next2
+      })
+      setExtra((e) => (e.includes(def.key) ? e : [...e, def.key]))
+      setQlFlash(def.key)
+      setTimeout(() => setQlFlash((k) => (k === def.key ? null : k)), 900)
+      onChanged()
+    } finally {
+      setQlBusy(null)
+    }
+  }
+
   const dirtyItems = items.filter((it) => isDirty(it))
 
   async function saveAll() {
@@ -284,6 +320,28 @@ export default function QuickEntryPanel({
         <button className="btn-primary w-full !py-2 text-sm" disabled={busy} onClick={() => void saveAll()}>
           {justSaved === '__all__' ? '✓ Saved' : `Save ${dirtyItems.length} changed`}
         </button>
+      )}
+
+      {QUICK_LOG_STEP_ITEMS.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-500">Quick log</div>
+          <p className="mb-1.5 text-xs text-ink-400">Tap to add 5 minutes to today's total for that item.</p>
+          <div className="flex flex-wrap gap-1.5">
+            {QUICK_LOG_STEP_ITEMS.map((d) => (
+              <button
+                key={d.key}
+                type="button"
+                disabled={qlBusy === d.key}
+                className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1.5 text-xs text-ink-200 hover:bg-ink-700"
+                onClick={() => void tapQuickLog(d)}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: colorForTrack(d.key) }} />
+                {d.label}
+                <span className="text-brand-400">{qlFlash === d.key ? '✓' : '+5'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
       {addable.length > 0 && (
