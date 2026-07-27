@@ -92,16 +92,16 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
       <section className="card space-y-3">
         <div className="label">Appearance</div>
         <div className="flex gap-2">
-          <button className={theme === 'dark' ? 'chip-on' : 'chip'} onClick={() => setTheme('dark')}>
-            Dark
-          </button>
           <button className={theme === 'light' ? 'chip-on' : 'chip'} onClick={() => setTheme('light')}>
             Parchment
           </button>
+          <button className={theme === 'dark' ? 'chip-on' : 'chip'} onClick={() => setTheme('dark')}>
+            Dark
+          </button>
         </div>
         <p className="text-xs text-ink-400">
-          Dark is recommended for low light and one-handed use at night. Parchment is the same brand, lit for
-          daytime.
+          Parchment is the standard look. Dark is still being reworked to a lighter, less green palette —
+          use it if you prefer it for now.
         </p>
       </section>
 

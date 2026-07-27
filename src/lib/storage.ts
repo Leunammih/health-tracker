@@ -21,7 +21,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dropboxAppKey: '',
   dropboxRefreshToken: '',
   syncEnabled: false,
-  theme: 'dark',
+  theme: 'light', // parchment is the standard look; dark is being reworked
 }
 
 export function loadSettings(): Settings {

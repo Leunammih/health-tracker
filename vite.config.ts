@@ -16,8 +16,8 @@ export default defineConfig({
         name: 'Health Tracker',
         short_name: 'Health',
         description: 'Personal health, gut, infection and nutrition tracker',
-        theme_color: '#0e1b1a',
-        background_color: '#0e1b1a',
+        theme_color: '#f4eedf',
+        background_color: '#f4eedf',
         display: 'standalone',
         orientation: 'portrait',
         icons: [
