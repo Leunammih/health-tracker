@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-25_
+_Last updated: 2026-07-27_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -65,6 +65,27 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   opacity classes never generating) that would have silently broken translucent
   ember/ink tints app-wide. Full BASELINE.md checklist re-verified against seeded data
   in both themes before pushing.
+
+- **Phase D gap-closing (2026-07-27)** — user dropped a large Phase D backlog plus a
+  "verify these are implemented" list; three parallel Explore agents + direct file reads
+  confirmed most of it already existed (multi-day toggle, Release category, plateau
+  charts, tap-to-log sheet, good-at-top axes, shared date spine, infection carry-forward).
+  Closed the real gaps found, verified each in-browser against seeded data:
+  - **Meals** — Duplicate button (`duplicateMeal()` mirrors `startEditMeal()` but leaves
+    `editingId` unset so `save()` inserts a new row); `meal_type` field end-to-end
+    (schema **v7**: `meals.meal_type`, `MEAL_TOOL`/`MULTI_MEAL_TOOL` infer it, chip-row UI);
+    meal time now shown in the recent list and editable on single-meal review; the
+    re-estimate button now also fires on direct ingredient edits (`ingredientsDirty` flag),
+    not just on extra-items/answer text.
+  - **Logs** — new **Quick log** section in `QuickEntryPanel` (one-tap +5min per movement/
+    practice item, writes straight to the DB via `upsertTrackValue`), separate from the
+    existing "Add" slider-reveal row.
+  - **Insights** — `infection` and `stool` (key reuses the existing palette colour) are now
+    real `TrackDef`s, tap-loggable like every other metric via the existing `QuickLogSheet`;
+    merged into the Illness & gut chart's carry-forward logic and excluded from the Pain
+    chart so they don't render twice; the generic per-track fallback `TrackCard` now plots
+    against the shared `spine` instead of only its own logged days.
+  - Full details/rationale in the session's plan file if resuming this thread.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
