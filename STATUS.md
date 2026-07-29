@@ -171,6 +171,43 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   - Verified in-browser in both themes against seeded data: set/clear/reload round-trip
     through `meta`, under-goal, over-goal, zero-meals, and calories-cleared-protein-kept.
 
+## Check on your phone (current)
+_Replaced each iteration — this is the list for the most recent push
+(`ba5bab8`, Phase C-2 nutrition goals). Open https://leunammih.github.io/health-tracker/
+and pull down to refresh first, so the service worker picks up the new build._
+
+1. **Settings → scroll past the orange "Save settings" button** → a new card,
+   **"Daily nutrition goals"**. Type a calorie target and a protein target →
+   **"Save goals"** → the button reads **"Saved ✓"** for ~2 seconds.
+2. **Force-quit the app and reopen it** → Settings → both numbers are still filled in.
+   (This is the real test: it proves they went into the synced database, not into
+   throwaway screen state.)
+3. **Meals tab, at the very top** → a **"Today · <date>"** card with a **Calories** bar
+   and a **Protein** bar. With nothing logged yet it should read `0 / your goal` and
+   "… to go · 0%".
+4. **Log a real meal** (photo or dictation) → back on the Meals landing screen the two
+   bars have moved by that meal's numbers. ⚠️ This is also the first *real* Claude call
+   since the Phase D-2 work — glance at whether the meal type (breakfast/lunch/…) and
+   the food-group split look sensible, not just the calories.
+5. **Log enough to pass your calorie goal** (or set a deliberately low goal for a
+   moment) → the bar fills completely, turns a **darker** orange, and the line under it
+   switches from "… to go" to **"N kcal over · 123%"**.
+6. **Insights → Nutrition → "Daily calories"** → a **dashed horizontal line** at your
+   calorie goal, and under the chart: *"Dashed line: your X kcal goal — N of M logged
+   days at or under it."* The Protein tile under the chart gains a small **"of Xg"**.
+7. **Edge case** — Settings → clear the **calories** field only → Save goals. The Meals
+   card should now show **only** the Protein bar (no empty calorie row), and the dashed
+   line + caption should vanish from Insights. Put your number back afterwards.
+8. **Both looks** — Settings → Appearance → Dark, then back to Parchment. The new card
+   and bars should be legible in both.
+
+Nothing else should have changed. If a chart, the day-strip, the quick-entry sliders or
+meal saving behaves differently than before, that's a regression worth reporting — it
+matters more than anything on this list.
+
+Still outstanding from earlier rounds (fold in if you have the patience): the whole
+Phase D/D-2 overhaul has never been touched on a real phone — see the next section.
+
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
   Scoped access → App folder → enable `files.content.read` + `files.content.write` →
@@ -189,6 +226,12 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
 ## Not started — for new sessions
 - **Phase C:** ~~(1) bulk/range entry~~ ✅; ~~(2) calorie/protein goals~~ ✅; (3) supplements.
 - **Phase E:** eating-pattern quick-adds by time of day (client-side frequency over `meals`).
+
+## How these sessions run
+One feature per iteration: build it → verify in-browser → typecheck + build → **commit
+and push** (the deploy is how it gets tested) → write the phone checklist above and in
+chat → **wait** for the report → fix what came back → next feature. Full version in
+`CLAUDE.md` under "Session workflow".
 
 ## Exact next step
 Phase D, Phase D-2 (P1–P4) and Phase C-2 (goals) are all code-complete and pushed;
