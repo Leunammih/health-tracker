@@ -14,6 +14,7 @@ import {
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
+import heroResources from '../assets/hero-resources.jpg'
 import type { Track } from '../types'
 
 const RANGES = [
@@ -45,6 +46,9 @@ export default function InsightsTab() {
   const [days, setDays] = useState(30)
   const [refresh, setRefresh] = useState(0)
   const [sheet, setSheet] = useState<{ name: string; category: string | null; date?: string } | null>(null)
+  // Collapsed by default — the grid used to occupy the whole first screen before
+  // any chart was visible.
+  const [tapOpen, setTapOpen] = useState(false)
   const light = useTheme() === 'light'
 
   const since = daysAgoISO(days)
@@ -304,8 +308,30 @@ export default function InsightsTab() {
 
   const hasAny = wb.length || gut.length || inf.length || meals.length || tracks.length || acts.length
 
+  // Which section labels actually have something under them, so a section with
+  // every chart hidden (no data yet) doesn't leave a floating empty header.
+  const hasWellbeingSection = wb.length > 0 || hasRelease || hasSleep || stressData.some((d) => d.stress != null)
+  const hasMovementSection = movementSeries.length > 0 || practiceSeries.length > 0
+
+  // A faint texture, not a photo: every card below is fully opaque (bg-ink-800 /
+  // its parchment equivalent), so this only ever shows through the gaps between
+  // them. The tint is a same-color wash over the image rather than a plain
+  // opacity — an opacity-faded image still reads as "a photo," where a heavy
+  // tint reads as texture and can't compete with chart legibility. Uses the
+  // rgb()-with-slash form (not comma rgba()) per the project's colour-var
+  // convention — see tailwind.config.js's withOpacity() comment.
+  const bgTint = light ? 0.94 : 0.9
+
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4"
+      style={{
+        backgroundImage: `linear-gradient(rgb(var(--bg-rgb) / ${bgTint}), rgb(var(--bg-rgb) / ${bgTint})), url(${heroResources})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'top center',
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
       <div className="flex gap-2">
         {RANGES.map((r) => (
           <button key={r.days} onClick={() => setDays(r.days)} className={days === r.days ? 'chip-on' : 'chip'}>
@@ -315,21 +341,31 @@ export default function InsightsTab() {
       </div>
 
       {/* Tap any item to log it for a day with a slider. Big square-ish tiles,
-          not cramped chips — few taps, forgiving targets while unwell. */}
+          not cramped chips — few taps, forgiving targets while unwell. Collapsed
+          by default so it doesn't push every chart below the fold. */}
       <div className="card">
-        <div className="label mb-2">Tap to log</div>
-        <div className="grid grid-cols-4 gap-2">
-          {logItems.map((it) => (
-            <button
-              key={it.name}
-              className="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-2xl bg-ink-900/60 px-1 py-2.5 text-center hover:bg-ink-700"
-              onClick={() => setSheet({ name: it.name, category: it.category ?? categoryOf(it.name) })}
-            >
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorForTrack(it.name) }} />
-              <span className="text-[11px] leading-tight text-ink-300">{labelForTrack(it.name)}</span>
-            </button>
-          ))}
-        </div>
+        <button
+          className="flex w-full items-center justify-between"
+          aria-expanded={tapOpen}
+          onClick={() => setTapOpen((o) => !o)}
+        >
+          <span className="label !mb-0">Tap to log</span>
+          <span className="text-ink-400">{tapOpen ? '▾' : '▸'}</span>
+        </button>
+        {tapOpen && (
+          <div className="mt-2 grid grid-cols-4 gap-2">
+            {logItems.map((it) => (
+              <button
+                key={it.name}
+                className="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-2xl bg-ink-900/60 px-1 py-2.5 text-center hover:bg-ink-700"
+                onClick={() => setSheet({ name: it.name, category: it.category ?? categoryOf(it.name) })}
+              >
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorForTrack(it.name) }} />
+                <span className="text-[11px] leading-tight text-ink-300">{labelForTrack(it.name)}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {!hasAny && (
@@ -338,11 +374,7 @@ export default function InsightsTab() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2">
-        <Stat label="Gut episodes" value={gut.length} />
-        <Stat label="Infections" value={inf.length} />
-        <Stat label="Warming bottle" value={gut.filter((g) => g.warming_bottle_needed).length} />
-      </div>
+      {hasWellbeingSection && <SectionLabel title="Wellbeing & sleep" />}
 
       {(wb.length > 0 || hasRelease) && (
         <ChartCard title="Energy & mood">
@@ -426,6 +458,14 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
+      <SectionLabel title="Illness & gut" />
+
+      <div className="grid grid-cols-3 gap-2">
+        <Stat label="Gut episodes" value={gut.length} />
+        <Stat label="Infections" value={inf.length} />
+        <Stat label="Warming bottle" value={gut.filter((g) => g.warming_bottle_needed).length} />
+      </div>
+
       {hasIllness && (
         <ChartCard title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
           <ResponsiveContainer width="100%" height={170}>
@@ -456,6 +496,8 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
+      {hasMovementSection && <SectionLabel title="Movement & practice" />}
+
       {movementSeries.length > 0 && (
         <ChartCard title="Movement & exercise (min)" hint="tap a day, or a name below, to log it">
           <PlateauChart
@@ -477,6 +519,8 @@ export default function InsightsTab() {
           />
         </ChartCard>
       )}
+
+      {painKeys.length > 0 && <SectionLabel title="Pain" />}
 
       {painKeys.length > 0 && (
         <ChartCard title="Pain & discomfort (0-10)" hint="low is good — worse pain sits at the bottom">
@@ -514,6 +558,8 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
+      {kcalByDate.size > 0 && <SectionLabel title="Nutrition" />}
+
       {kcalByDate.size > 0 && (
         <ChartCard title="Daily calories">
           <ResponsiveContainer width="100%" height={160}>
@@ -533,6 +579,8 @@ export default function InsightsTab() {
           </div>
         </ChartCard>
       )}
+
+      {trackGroups.length > 0 && <SectionLabel title="Other" />}
 
       {trackGroups.map((g) => (
         <TrackCard key={g.name} group={g} spine={spine} onLog={() => setSheet({ name: g.name, category: null })} />
@@ -625,6 +673,16 @@ function TrackCard({
 }
 
 const tooltipStyle = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--text)' }
+
+// Groups the flat run of ChartCards into a deliberate reading order (Wellbeing &
+// sleep → Illness & gut → Movement & practice → Pain → Nutrition → Other) instead
+// of one undifferentiated stack. Callers only render this when the section has at
+// least one visible chart under it, so a header is never left floating over nothing.
+function SectionLabel({ title }: { title: string }) {
+  return (
+    <div className="pt-1 text-[11px] font-semibold uppercase tracking-widest text-ink-500">{title}</div>
+  )
+}
 
 function ChartCard({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (

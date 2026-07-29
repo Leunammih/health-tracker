@@ -5,16 +5,18 @@ import { completeAuthFromRedirect } from './sync/dropbox'
 import { loadSettings } from './lib/storage'
 import { installDevtools } from './lib/devtools'
 import SyncBadge from './components/SyncBadge'
-import { IconLog, IconMeal, IconChart, IconBrain, IconSettings } from './components/icons'
+import { IconHome, IconLog, IconMeal, IconChart, IconBrain, IconSettings } from './components/icons'
+import HomeTab from './tabs/HomeTab'
 import LogTab from './tabs/LogTab'
 import NutritionTab from './tabs/NutritionTab'
 import InsightsTab from './tabs/InsightsTab'
 import InterpretationTab from './tabs/InterpretationTab'
 import SettingsTab from './tabs/SettingsTab'
 
-type Tab = 'log' | 'nutrition' | 'insights' | 'interpret' | 'settings'
+export type Tab = 'home' | 'log' | 'nutrition' | 'insights' | 'interpret' | 'settings'
 
 const TABS: { id: Tab; label: string; Icon: typeof IconLog }[] = [
+  { id: 'home', label: 'Home', Icon: IconHome },
   { id: 'log', label: 'Log', Icon: IconLog },
   { id: 'nutrition', label: 'Meals', Icon: IconMeal },
   { id: 'insights', label: 'Insights', Icon: IconChart },
@@ -24,7 +26,7 @@ const TABS: { id: Tab; label: string; Icon: typeof IconLog }[] = [
 
 export default function App() {
   const [ready, setReady] = useState(false)
-  const [tab, setTab] = useState<Tab>('log')
+  const [tab, setTab] = useState<Tab>('home')
   const [needsKey, setNeedsKey] = useState(false)
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export default function App() {
     <div className="mx-auto flex h-full max-w-2xl flex-col">
       <header className="safe-top sticky top-0 z-10 flex items-center justify-between border-b border-ink-700 bg-ink-900/90 px-4 py-3 backdrop-blur">
         <h1 className="font-serif text-xl font-normal tracking-tight text-cream">
-          {TABS.find((t) => t.id === tab)?.label}
+          {tab === 'home' ? 'Health Tracker' : TABS.find((t) => t.id === tab)?.label}
         </h1>
         <SyncBadge />
       </header>
@@ -83,6 +85,7 @@ export default function App() {
           </button>
         )}
 
+        {tab === 'home' && <HomeTab onNavigate={setTab} />}
         {tab === 'log' && <LogTab />}
         {tab === 'nutrition' && <NutritionTab />}
         {tab === 'insights' && <InsightsTab />}
@@ -90,7 +93,7 @@ export default function App() {
         {tab === 'settings' && <SettingsTab onSaved={() => setNeedsKey(!loadSettings().anthropicKey)} />}
       </main>
 
-      <nav className="safe-bottom sticky bottom-0 z-10 grid grid-cols-5 border-t border-ink-700 bg-ink-900/95 backdrop-blur">
+      <nav className="safe-bottom sticky bottom-0 z-10 grid grid-cols-6 border-t border-ink-700 bg-ink-900/95 backdrop-blur">
         {TABS.map(({ id, label, Icon }) => (
           <button
             key={id}

@@ -28,8 +28,9 @@ export default defineConfig({
       },
       workbox: {
         // woff2: self-hosted Cormorant Garamond + Jost must precache for the
-        // offline PWA guarantee, same as everything else here.
-        globPatterns: ['**/*.{js,css,html,svg,png,wasm,woff2}'],
+        // offline PWA guarantee, same as everything else here. jpg: the Home/
+        // Insights brand imagery (src/assets) is JPEG, not PNG, for compression.
+        globPatterns: ['**/*.{js,css,html,svg,png,jpg,wasm,woff2}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
     }),
