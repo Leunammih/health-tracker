@@ -33,10 +33,13 @@ export interface TrackDef {
   step: number
   lowerIsBetter?: boolean
   // Which table this metric lives in. Defaults to 'tracks'. Energy and mood are
-  // columns on the `wellbeing` table instead, so quick entries have to read/write
-  // them through a different path — see upsertWellbeingField in db/queries.ts.
-  store?: 'tracks' | 'wellbeing'
+  // columns on the `wellbeing` table and stress is a column on `day_context`, so
+  // quick entries read/write those through a different path — see the STORES
+  // dispatch table in lib/metricStore.ts.
+  store?: MetricStore
 }
+
+export type MetricStore = 'tracks' | 'wellbeing' | 'day_context'
 
 // Colours are derived from the group-hue palette module (src/lib/palette.ts),
 // never hand-authored here — that's the whole point of extracting colour into
@@ -81,18 +84,33 @@ export const TRACK_DEFS: TrackDef[] = [
 
   // --- release (10% steps; 0% at top, 100% at bottom) ---
   { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true },
+
+  // --- stress (0-10, low is good). Stored on `day_context.stress_load`, which the
+  // AI diary extraction also writes; the quick entry keeps its note in a dedicated
+  // stress_notes column so the day-level diary note survives. ---
+  { key: 'stress', label: 'Stress', match: /^stress$/i, color: paletteColor('stress', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true, store: 'day_context' },
 ]
 
 // Resolve a free-form name to its definition. The fuzzy regex pass deliberately
-// SKIPS wellbeing-stored defs: this runs against arbitrary names read out of the
-// `tracks` table, and a track happening to be called "energy" must not be routed
-// to the wellbeing table. Only an exact key match reaches those.
+// SKIPS defs stored outside `tracks`: this runs against arbitrary names read out of
+// the `tracks` table, and a track happening to be called "energy" or "stress" must
+// not be routed to the wellbeing/day_context tables. Only an exact key match reaches those.
 export function defForName(name: string): TrackDef | undefined {
   const n = name.trim().toLowerCase()
   return (
     TRACK_DEFS.find((d) => d.key === n) ??
-    TRACK_DEFS.find((d) => d.store !== 'wellbeing' && d.match.test(n))
+    TRACK_DEFS.find((d) => storeForDef(d) === 'tracks' && d.match.test(n))
   )
+}
+
+export function storeForDef(def: TrackDef): MetricStore {
+  return def.store ?? 'tracks'
+}
+
+// Where a free-form name's value should be read from and written to.
+export function storeForName(name: string): MetricStore {
+  const def = defForName(name)
+  return def ? storeForDef(def) : 'tracks'
 }
 
 // The one spelling a name should be stored and compared under. Dictation produces
@@ -159,7 +177,7 @@ export const QUICK_LOG_ITEMS: TrackDef[] = QUICK_LOG_KEYS
 
 // The tracks.category value to store for a given definition.
 export function categoryForDef(def: TrackDef): string {
-  if (def.store === 'wellbeing') return 'wellbeing' // never actually written to tracks
+  if (storeForDef(def) !== 'tracks') return 'wellbeing' // never actually written to tracks
   if (def.group === 'symptom') return 'symptom'
   if (def.group === 'practice') return 'practice'
   if (def.group === 'movement') return 'activity'
@@ -168,11 +186,11 @@ export function categoryForDef(def: TrackDef): string {
 }
 
 // Always shown in the Log tab's quick-entry panel, whether or not they've been
-// logged recently — they're the two daily questions worth a one-tap answer.
-// Deliberately NOT in QUICK_LOG_KEYS: that list also seeds the Insights tap-to-log
-// picker, which writes exclusively to `tracks` and would put energy somewhere the
-// "Energy & mood" chart can't see it.
-export const PINNED_QUICK_ENTRY_KEYS = ['energy', 'mood'] as const
+// logged recently — the daily questions worth a one-tap answer.
+// Deliberately NOT in QUICK_LOG_KEYS: that list seeds the Insights "Tap to log"
+// grid, which is for the open-ended `tracks` metrics. These three have their own
+// dedicated charts and are reachable from those charts' legends instead.
+export const PINNED_QUICK_ENTRY_KEYS = ['energy', 'mood', 'stress'] as const
 
 export const PINNED_QUICK_ENTRY_ITEMS: TrackDef[] = PINNED_QUICK_ENTRY_KEYS
   .map((k) => TRACK_DEFS.find((d) => d.key === k))

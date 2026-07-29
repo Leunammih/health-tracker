@@ -50,11 +50,13 @@ export default function PlateauChart({
   series,
   unit = 'min',
   onPickDay,
+  onPickSeries,
 }: {
   dates: string[]
   series: PlateauSeries[]
   unit?: string
   onPickDay?: (date: string) => void
+  onPickSeries?: (key: string) => void
 }) {
   const n = dates.length
   if (!n || !series.length) return null
@@ -167,11 +169,17 @@ export default function PlateauChart({
       </svg>
 
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
-        {series.map((s) => (
-          <span key={s.key} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} /> {s.label}
-          </span>
-        ))}
+        {series.map((s) =>
+          onPickSeries ? (
+            <button key={s.key} className="flex items-center gap-1.5 hover:text-cream" onClick={() => onPickSeries(s.key)}>
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} /> {s.label}
+            </button>
+          ) : (
+            <span key={s.key} className="flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} /> {s.label}
+            </span>
+          ),
+        )}
         <span className="text-ink-400">({unit})</span>
       </div>
     </div>

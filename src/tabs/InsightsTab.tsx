@@ -17,6 +17,8 @@ import QuickLogSheet from '../components/QuickLogSheet'
 import type { Track } from '../types'
 
 const RANGES = [
+  { label: '3d', days: 3 },
+  { label: '7d', days: 7 },
   { label: '14d', days: 14 },
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
@@ -183,14 +185,15 @@ export default function InsightsTab() {
 
   const ctxByDate = new Map(ctx.map((c) => [c.date, c]))
   const stressData = spine.map((d) => ({ date: fmtDate(d), stress: ctxByDate.get(d)?.stress_load ?? null }))
-  // Not a registered track — a single fixed slot in the illness/clay arc.
-  const colStress = useMemo(() => chartPalette(['Stress'], 'illness', light).Stress, [light])
+  const colStress = colorForTrack('stress')
 
   // --- illness: infection severity carried forward until logged as gone (0),
   // plus gut pain and Bristol stool consistency on the same reversed axis.
   // Sources are diary-extracted infections/gut_events AND manually tap-logged
-  // 'infection'/'stool' tracks (src/lib/metrics.ts) — either can set a day's value,
-  // and both participate in infection's carry-forward walk below.
+  // 'infection'/'stool'/'stomach pain' tracks (src/lib/metrics.ts) — either can set
+  // a day's value, and both participate in infection's carry-forward walk below.
+  // Gut pain has no dedicated track of its own — "gut pain" tap-logs against the
+  // existing 'stomach pain' metric, which already fuzzy-matches "gut" in its regex.
   const illnessData = useMemo(() => {
     const infByDate = new Map<string, number>()
     for (const i of inf) {
@@ -199,6 +202,9 @@ export default function InsightsTab() {
     }
     for (const t of tracks) if (t.name === 'infection' && t.value != null) infByDate.set(t.date, t.value)
     const gutByDate = new Map(gut.map((g) => [g.date, g]))
+    const gutPainTrackByDate = new Map(
+      tracks.filter((t) => t.name === 'stomach pain' && t.value != null).map((t) => [t.date, t.value as number]),
+    )
     const stoolTrackByDate = new Map(
       tracks.filter((t) => t.name === 'stool' && t.value != null).map((t) => [t.date, t.value as number]),
     )
@@ -210,7 +216,7 @@ export default function InsightsTab() {
         date: fmtDate(d),
         rawDate: d,
         infection: carried,
-        gutPain: g?.pain ?? null,
+        gutPain: gutPainTrackByDate.get(d) ?? g?.pain ?? null,
         stool: stoolTrackByDate.get(d) ?? g?.stool_consistency ?? null,
       }
     })
@@ -343,10 +349,11 @@ export default function InsightsTab() {
           </ResponsiveContainer>
           <Legend
             items={[
-              [colEnergy, 'Energy'],
-              [colMood, 'Mood'],
-              ...(hasRelease ? ([[colRelease, 'Release 💦 (0% top)']] as [string, string][]) : []),
+              { color: colEnergy, label: 'Energy', key: 'energy' },
+              { color: colMood, label: 'Mood', key: 'mood' },
+              ...(hasRelease ? [{ color: colRelease, label: 'Release 💦 (0% top)', key: 'release' }] : []),
             ]}
+            onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
           />
         </ChartCard>
       )}
@@ -362,6 +369,12 @@ export default function InsightsTab() {
               <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke={colStress} strokeWidth={2} dot={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
+          <button
+            className="mt-1 text-xs text-ink-400 hover:text-cream"
+            onClick={() => setSheet({ name: 'stress', category: null })}
+          >
+            + Log stress
+          </button>
         </ChartCard>
       )}
 
@@ -381,30 +394,35 @@ export default function InsightsTab() {
           </ResponsiveContainer>
           <Legend
             items={[
-              [illnessPalette.Infection, 'Infection'],
-              [illnessPalette['Gut pain'], 'Gut pain'],
-              [illnessPalette.Stool, 'Stool (Bristol, 4 ideal)'],
+              { color: illnessPalette.Infection, label: 'Infection', key: 'infection' },
+              // "Gut pain" has no dedicated track — it routes to the existing
+              // "stomach pain" metric (see the illnessData comment above).
+              { color: illnessPalette['Gut pain'], label: 'Gut pain', key: 'stomach pain' },
+              { color: illnessPalette.Stool, label: 'Stool (Bristol, 4 ideal)', key: 'stool' },
             ]}
+            onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
           />
         </ChartCard>
       )}
 
       {movementSeries.length > 0 && (
-        <ChartCard title="Movement & exercise (min)" hint="tap a day to log it">
+        <ChartCard title="Movement & exercise (min)" hint="tap a day, or a name below, to log it">
           <PlateauChart
             dates={spine}
             series={movementSeries}
             onPickDay={(d) => setSheet({ name: movementSeries[0].key, category: 'activity', date: d })}
+            onPickSeries={(key) => setSheet({ name: key, category: 'activity' })}
           />
         </ChartCard>
       )}
 
       {practiceSeries.length > 0 && (
-        <ChartCard title="Meditation & breath work (min)" hint="tap a day to log it">
+        <ChartCard title="Meditation & breath work (min)" hint="tap a day, or a name below, to log it">
           <PlateauChart
             dates={spine}
             series={practiceSeries}
             onPickDay={(d) => setSheet({ name: practiceSeries[0].key, category: 'practice', date: d })}
+            onPickSeries={(key) => setSheet({ name: key, category: 'practice' })}
           />
         </ChartCard>
       )}
@@ -582,14 +600,28 @@ function Avg({ label, v }: { label: string; v: number }) {
   )
 }
 
-function Legend({ items }: { items: [string, string][] }) {
+// `key` is the metric name to open in the tap-to-log sheet; entries without one (or
+// when `onPick` isn't given) render as a plain swatch, not a button.
+function Legend({
+  items,
+  onPick,
+}: {
+  items: { color: string; label: string; key?: string }[]
+  onPick?: (key: string) => void
+}) {
   return (
     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
-      {items.map(([c, l]) => (
-        <span key={l} className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full" style={{ background: c }} /> {l}
-        </span>
-      ))}
+      {items.map((it) =>
+        onPick && it.key ? (
+          <button key={it.label} className="flex items-center gap-1.5 hover:text-cream" onClick={() => onPick(it.key!)}>
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: it.color }} /> {it.label}
+          </button>
+        ) : (
+          <span key={it.label} className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: it.color }} /> {it.label}
+          </span>
+        ),
+      )}
     </div>
   )
 }

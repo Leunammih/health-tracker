@@ -70,6 +70,11 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'meals', 'meal_type')) {
     target.run('ALTER TABLE meals ADD COLUMN meal_type TEXT')
   }
+  // v8: stress becomes a manual quick entry, so it needs its own note column —
+  // day_context.notes is the day-level diary note and must not be clobbered.
+  if (!hasColumn(target, 'day_context', 'stress_notes')) {
+    target.run('ALTER TABLE day_context ADD COLUMN stress_notes TEXT')
+  }
 }
 
 export async function initDb(): Promise<Database> {

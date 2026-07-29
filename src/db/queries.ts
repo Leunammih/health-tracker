@@ -106,12 +106,27 @@ export async function saveDiaryExtraction(
     )
   }
   for (const d of data.day_context ?? []) {
+    // Merge, for the same reason the wellbeing block above merges: the extraction
+    // omits (rather than nulls) anything the user didn't mention, so an entry that
+    // only talks about travel must not wipe a stress_load or tasks already recorded
+    // for that day — by an earlier entry or by a manual quick entry.
     const date = d.date ?? entryDate
+    const prev = dayContextOn(date)
     exec('DELETE FROM day_context WHERE date = ?', [date])
     exec(
-      `INSERT INTO day_context(id, entry_id, date, tasks, travel, work, retreat, relaxation, stress_load, notes)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [uid(), entryId, date, d.tasks ?? null, d.travel ?? null, d.work ?? null, d.retreat ?? null, d.relaxation ?? null, d.stress_load ?? null, d.notes ?? null],
+      `INSERT INTO day_context(id, entry_id, date, tasks, travel, work, retreat, relaxation, stress_load, notes, stress_notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        uid(), entryId, date,
+        d.tasks ?? prev?.tasks ?? null,
+        d.travel ?? prev?.travel ?? null,
+        d.work ?? prev?.work ?? null,
+        d.retreat ?? prev?.retreat ?? null,
+        d.relaxation ?? prev?.relaxation ?? null,
+        d.stress_load ?? prev?.stress_load ?? null,
+        d.notes ?? prev?.notes ?? null,
+        prev?.stress_notes ?? null,
+      ],
     )
   }
   for (const t of data.tracks ?? []) {
@@ -128,6 +143,12 @@ export async function saveDiaryExtraction(
     }
     const name = canonicalTrackName(t.name)
     for (const date of dates) {
+      // Replace, don't stack. Tracks are "one value per item per day" everywhere else
+      // (see upsertTrackValue), and a bare INSERT here meant a quick-logged value plus
+      // a diary mention of the same thing left two rows for one (date, name) — which
+      // the practice/movement charts then silently summed while the single-row readers
+      // returned whichever one came back first.
+      exec('DELETE FROM tracks WHERE date = ? AND name = ?', [date, name])
       exec(
         `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
          VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -406,6 +427,60 @@ export async function upsertWellbeingField(
         field === 'energy' ? (notes ?? null) : null,
         field === 'mood' ? (notes ?? null) : null,
       ],
+    )
+  }
+  await persist()
+}
+
+// ---- Day context (stress load) ----
+// Stress lives on day_context alongside six whole-day text columns, so like
+// wellbeing it needs a column-level upsert that leaves its siblings alone.
+
+export type DayContextField = 'stress'
+
+const DC_COLS: Record<DayContextField, { value: string; notes: string }> = {
+  stress: { value: 'stress_load', notes: 'stress_notes' },
+}
+
+// Free-text day descriptors that must survive a stress-only edit.
+const DC_TEXT_COLS = ['tasks', 'travel', 'work', 'retreat', 'relaxation', 'notes'] as const
+
+export function dayContextOn(date: string): DayContext | null {
+  return all<DayContext>('SELECT * FROM day_context WHERE date = ? LIMIT 1', [date])[0] ?? null
+}
+
+export function lastDayContextOnOrBefore(date: string, field: DayContextField): number | null {
+  const col = DC_COLS[field].value
+  const r = all<{ v: number | null }>(
+    `SELECT ${col} AS v FROM day_context WHERE date <= ? AND ${col} IS NOT NULL ORDER BY date DESC LIMIT 1`,
+    [date],
+  )
+  return r[0]?.v ?? null
+}
+
+// Same tri-state `notes` contract as upsertTrackValue / upsertWellbeingField:
+// omit to keep, null to clear, string to set.
+export async function upsertDayContextField(
+  date: string,
+  field: DayContextField,
+  value: number | null,
+  notes?: string | null,
+): Promise<void> {
+  const col = DC_COLS[field]
+  const prev = dayContextOn(date)
+  if (prev) {
+    const nextNotes = notes === undefined ? prev.stress_notes : notes
+    exec(`UPDATE day_context SET ${col.value} = ?, ${col.notes} = ? WHERE id = ?`, [value, nextNotes, prev.id])
+    // Drop a row that no longer carries anything at all.
+    const hasText = DC_TEXT_COLS.some((c) => prev[c])
+    if (value == null && !nextNotes && !hasText) {
+      exec('DELETE FROM day_context WHERE id = ?', [prev.id])
+    }
+  } else {
+    exec(
+      `INSERT INTO day_context(id, entry_id, date, tasks, travel, work, retreat, relaxation, stress_load, notes, stress_notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [uid(), null, date, null, null, null, null, null, value, null, notes ?? null],
     )
   }
   await persist()

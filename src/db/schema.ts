@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS day_context (
   retreat TEXT,
   relaxation TEXT,
   stress_load INTEGER,
-  notes TEXT
+  notes TEXT,          -- day-level note (from diary extraction)
+  stress_notes TEXT    -- note attached to the stress quick entry
 );
 
 CREATE TABLE IF NOT EXISTS meals (

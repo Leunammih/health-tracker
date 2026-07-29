@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import DayStrip from './DayStrip'
 import { colorForTrack, labelForTrack, scaleForTrack } from '../lib/metrics'
-import { upsertTrackValue, trackRowOn, lastTrackValueOnOrBefore, tracksSince } from '../db/queries'
+import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
 import { fmtDate } from '../lib/dates'
 import { IconNote } from './icons'
 
@@ -37,19 +37,17 @@ export default function QuickLogSheet({
   const color = colorForTrack(name)
   const label = labelForTrack(name)
 
-  // Which days already have this item — shown as dots on the strip.
-  const logged = useMemo(() => {
-    const rows = tracksSince(dates[0]).filter((t) => t.name === name.trim().toLowerCase() && t.value != null)
-    return new Set(rows.map((t) => t.date))
-  }, [dates, name, version])
+  // Which days already have this item — shown as dots on the strip. Dispatches to
+  // whichever table the metric actually lives in (tracks / wellbeing / day_context).
+  const logged = useMemo(() => datesWithMetric(dates[0], name), [dates, name, version])
 
   // When the day changes: show that day's saved value and note, or fall back to the
   // most recent earlier value (the user's "default is the value of the day before").
   useEffect(() => {
-    const row = trackRowOn(date, name)
-    const fallback = lastTrackValueOnOrBefore(date, name)
-    setValue(row?.value ?? fallback ?? 0)
-    setNoteDraft(row?.notes ?? '')
+    const saved = readMetric(date, name)
+    const fallback = lastMetricValue(date, name)
+    setValue(saved.value ?? fallback ?? 0)
+    setNoteDraft(saved.note ?? '')
     setNoteTouched(false)
     setStatus(null)
   }, [date, name, version])
@@ -60,7 +58,7 @@ export default function QuickLogSheet({
     setBusy(true)
     try {
       const noteArg = withNote && noteTouched ? (noteDraft.trim() || null) : undefined
-      await upsertTrackValue(forDate, name, category, v, v == null ? null : scale.unit, noteArg)
+      await writeMetric(forDate, name, v, noteArg)
       setVersion((k) => k + 1)
       onChanged()
       setStatus(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${v}${scale.unit} for ${fmtDate(forDate)}`)
@@ -77,7 +75,7 @@ export default function QuickLogSheet({
     try {
       const targets = dates.slice(-n)
       for (const d of targets) {
-        await upsertTrackValue(d, name, category, value, scale.unit)
+        await writeMetric(d, name, value)
       }
       setVersion((k) => k + 1)
       onChanged()

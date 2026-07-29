@@ -72,7 +72,8 @@ export interface DayContext {
   retreat: string | null
   relaxation: string | null
   stress_load: number | null
-  notes: string | null
+  notes: string | null // day-level note from diary extraction
+  stress_notes: string | null // note attached to the stress quick entry
 }
 
 export interface Ingredient {

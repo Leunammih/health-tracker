@@ -1,13 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  trackNamesSince, trackRowOn, lastTrackValueOnOrBefore, upsertTrackValue,
-  wellbeingOn, lastWellbeingOnOrBefore, upsertWellbeingField, type WellbeingField,
-} from '../db/queries'
+import { trackNamesSince } from '../db/queries'
 import {
   colorForTrack, labelForTrack, scaleForTrack, groupForTrack, categoryForDef, defForName,
   QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS, TRACK_DEFS,
   type MetricGroup, type TrackDef,
 } from '../lib/metrics'
+import { readMetric, lastMetricValue, writeMetric } from '../lib/metricStore'
 import { daysAgoISO } from '../lib/dates'
 import { IconNote } from './icons'
 
@@ -45,27 +43,16 @@ interface SavedState {
   note: string | null
 }
 
-// Read a row's persisted state, branching on where the metric actually lives.
+// Read a row's persisted state — dispatches to whichever table the metric actually
+// lives in (tracks / wellbeing / day_context), see lib/metricStore.ts.
 function readSaved(date: string, item: Item): SavedState {
-  if (item.def?.store === 'wellbeing') {
-    const wb = wellbeingOn(date)
-    const isEnergy = item.def.key === 'energy'
-    return {
-      value: (isEnergy ? wb?.energy : wb?.mood) ?? null,
-      note: (isEnergy ? wb?.energy_notes : wb?.mood_notes) ?? null,
-    }
-  }
-  const row = trackRowOn(date, item.name)
-  return { value: row?.value ?? null, note: row?.notes ?? null }
+  return readMetric(date, item.name)
 }
 
 // Where a slider starts: today's saved value, else the most recent earlier one, else
 // the bottom of the scale.
 function readFallback(date: string, item: Item): number | null {
-  if (item.def?.store === 'wellbeing') {
-    return lastWellbeingOnOrBefore(date, item.def.key as WellbeingField)
-  }
-  return lastTrackValueOnOrBefore(date, item.name)
+  return lastMetricValue(date, item.name)
 }
 
 function initRow(date: string, item: Item, saved: SavedState): RowState {
@@ -186,15 +173,10 @@ export default function QuickEntryPanel({
   async function persistItem(it: Item) {
     const d = drafts.get(it.name)
     if (!d) return
-    const scale = scaleForTrack(it.name, it.category)
     // Only send a note when the field was actually edited; otherwise omit it so the
     // DB layer keeps whatever is already stored.
     const noteArg = d.noteTouched ? (d.note.trim() || null) : undefined
-    if (it.def?.store === 'wellbeing') {
-      await upsertWellbeingField(date, it.def.key as WellbeingField, d.value, noteArg)
-    } else {
-      await upsertTrackValue(date, it.name, it.category, d.value, scale.unit, noteArg)
-    }
+    await writeMetric(date, it.name, d.value, noteArg)
     setSaved((prev) => {
       const next = new Map(prev)
       const cur = prev.get(it.name)
@@ -225,9 +207,9 @@ export default function QuickEntryPanel({
   async function tapQuickLog(def: TrackDef) {
     setQlBusy(def.key)
     try {
-      const current = trackRowOn(date, def.key)?.value ?? 0
+      const current = readMetric(date, def.key).value ?? 0
       const next = Math.min(current + def.step, def.max)
-      await upsertTrackValue(date, def.key, categoryForDef(def), next, def.unit)
+      await writeMetric(date, def.key, next)
       setSaved((prev) => {
         const next2 = new Map(prev)
         next2.set(def.key, { value: next, note: prev.get(def.key)?.note ?? null })
