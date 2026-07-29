@@ -15,6 +15,19 @@ export function nowTime(): string {
   return new Date().toTimeString().slice(0, 5)
 }
 
+// Minutes asleep between a bedtime and wake time, both 'HH:MM'. Handles the normal
+// case of sleep crossing midnight (wake time is numerically earlier than bedtime) by
+// treating wake as the next day; returns null for malformed input.
+export function sleepDurationMin(start: string, end: string): number | null {
+  const [sh, sm] = start.split(':').map(Number)
+  const [eh, em] = end.split(':').map(Number)
+  if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) return null
+  const startMin = sh * 60 + sm
+  let endMin = eh * 60 + em
+  if (endMin <= startMin) endMin += 24 * 60
+  return endMin - startMin
+}
+
 export function fmtDate(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso)

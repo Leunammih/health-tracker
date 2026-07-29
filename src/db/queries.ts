@@ -1,7 +1,7 @@
 import { getDb, persist } from './sqlite'
 import { uid } from '../lib/id'
 import { nowISO, todayISO, daysAgoISO, expandDateRange, weekdayNums } from '../lib/dates'
-import { canonicalTrackName } from '../lib/metrics'
+import { canonicalTrackName, categoryForDef, defForName, rollupFor, scaleForTrack, storeForName } from '../lib/metrics'
 import type {
   DiaryExtraction,
   Entry,
@@ -14,6 +14,9 @@ import type {
   Wellbeing,
   DayContext,
   Track,
+  Segment,
+  SegmentValue,
+  HealthEvent,
 } from '../types'
 
 // Run a SELECT and return an array of plain objects.
@@ -165,20 +168,40 @@ export async function saveDiaryExtraction(
 // rows are only removed if they still belong to this entry (a later entry for
 // the same date would have replaced them, in which case they're left alone).
 export async function deleteEntry(entryId: string): Promise<void> {
-  deleteEntryRows(entryId)
+  await deleteEntryRows(entryId)
   exec('DELETE FROM entries WHERE id = ?', [entryId])
   await persist()
 }
 
 // Delete just the derived category rows for an entry (keeps the entries row).
 // Used when re-analyzing an edited entry so it can be re-populated under the same id.
-export function deleteEntryRows(entryId: string): void {
+//
+// A wellbeing/day_context/tracks row this deletes may be the same row a later
+// segment write updated in place (writeWellbeingRollup etc. never change
+// entry_id), so deleting it here can orphan segments that are still live — their
+// rollup would just vanish. Capture which (date, metric) pairs are at risk before
+// deleting, then re-materialise any that still have segments afterward.
+export async function deleteEntryRows(entryId: string): Promise<void> {
+  const wbDates = all<{ date: string }>('SELECT date FROM wellbeing WHERE entry_id = ?', [entryId]).map((r) => r.date)
+  const dcDates = all<{ date: string }>('SELECT date FROM day_context WHERE entry_id = ?', [entryId]).map((r) => r.date)
+  const trackRows = all<{ date: string; name: string }>('SELECT date, name FROM tracks WHERE entry_id = ?', [entryId])
+
   exec('DELETE FROM activities WHERE entry_id = ?', [entryId])
   exec('DELETE FROM gut_events WHERE entry_id = ?', [entryId])
   exec('DELETE FROM infections WHERE entry_id = ?', [entryId])
   exec('DELETE FROM wellbeing WHERE entry_id = ?', [entryId])
   exec('DELETE FROM day_context WHERE entry_id = ?', [entryId])
   exec('DELETE FROM tracks WHERE entry_id = ?', [entryId])
+
+  for (const date of wbDates) {
+    for (const key of ['energy', 'mood']) if (segmentsOn(date, key).length) await recomputeRollup(date, key)
+  }
+  for (const date of dcDates) {
+    if (segmentsOn(date, 'stress').length) await recomputeRollup(date, 'stress')
+  }
+  for (const { date, name } of trackRows) {
+    if (segmentsOn(date, name).length) await recomputeRollup(date, name)
+  }
 }
 
 // ---- Meals ----
@@ -303,23 +326,25 @@ export const allTrackNames = () =>
     'SELECT name, category, COUNT(*) as n FROM tracks GROUP BY name, category ORDER BY n DESC',
   )
 
-// Set one value for one item on one day. Quick-logging is "one value per item per
-// day", so this replaces any existing row for that name+date rather than stacking
-// duplicates the charts would then have to reconcile. A null value clears the day.
+// The actual write, shared by the public upsert below and by segment rollups
+// (lib/metricStore.ts's segment layer calls this directly, skipping the public
+// upsert's clearSegments — segments own the cell, they don't clear themselves).
+// Quick-logging is "one value per item per day", so this replaces any existing row
+// for that name+date rather than stacking duplicates the charts would then have to
+// reconcile. A null value clears the day.
 //
 // `notes` is deliberately tri-state: omit it to KEEP whatever note is already on the
 // row, pass null to clear it, pass a string to set it. Callers that only touch the
 // value (the Insights tap-to-log sheet, the bulk apply-to-last-N-days helpers) must
 // omit it, or the DELETE+INSERT below would silently drop the note.
-export async function upsertTrackValue(
+async function writeTrackRollup(
   date: string,
-  name: string,
+  key: string,
   category: string | null,
   value: number | null,
   unit: string | null,
   notes?: string | null,
 ): Promise<void> {
-  const key = canonicalTrackName(name)
   const keptNotes =
     notes === undefined
       ? all<{ notes: string | null }>(
@@ -336,6 +361,22 @@ export async function upsertTrackValue(
     )
   }
   await persist()
+}
+
+// Set one value for one item on one day directly — i.e. an explicit "whole day"
+// statement, which overrides and clears any morning/afternoon/evening segments
+// already on record for it (see clearSegments below).
+export async function upsertTrackValue(
+  date: string,
+  name: string,
+  category: string | null,
+  value: number | null,
+  unit: string | null,
+  notes?: string | null,
+): Promise<void> {
+  const key = canonicalTrackName(name)
+  clearSegments(date, key)
+  await writeTrackRollup(date, key, category, value, unit, notes)
 }
 
 // The value of `name` on `date`, or null if that day has no entry for it.
@@ -396,9 +437,8 @@ export function lastWellbeingOnOrBefore(date: string, field: WellbeingField): nu
   return r[0]?.v ?? null
 }
 
-// Set one field (and optionally its note) for one day. `notes` is tri-state exactly
-// as in upsertTrackValue: omit to keep, null to clear, string to set.
-export async function upsertWellbeingField(
+// The actual write, shared by the public upsert below and by segment rollups.
+async function writeWellbeingRollup(
   date: string,
   field: WellbeingField,
   value: number | null,
@@ -432,6 +472,70 @@ export async function upsertWellbeingField(
   await persist()
 }
 
+// Set one field (and optionally its note) for one day directly, overriding and
+// clearing any segments already on record for it. `notes` is tri-state exactly as
+// in upsertTrackValue: omit to keep, null to clear, string to set.
+export async function upsertWellbeingField(
+  date: string,
+  field: WellbeingField,
+  value: number | null,
+  notes?: string | null,
+): Promise<void> {
+  clearSegments(date, field)
+  await writeWellbeingRollup(date, field, value, notes)
+}
+
+// ---- Single time-events ("started magnesium", "began a new diet") ----
+// A one-off marker, not a metric trended over time — rendered as reference lines
+// across Insights charts so a regimen change is visible against the trends.
+
+export const eventsSince = (dateISO: string) =>
+  all<HealthEvent>('SELECT * FROM events WHERE date >= ? ORDER BY date', [dateISO])
+
+export async function saveEvent(date: string, kind: string | null, label: string, notes: string | null = null): Promise<string> {
+  const id = uid()
+  exec('INSERT INTO events(id, entry_id, date, kind, label, notes) VALUES (?,?,?,?,?,?)', [id, null, date, kind, label.trim(), notes])
+  await persist()
+  return id
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  exec('DELETE FROM events WHERE id = ?', [id])
+  await persist()
+}
+
+// ---- Sleep ----
+// Bedtime/wake time/felt quality live on `wellbeing` alongside energy and mood
+// (one row per day); duration is computed from the two times, not stored.
+
+export function sleepOn(date: string): { sleep_start: string | null; sleep_end: string | null; sleep_quality: number | null } | null {
+  const wb = wellbeingOn(date)
+  return wb ? { sleep_start: wb.sleep_start, sleep_end: wb.sleep_end, sleep_quality: wb.sleep_quality } : null
+}
+
+export async function upsertSleep(
+  date: string,
+  sleepStart: string | null,
+  sleepEnd: string | null,
+  sleepQuality: number | null,
+): Promise<void> {
+  const prev = wellbeingOn(date)
+  if (prev) {
+    exec('UPDATE wellbeing SET sleep_start = ?, sleep_end = ?, sleep_quality = ? WHERE id = ?', [sleepStart, sleepEnd, sleepQuality, prev.id])
+    const empty =
+      sleepStart == null && sleepEnd == null && sleepQuality == null &&
+      prev.energy == null && prev.mood == null && !prev.energy_notes && !prev.mood_notes && !prev.notes
+    if (empty) exec('DELETE FROM wellbeing WHERE id = ?', [prev.id])
+  } else if (sleepStart != null || sleepEnd != null || sleepQuality != null) {
+    exec(
+      `INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes, energy_notes, mood_notes, sleep_start, sleep_end, sleep_quality)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [uid(), null, date, null, null, null, null, null, sleepStart, sleepEnd, sleepQuality],
+    )
+  }
+  await persist()
+}
+
 // ---- Day context (stress load) ----
 // Stress lives on day_context alongside six whole-day text columns, so like
 // wellbeing it needs a column-level upsert that leaves its siblings alone.
@@ -458,9 +562,8 @@ export function lastDayContextOnOrBefore(date: string, field: DayContextField): 
   return r[0]?.v ?? null
 }
 
-// Same tri-state `notes` contract as upsertTrackValue / upsertWellbeingField:
-// omit to keep, null to clear, string to set.
-export async function upsertDayContextField(
+// The actual write, shared by the public upsert below and by segment rollups.
+async function writeDayContextRollup(
   date: string,
   field: DayContextField,
   value: number | null,
@@ -484,6 +587,99 @@ export async function upsertDayContextField(
     )
   }
   await persist()
+}
+
+// Same tri-state `notes` contract as upsertTrackValue / upsertWellbeingField. A
+// direct set overrides and clears any segments already on record for it.
+export async function upsertDayContextField(
+  date: string,
+  field: DayContextField,
+  value: number | null,
+  notes?: string | null,
+): Promise<void> {
+  clearSegments(date, field)
+  await writeDayContextRollup(date, field, value, notes)
+}
+
+// ---- Segment values (time-of-day sub-day entries) ----
+// A day's energy/mood/exercise/etc can be logged once ("whole day") or split into
+// morning/afternoon/evening segments (schema.ts's segment_values table). Segment
+// rows are additive and own the cell they belong to: writing one recomputes the
+// day's rollup through the private write*Rollup primitive for wherever this metric
+// lives, so every chart and read path only ever sees the rollup and stays
+// unchanged. The three public upserts above clear a metric's segments before
+// writing a direct value — enforced there, not in the UI, so no future caller can
+// create drift between segments and the rollup they're supposed to own.
+
+const SEGMENT_ORDER = "CASE segment WHEN 'morning' THEN 0 WHEN 'afternoon' THEN 1 WHEN 'evening' THEN 2 ELSE 3 END"
+
+function clearSegments(date: string, metric: string): void {
+  exec('DELETE FROM segment_values WHERE date = ? AND metric = ?', [date, metric])
+}
+
+export function segmentsOn(date: string, metric: string): SegmentValue[] {
+  return all<SegmentValue>(
+    `SELECT * FROM segment_values WHERE date = ? AND metric = ? ORDER BY ${SEGMENT_ORDER}`,
+    [date, canonicalTrackName(metric)],
+  )
+}
+
+// Write one segment's value (or clear it, with value null) and recompute the day's
+// rollup. `notes` is tri-state like the other upserts.
+export async function upsertSegmentValue(
+  date: string,
+  segment: Segment,
+  metric: string,
+  value: number | null,
+  notes?: string | null,
+): Promise<void> {
+  const key = canonicalTrackName(metric)
+  const keptNotes =
+    notes === undefined
+      ? all<{ notes: string | null }>(
+          'SELECT notes FROM segment_values WHERE date = ? AND segment = ? AND metric = ?',
+          [date, segment, key],
+        )[0]?.notes ?? null
+      : notes
+  exec('DELETE FROM segment_values WHERE date = ? AND segment = ? AND metric = ?', [date, segment, key])
+  if (value != null) {
+    exec(
+      'INSERT INTO segment_values(id, date, segment, metric, value, notes) VALUES (?,?,?,?,?,?)',
+      [uid(), date, segment, key, value, keptNotes],
+    )
+  }
+  await recomputeRollup(date, key)
+}
+
+// Recompute a day's rollup from whatever segments still exist (avg/sum/last — see
+// rollupFor()) and write it through the metric's private, non-clearing primitive.
+// Called after every segment write, including a clear: the last segment
+// disappearing must null the rollup, not leave a stale value or a false zero — a
+// day with nothing logged is not the same claim as a day of zero minutes.
+async function recomputeRollup(date: string, key: string): Promise<void> {
+  const rows = segmentsOn(date, key).filter((r) => r.value != null)
+  const rollup = rollupFor(key)
+  const value =
+    rows.length === 0
+      ? null
+      : rollup === 'sum'
+        ? rows.reduce((sum, r) => sum + (r.value as number), 0)
+        : rollup === 'last'
+          ? (rows[rows.length - 1].value as number)
+          : Math.round((rows.reduce((sum, r) => sum + (r.value as number), 0) / rows.length) * 10) / 10
+  const note = rows.length ? (rows[rows.length - 1].notes ?? null) : null
+
+  const store = storeForName(key)
+  if (store === 'wellbeing') {
+    await writeWellbeingRollup(date, key as WellbeingField, value, note)
+  } else if (store === 'day_context') {
+    await writeDayContextRollup(date, key as DayContextField, value, note)
+  } else {
+    const def = defForName(key)
+    const category = def ? categoryForDef(def) : null
+    const scale = scaleForTrack(key, null)
+    await writeTrackRollup(date, key, category, value, value == null ? null : scale.unit, note)
+  }
 }
 
 // Dates in range that already have at least one entry/track/meal — used to mark
@@ -524,7 +720,7 @@ export async function dismissCheckin(activityId: string): Promise<void> {
 }
 
 export function counts(): Record<string, number> {
-  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations']
+  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations', 'segment_values', 'events']
   const out: Record<string, number> = {}
   for (const name of t) {
     const r = all<{ n: number }>(`SELECT COUNT(*) as n FROM ${name}`)

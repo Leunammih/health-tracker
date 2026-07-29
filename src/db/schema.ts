@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 9
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS wellbeing (
   mood INTEGER,
   notes TEXT,          -- day-level note (from diary extraction)
   energy_notes TEXT,   -- note attached to the energy quick entry
-  mood_notes TEXT      -- note attached to the mood quick entry
+  mood_notes TEXT,     -- note attached to the mood quick entry
+  sleep_start TEXT,     -- 'HH:MM' time went to bed
+  sleep_end TEXT,       -- 'HH:MM' time woke up (duration is computed, not stored)
+  sleep_quality INTEGER -- 0-10, how the sleep felt
 );
 
 CREATE TABLE IF NOT EXISTS day_context (
@@ -107,6 +110,30 @@ CREATE TABLE IF NOT EXISTS tracks (
   notes TEXT
 );
 
+-- Sub-day entries (morning/afternoon/evening) for a metric that otherwise lives on
+-- tracks/wellbeing/day_context. Additive and additional: writing a segment
+-- recomputes that day's rollup through the normal upserts, so every chart and read
+-- path only ever sees the rollup and stays untouched. See lib/metricStore.ts.
+CREATE TABLE IF NOT EXISTS segment_values (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  segment TEXT NOT NULL,   -- 'morning' | 'afternoon' | 'evening'
+  metric TEXT NOT NULL,    -- canonical track/wellbeing/day_context key, e.g. 'energy'
+  value REAL,
+  notes TEXT
+);
+
+-- Single point-in-time markers ("started magnesium", "started keto") shown as
+-- reference lines across Insights charts — not a metric trended over time.
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  entry_id TEXT,
+  date TEXT NOT NULL,
+  kind TEXT,          -- e.g. 'supplement', 'diet', 'other'
+  label TEXT NOT NULL,
+  notes TEXT
+);
+
 CREATE TABLE IF NOT EXISTS interpretations (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -130,6 +157,9 @@ CREATE INDEX IF NOT EXISTS idx_day_context_date ON day_context(date);
 CREATE INDEX IF NOT EXISTS idx_meals_date ON meals(date);
 CREATE INDEX IF NOT EXISTS idx_tracks_date ON tracks(date);
 CREATE INDEX IF NOT EXISTS idx_tracks_name ON tracks(name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_segment_unique ON segment_values(date, segment, metric);
+CREATE INDEX IF NOT EXISTS idx_segment_metric ON segment_values(metric);
+CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 `
 
 // Table list used by the generic export routines.
@@ -143,6 +173,8 @@ export const TABLES = [
   'meals',
   'tracks',
   'interpretations',
+  'segment_values',
+  'events',
 ] as const
 
 export type TableName = (typeof TABLES)[number]

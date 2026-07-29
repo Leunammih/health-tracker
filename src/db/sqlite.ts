@@ -75,6 +75,18 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'day_context', 'stress_notes')) {
     target.run('ALTER TABLE day_context ADD COLUMN stress_notes TEXT')
   }
+  // v9: sleep tracking. segment_values and events are new tables, created by
+  // SCHEMA_SQL's CREATE TABLE IF NOT EXISTS above with no migration needed —
+  // only columns added to an EXISTING table require an ALTER TABLE here.
+  if (!hasColumn(target, 'wellbeing', 'sleep_start')) {
+    target.run('ALTER TABLE wellbeing ADD COLUMN sleep_start TEXT')
+  }
+  if (!hasColumn(target, 'wellbeing', 'sleep_end')) {
+    target.run('ALTER TABLE wellbeing ADD COLUMN sleep_end TEXT')
+  }
+  if (!hasColumn(target, 'wellbeing', 'sleep_quality')) {
+    target.run('ALTER TABLE wellbeing ADD COLUMN sleep_quality INTEGER')
+  }
 }
 
 export async function initDb(): Promise<Database> {

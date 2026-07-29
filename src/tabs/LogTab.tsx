@@ -8,13 +8,26 @@ import { fmtDate, todayISO, dateSpine, daysAgoISO } from '../lib/dates'
 import { IconMic } from '../components/icons'
 import DayStrip from '../components/DayStrip'
 import QuickEntryPanel from '../components/QuickEntryPanel'
+import SleepCard from '../components/SleepCard'
+import EventsCard from '../components/EventsCard'
 import { colorForTrack } from '../lib/metrics'
-import type { DiaryExtraction, Activity, Entry } from '../types'
+import type { DiaryExtraction, Activity, Entry, Segment } from '../types'
 
 // How far back the date strip lets you swipe.
 const STRIP_DAYS = 27
 
 type Phase = 'input' | 'processing' | 'questions' | 'preview'
+
+// 'whole' isn't a real Segment — it means "log the day directly", the existing
+// behaviour before segments existed. Only quick-entry sliders read this; the
+// dictation/AI path always files under the whole day regardless.
+type SegmentChoice = Segment | 'whole'
+const SEGMENT_CHOICES: { value: SegmentChoice; label: string }[] = [
+  { value: 'whole', label: 'Whole day' },
+  { value: 'morning', label: 'Morning' },
+  { value: 'afternoon', label: 'Afternoon' },
+  { value: 'evening', label: 'Evening' },
+]
 
 export default function LogTab() {
   const [phase, setPhase] = useState<Phase>('input')
@@ -29,6 +42,7 @@ export default function LogTab() {
   const [savedNote, setSavedNote] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [multiDay, setMultiDay] = useState(false)
+  const [segment, setSegment] = useState<SegmentChoice>('whole')
 
   const entries = useMemo(() => recentEntries(8), [refreshKey, phase])
   const checkins = useMemo(() => pendingCheckins(), [refreshKey, phase])
@@ -195,6 +209,25 @@ export default function LogTab() {
               </p>
             )}
           </div>
+          <div>
+            <label className="label">Quick entry for</label>
+            <div className="flex flex-wrap gap-1.5">
+              {SEGMENT_CHOICES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  className={segment === s.value ? 'chip-on' : 'chip'}
+                  onClick={() => setSegment(s.value)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-ink-400">
+              Log energy, mood, pain and duration items separately per part of the day —
+              whole day sliders average or sum whatever segments you've filled in.
+            </p>
+          </div>
           <label className="flex items-center gap-2 text-sm text-ink-300">
             <input
               type="checkbox"
@@ -226,7 +259,19 @@ export default function LogTab() {
       )}
 
       {phase === 'input' && !editingId && (
-        <QuickEntryPanel date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <SleepCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+      )}
+
+      {phase === 'input' && !editingId && (
+        <QuickEntryPanel
+          date={entryDate}
+          segment={segment === 'whole' ? null : segment}
+          onChanged={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {phase === 'input' && !editingId && (
+        <EventsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'processing' && (

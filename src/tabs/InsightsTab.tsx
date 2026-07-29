@@ -2,10 +2,10 @@ import { useCallback, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { daysAgoISO, dateSpine, fmtDate } from '../lib/dates'
+import { daysAgoISO, dateSpine, fmtDate, sleepDurationMin } from '../lib/dates'
 import {
   wellbeingSince, gutSince, infectionsSince, mealsSince, dayContextSince, tracksSince,
-  activitiesSince, allTrackNames,
+  activitiesSince, allTrackNames, eventsSince,
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
@@ -49,7 +49,7 @@ export default function InsightsTab() {
 
   const since = daysAgoISO(days)
 
-  const { wb, gut, inf, meals, ctx, tracks, acts, known } = useMemo(
+  const { wb, gut, inf, meals, ctx, tracks, acts, known, events } = useMemo(
     () => ({
       wb: wellbeingSince(since),
       gut: gutSince(since),
@@ -59,9 +59,16 @@ export default function InsightsTab() {
       tracks: tracksSince(since),
       acts: activitiesSince(since),
       known: allTrackNames(),
+      events: eventsSince(since),
     }),
     [since, refresh],
   )
+
+  // Reference-line markers for the "started X" events above, keyed on the same
+  // formatted date string the categorical XAxis uses — Recharts positions a
+  // ReferenceLine by matching x against an axis tick, so this must be identical to
+  // what each chart's dataKey="date" renders for that day.
+  const eventMarkers = events.map((e) => ({ id: e.id, x: fmtDate(e.date), label: e.label }))
 
   // One shared X axis for every chart — a day with no entry still gets a column, so
   // the graphs stack into readable vertical columns for the same date.
@@ -147,6 +154,22 @@ export default function InsightsTab() {
   // Spread within the symptom arc — every pain line in this one chart stays
   // clearly distinct, not just individually hashed.
   const painPalette = useMemo(() => chartPalette(painKeys, 'symptom', light), [painKeys, light])
+
+  // --- sleep: duration (computed from bedtime/wake, never stored) + felt quality,
+  // both spine-aligned. High is good for both, so neither axis is reversed.
+  const sleepByDate = new Map(wb.map((w) => [w.date, w]))
+  const sleepData = spine.map((d) => {
+    const w = sleepByDate.get(d)
+    const mins = w?.sleep_start && w?.sleep_end ? sleepDurationMin(w.sleep_start, w.sleep_end) : null
+    return {
+      date: fmtDate(d),
+      hours: mins != null ? Math.round((mins / 60) * 10) / 10 : null,
+      quality: w?.sleep_quality ?? null,
+    }
+  })
+  const hasSleep = sleepData.some((r) => r.hours != null || r.quality != null)
+  const colSleepHours = colorForTrack('sleep hours')
+  const colSleepQuality = colorForTrack('sleep quality')
 
   // --- energy / mood (0-10, high is good) + release (0-100, 0 at top).
   // Release defaults to a constant 0 line and only dips on days with an entry.
@@ -326,6 +349,9 @@ export default function InsightsTab() {
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
+              {eventMarkers.map((m) => (
+                <ReferenceLine key={m.id} x={m.x} yAxisId="l" stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+              ))}
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               {hasRelease && (
@@ -358,6 +384,28 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
+      {hasSleep && (
+        <ChartCard title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top">
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={sleepData} margin={{ left: -20, right: -20, top: 8 }}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis yAxisId="l" domain={[0, 12]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+              <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={{ fill: colSleepQuality, fontSize: 10 }} />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+              <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+            </LineChart>
+          </ResponsiveContainer>
+          <Legend
+            items={[
+              { color: colSleepHours, label: 'Hours asleep' },
+              { color: colSleepQuality, label: 'Felt quality (0-10)' },
+            ]}
+          />
+        </ChartCard>
+      )}
+
       {stressData.some((d) => d.stress != null) && (
         <ChartCard title="Stress load" hint="low is good — high stress sits at the bottom">
           <ResponsiveContainer width="100%" height={150}>
@@ -383,6 +431,9 @@ export default function InsightsTab() {
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={illnessData} margin={{ left: -20, right: 8, top: 8 }}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
+              {eventMarkers.map((m) => (
+                <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+              ))}
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />
@@ -432,6 +483,9 @@ export default function InsightsTab() {
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={painRows} margin={{ left: -20, right: 8, top: 8 }}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
+              {eventMarkers.map((m) => (
+                <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+              ))}
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />

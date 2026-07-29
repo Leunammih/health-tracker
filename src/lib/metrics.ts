@@ -37,7 +37,13 @@ export interface TrackDef {
   // quick entries read/write those through a different path — see the STORES
   // dispatch table in lib/metricStore.ts.
   store?: MetricStore
+  // How several same-day segment entries (morning/afternoon/evening) combine into
+  // the day's rollup value. Defaults by unit — see rollupFor() — so this only needs
+  // to be set explicitly where that default would be wrong.
+  rollup?: Rollup
 }
+
+export type Rollup = 'sum' | 'avg' | 'last'
 
 export type MetricStore = 'tracks' | 'wellbeing' | 'day_context'
 
@@ -72,10 +78,14 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'infection', label: 'Infection', match: /infection/i, color: paletteColor('infection', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   // Key stays "stool" (not "stool consistency") so it reuses the same palette.ts KNOWN
   // colour as the Illness & gut chart's own "Stool" series — same metric, same hue.
-  { key: 'stool', label: 'Stool consistency', match: /stool|bristol/i, color: paletteColor('stool', 'symptom'), group: 'symptom', unit: '', min: 1, max: 7, step: 1 },
+  { key: 'stool', label: 'Stool consistency', match: /stool|bristol/i, color: paletteColor('stool', 'symptom'), group: 'symptom', unit: '', min: 1, max: 7, step: 1, rollup: 'last' },
 
   // --- measurements ---
-  { key: 'weight', label: 'Weight', match: /weight/i, color: paletteColor('weight', 'symptom'), group: 'other', unit: 'kg', min: 40, max: 150, step: 1 },
+  // rollup: 'last' is explicit (not just inherited from the 'kg'/'' unit default)
+  // because averaging is actively wrong for both: two weigh-ins aren't a day-average
+  // of a fluctuating state, and averaging a Bristol 2 and a 6 yields "normal" 4 — the
+  // opposite of what happened.
+  { key: 'weight', label: 'Weight', match: /weight/i, color: paletteColor('weight', 'symptom'), group: 'other', unit: 'kg', min: 40, max: 150, step: 1, rollup: 'last' },
 
   // --- energy & mood (0-10, high is good). Stored on the `wellbeing` table, not
   // `tracks`; colours match the existing "Energy & mood" chart in InsightsTab. ---
@@ -160,6 +170,20 @@ export function scaleForTrack(name: string, category?: string | null): { unit: s
   if (category === 'symptom') return { unit: '/10', min: 0, max: 10, step: 1 }
   if (category === 'measurement') return { unit: '', min: 0, max: 200, step: 1 }
   return { unit: 'min', min: 0, max: 180, step: 5 }
+}
+
+// How several same-day segment entries combine into the day's rollup. An explicit
+// TrackDef.rollup wins; otherwise derived from the unit, via scaleForTrack so an
+// ad-hoc dictated name still gets sensible behaviour: minutes sum, 0-10/percent
+// scores average, anything else (a bare number, a measurement) takes the last entry
+// rather than blending readings that aren't meant to add or average.
+export function rollupFor(name: string, category?: string | null): Rollup {
+  const def = defForName(name)
+  if (def?.rollup) return def.rollup
+  const unit = scaleForTrack(name, category).unit
+  if (unit === 'min') return 'sum'
+  if (unit === '/10' || unit === '%') return 'avg'
+  return 'last'
 }
 
 // Items offered in the Log tab quick-add and the Insights tap-to-log sheet.

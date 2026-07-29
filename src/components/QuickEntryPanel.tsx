@@ -5,9 +5,19 @@ import {
   QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS, TRACK_DEFS,
   type MetricGroup, type TrackDef,
 } from '../lib/metrics'
-import { readMetric, lastMetricValue, writeMetric } from '../lib/metricStore'
+import { readMetric, lastMetricValue, writeMetric, readSegments, writeSegment, rollupKindFor } from '../lib/metricStore'
 import { daysAgoISO } from '../lib/dates'
 import { IconNote } from './icons'
+import type { Segment } from '../types'
+
+// Whether `name` should read/write a specific time-of-day segment right now, vs the
+// whole-day rollup directly. 'last'-rollup metrics (weight, stool) never segment —
+// a point-in-time reading doesn't split by morning/afternoon/evening.
+function usesSegment(segment: Segment | null, name: string): boolean {
+  return segment != null && rollupKindFor(name) !== 'last'
+}
+
+const SEGMENT_LABEL: Record<Segment, string> = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' }
 
 const GROUP_ORDER: { group: MetricGroup; title: string }[] = [
   { group: 'movement', title: 'Movement' },
@@ -43,14 +53,22 @@ interface SavedState {
   note: string | null
 }
 
-// Read a row's persisted state — dispatches to whichever table the metric actually
-// lives in (tracks / wellbeing / day_context), see lib/metricStore.ts.
-function readSaved(date: string, item: Item): SavedState {
+// Read a row's persisted state. In whole-day mode this dispatches to whichever
+// table the metric actually lives in (tracks / wellbeing / day_context) — see
+// lib/metricStore.ts. In segment mode it reads that one segment's own value
+// instead, leaving the day's rollup (and every other segment) untouched.
+function readSaved(date: string, item: Item, segment: Segment | null): SavedState {
+  if (usesSegment(segment, item.name)) {
+    const row = readSegments(date, item.name).find((r) => r.segment === segment)
+    return { value: row?.value ?? null, note: row?.notes ?? null }
+  }
   return readMetric(date, item.name)
 }
 
 // Where a slider starts: today's saved value, else the most recent earlier one, else
-// the bottom of the scale.
+// the bottom of the scale. The fallback is always the whole-day history — a
+// morning segment with nothing logged yet still starts from your last known value,
+// not zero.
 function readFallback(date: string, item: Item): number | null {
   return lastMetricValue(date, item.name)
 }
@@ -73,9 +91,11 @@ function initRow(date: string, item: Item, saved: SavedState): RowState {
 // save reset every other slider.
 export default function QuickEntryPanel({
   date,
+  segment,
   onChanged,
 }: {
   date: string
+  segment: Segment | null
   onChanged: () => void
 }) {
   const [extra, setExtra] = useState<string[]>([]) // items added via quick-add this session
@@ -109,17 +129,17 @@ export default function QuickEntryPanel({
       })
   }, [recent, extra])
 
-  const [saved, setSaved] = useState<Map<string, SavedState>>(() => initSavedMap(date, items))
-  const [drafts, setDrafts] = useState<Map<string, RowState>>(() => initDraftMap(date, items))
+  const [saved, setSaved] = useState<Map<string, SavedState>>(() => initSavedMap(date, segment, items))
+  const [drafts, setDrafts] = useState<Map<string, RowState>>(() => initDraftMap(date, segment, items))
 
-  // Switching day: reload everything from the DB. Unsaved slider positions are
-  // discarded — the correct reading of an explicit-save panel.
+  // Switching day or segment: reload everything from the DB. Unsaved slider
+  // positions are discarded — the correct reading of an explicit-save panel.
   useEffect(() => {
-    setSaved(initSavedMap(date, items))
-    setDrafts(initDraftMap(date, items))
+    setSaved(initSavedMap(date, segment, items))
+    setDrafts(initDraftMap(date, segment, items))
     setJustSaved(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date])
+  }, [date, segment])
 
   // A newly added item needs its own initial state, without disturbing drafts the
   // user has already adjusted.
@@ -128,7 +148,7 @@ export default function QuickEntryPanel({
       const next = new Map(prev)
       let changed = false
       for (const it of items) {
-        if (!next.has(it.name)) { next.set(it.name, readSaved(date, it)); changed = true }
+        if (!next.has(it.name)) { next.set(it.name, readSaved(date, it, segment)); changed = true }
       }
       return changed ? next : prev
     })
@@ -136,10 +156,11 @@ export default function QuickEntryPanel({
       const next = new Map(prev)
       let changed = false
       for (const it of items) {
-        if (!next.has(it.name)) { next.set(it.name, initRow(date, it, readSaved(date, it))); changed = true }
+        if (!next.has(it.name)) { next.set(it.name, initRow(date, it, readSaved(date, it, segment))); changed = true }
       }
       return changed ? next : prev
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, date])
 
   const setDraft = useCallback((name: string, patch: Partial<RowState>) => {
@@ -176,7 +197,11 @@ export default function QuickEntryPanel({
     // Only send a note when the field was actually edited; otherwise omit it so the
     // DB layer keeps whatever is already stored.
     const noteArg = d.noteTouched ? (d.note.trim() || null) : undefined
-    await writeMetric(date, it.name, d.value, noteArg)
+    if (usesSegment(segment, it.name)) {
+      await writeSegment(date, segment as Segment, it.name, d.value, noteArg)
+    } else {
+      await writeMetric(date, it.name, d.value, noteArg)
+    }
     setSaved((prev) => {
       const next = new Map(prev)
       const cur = prev.get(it.name)
@@ -207,9 +232,16 @@ export default function QuickEntryPanel({
   async function tapQuickLog(def: TrackDef) {
     setQlBusy(def.key)
     try {
-      const current = readMetric(date, def.key).value ?? 0
+      const segmented = usesSegment(segment, def.key)
+      const current = (segmented
+        ? readSegments(date, def.key).find((r) => r.segment === segment)?.value
+        : readMetric(date, def.key).value) ?? 0
       const next = Math.min(current + def.step, def.max)
-      await writeMetric(date, def.key, next)
+      if (segmented) {
+        await writeSegment(date, segment as Segment, def.key, next)
+      } else {
+        await writeMetric(date, def.key, next)
+      }
       setSaved((prev) => {
         const next2 = new Map(prev)
         next2.set(def.key, { value: next, note: prev.get(def.key)?.note ?? null })
@@ -261,9 +293,12 @@ export default function QuickEntryPanel({
   return (
     <div className="card space-y-4">
       <div>
-        <div className="label">Quick entry</div>
+        <div className="label">Quick entry{segment ? ` — ${SEGMENT_LABEL[segment]}` : ''}</div>
         <p className="text-xs text-ink-400">
-          Sliders start at your last value. Adjust and tap Save — nothing is written until you do.
+          {segment
+            ? `Sliders start at your last value. Items that don't split by time of day (weight, stool) still log the whole day.`
+            : 'Sliders start at your last value.'}{' '}
+          Adjust and tap Save — nothing is written until you do.
         </p>
       </div>
 
@@ -307,7 +342,9 @@ export default function QuickEntryPanel({
       {QUICK_LOG_STEP_ITEMS.length > 0 && (
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-500">Quick log</div>
-          <p className="mb-1.5 text-xs text-ink-400">Tap to add 5 minutes to today's total for that item.</p>
+          <p className="mb-1.5 text-xs text-ink-400">
+            Tap to add 5 minutes to {segment ? `${SEGMENT_LABEL[segment].toLowerCase()}'s` : "today's"} total for that item.
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {QUICK_LOG_STEP_ITEMS.map((d) => (
               <button
@@ -347,11 +384,11 @@ export default function QuickEntryPanel({
   )
 }
 
-function initSavedMap(date: string, items: Item[]): Map<string, SavedState> {
-  return new Map(items.map((it) => [it.name, readSaved(date, it)]))
+function initSavedMap(date: string, segment: Segment | null, items: Item[]): Map<string, SavedState> {
+  return new Map(items.map((it) => [it.name, readSaved(date, it, segment)]))
 }
-function initDraftMap(date: string, items: Item[]): Map<string, RowState> {
-  return new Map(items.map((it) => [it.name, initRow(date, it, readSaved(date, it))]))
+function initDraftMap(date: string, segment: Segment | null, items: Item[]): Map<string, RowState> {
+  return new Map(items.map((it) => [it.name, initRow(date, it, readSaved(date, it, segment))]))
 }
 
 // Presentational and memoised: dragging one slider re-renders only its own row.

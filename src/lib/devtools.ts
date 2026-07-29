@@ -32,7 +32,7 @@ export function installDevtools(): void {
         ...partial,
       }, entryDate),
     wipe: async () => {
-      for (const t of ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks']) {
+      for (const t of ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'segment_values', 'events']) {
         getDb().run(`DELETE FROM ${t}`)
       }
       await persist()

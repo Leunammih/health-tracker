@@ -60,6 +60,29 @@ export interface Wellbeing {
   notes: string | null // day-level note from diary extraction
   energy_notes: string | null // note attached to the energy quick entry
   mood_notes: string | null // note attached to the mood quick entry
+  sleep_start: string | null // 'HH:MM' time went to bed
+  sleep_end: string | null // 'HH:MM' time woke up
+  sleep_quality: number | null // 0-10
+}
+
+export interface SegmentValue {
+  id: string
+  date: string
+  segment: Segment
+  metric: string
+  value: number | null
+  notes: string | null
+}
+
+export type Segment = 'morning' | 'afternoon' | 'evening'
+
+export interface HealthEvent {
+  id: string
+  entry_id: string | null
+  date: string
+  kind: string | null
+  label: string
+  notes: string | null
 }
 
 export interface DayContext {

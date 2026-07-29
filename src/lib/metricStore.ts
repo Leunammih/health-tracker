@@ -12,8 +12,10 @@ import {
   trackRowOn, lastTrackValueOnOrBefore, upsertTrackValue, tracksSince,
   wellbeingOn, lastWellbeingOnOrBefore, upsertWellbeingField, wellbeingSince, type WellbeingField,
   dayContextOn, lastDayContextOnOrBefore, upsertDayContextField, dayContextSince, type DayContextField,
+  segmentsOn, upsertSegmentValue,
 } from '../db/queries'
-import { canonicalTrackName, categoryForDef, defForName, scaleForTrack, storeForName, type MetricStore } from './metrics'
+import { canonicalTrackName, categoryForDef, defForName, rollupFor, scaleForTrack, storeForName, type MetricStore, type Rollup } from './metrics'
+import type { Segment, SegmentValue } from '../types'
 
 export interface MetricValue {
   value: number | null
@@ -113,4 +115,32 @@ export async function writeMetric(
 export function datesWithMetric(sinceISO: string, name: string): Set<string> {
   const key = keyFor(name)
   return STORES[storeForName(key)].datesWithValue(sinceISO, key)
+}
+
+// ---- Time-of-day segments (morning/afternoon/evening) ----
+// Segments are additive rows on top of whatever store a metric normally lives in
+// (see segment_values in db/schema.ts) — writing one recomputes and writes the
+// day's rollup through the same store above, so readMetric/writeMetric above never
+// need to know segments exist. These three are for the segment-entry UI itself.
+
+// How this metric's segments combine into a rollup — 'sum' (minutes), 'avg' (0-10 /
+// percent), or 'last' (a point-in-time reading like weight or Bristol stool, which
+// doesn't make sense to split by time of day). The Log tab's segment picker hides
+// itself for 'last' metrics.
+export function rollupKindFor(name: string): Rollup {
+  return rollupFor(keyFor(name))
+}
+
+export function readSegments(date: string, name: string): SegmentValue[] {
+  return segmentsOn(date, keyFor(name))
+}
+
+export async function writeSegment(
+  date: string,
+  segment: Segment,
+  name: string,
+  value: number | null,
+  note?: string | null,
+): Promise<void> {
+  await upsertSegmentValue(date, segment, keyFor(name), value, note)
 }
