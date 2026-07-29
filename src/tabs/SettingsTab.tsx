@@ -6,6 +6,7 @@ import { pullIfNewer } from '../sync/manager'
 import { counts } from '../db/queries'
 import { dbSizeBytes } from '../db/sqlite'
 import { downloadDbFile, downloadJson, downloadCsvBundle, copyAllJson, importDbFile } from '../lib/export'
+import { loadGoals, saveGoals, type Goals } from '../lib/goals'
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -27,6 +28,8 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [goals, setGoals] = useState<Goals>(() => loadGoals())
+  const [goalsSaved, setGoalsSaved] = useState(false)
   const importRef = useRef<HTMLInputElement>(null)
   const c = useMemo(() => counts(), [refreshKey])
   const storage = useMemo(
@@ -58,6 +61,20 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
     setSaved(true)
     onSaved()
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  // Goals live in the DB (lib/goals.ts), not in `Settings`, so they have their
+  // own save — the "Save settings" button below only writes localStorage.
+  function setGoal(k: keyof Goals, raw: string) {
+    const n = Number(raw)
+    setGoals((prev) => ({ ...prev, [k]: raw.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null }))
+    setGoalsSaved(false)
+  }
+
+  async function persistGoals() {
+    await saveGoals(goals)
+    setGoalsSaved(true)
+    setTimeout(() => setGoalsSaved(false), 2000)
   }
 
   async function runTest() {
@@ -190,6 +207,47 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
       <button className="btn-primary w-full" onClick={persist}>
         {saved ? 'Saved ✓' : 'Save settings'}
       </button>
+
+      <section className="card space-y-3">
+        <div className="label">Daily nutrition goals</div>
+        <p className="text-sm text-ink-300">
+          Shown as progress on the Meals tab, and as a target line on the calories chart. Leave a field
+          empty to track without a goal.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="label">Calories (kcal)</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              className="field"
+              placeholder="e.g. 2200"
+              value={goals.calories ?? ''}
+              onChange={(e) => setGoal('calories', e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="label">Protein (g)</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              className="field"
+              placeholder="e.g. 120"
+              value={goals.protein_g ?? ''}
+              onChange={(e) => setGoal('protein_g', e.target.value)}
+            />
+          </div>
+        </div>
+        <button className="btn-primary w-full" onClick={() => void persistGoals()}>
+          {goalsSaved ? 'Saved ✓' : 'Save goals'}
+        </button>
+        <p className="text-xs text-ink-400">
+          Unlike the settings above, goals are stored with your health data — so they sync across your
+          devices and travel with an export.
+        </p>
+      </section>
 
       <section className="card space-y-2">
         <div className="label">Where your data lives</div>

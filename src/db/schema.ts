@@ -176,6 +176,10 @@ export const TABLES = [
   'interpretations',
   'segment_values',
   'events',
+  // Included so DB-level settings (nutrition goals) appear in the JSON/CSV
+  // exports too. The .db export and Dropbox sync copy the whole file and always
+  // carried it; only these generic per-table dumps were missing it.
+  'meta',
 ] as const
 
 export type TableName = (typeof TABLES)[number]

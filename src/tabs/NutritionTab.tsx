@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
 import { analyseMeal, analyseMealText, analyseMealsText } from '../ai/anthropic'
-import { saveMeal, updateMeal, deleteMeal, recentMeals } from '../db/queries'
+import { saveMeal, updateMeal, deleteMeal, recentMeals, mealsSince } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera, IconMic } from '../components/icons'
+import GoalProgress from '../components/GoalProgress'
+import { loadGoals, hasAnyGoal, totalsFor } from '../lib/goals'
 import type { FoodGroupBreakdown } from '../lib/foodGroups'
 import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
 
@@ -47,6 +49,14 @@ export default function NutritionTab() {
   const [ingredientsDirty, setIngredientsDirty] = useState(false)
 
   const meals = useMemo(() => recentMeals(10), [refreshKey, phase])
+  // Today's totals vs. the goals set in Settings. Read from the DB (not from
+  // `meals`, which is capped at 10 rows) on the same deps as the list above, so
+  // saving, editing or deleting a meal moves the bars straight away.
+  const today = useMemo(() => {
+    const t = todayISO()
+    const todayMeals = mealsSince(t).filter((m) => m.date === t)
+    return { goals: loadGoals(), totals: totalsFor(todayMeals), mealCount: todayMeals.length, label: fmtDate(t) }
+  }, [refreshKey, phase])
 
   async function onPick(file: File) {
     setError(null)
@@ -305,6 +315,17 @@ export default function NutritionTab() {
       )}
       {error && (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</div>
+      )}
+
+      {phase === 'input' && hasAnyGoal(today.goals) && (
+        <GoalProgress goals={today.goals} totals={today.totals} title={`Today · ${today.label}`} />
+      )}
+      {phase === 'input' && !hasAnyGoal(today.goals) && today.mealCount > 0 && (
+        <p className="text-xs text-ink-400">
+          Today: {Math.round(today.totals.calories).toLocaleString()} kcal ·{' '}
+          {Math.round(today.totals.protein_g).toLocaleString()} g protein. Set daily goals in Settings to
+          track progress against them.
+        </p>
       )}
 
       {phase === 'input' && captureMode === 'choose' && (

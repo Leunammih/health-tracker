@@ -16,6 +16,7 @@ import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
 import heroResources from '../assets/hero-resources.jpg'
 import { classifyMeal, FOOD_GROUP_KEYS, type FoodGroupBreakdown } from '../lib/foodGroups'
+import { loadGoals } from '../lib/goals'
 import type { Track, Meal, Ingredient } from '../types'
 
 const RANGES = [
@@ -84,6 +85,10 @@ export default function InsightsTab() {
     }),
     [since, refresh],
   )
+
+  // Daily nutrition goals (Settings → Daily nutrition goals), drawn as a target
+  // line on the calories chart. Null when unset — no line, chart unchanged.
+  const goals = useMemo(() => loadGoals(), [refresh])
 
   // Reference-line markers for the "started X" events above, keyed on the same
   // formatted date string the categorical XAxis uses — Recharts positions a
@@ -346,6 +351,17 @@ export default function InsightsTab() {
 
     return { kcalByDate, calData, totalMacro, mealDays, mealBarsData }
   }, [meals, spine])
+
+  // How the range went against the calorie goal. Counted over days that actually
+  // have meals logged, not the whole spine — a day with no entry is missing data,
+  // not a day of zero calories, and counting it as "under goal" would flatter the
+  // number exactly when the log is least complete.
+  const goalSummary = useMemo(() => {
+    if (goals.calories == null || kcalByDate.size === 0) return null
+    const totals = [...kcalByDate.values()]
+    const within = totals.filter((k) => k <= goals.calories!).length
+    return `Dashed line: your ${goals.calories.toLocaleString()} kcal goal — ${within} of ${totals.length} logged day${totals.length > 1 ? 's' : ''} at or under it.`
+  }, [goals.calories, kcalByDate])
 
   // Remaining tracks that none of the dedicated charts claimed.
   const trackGroups = useMemo(() => {
@@ -644,14 +660,22 @@ export default function InsightsTab() {
               <YAxis tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} />
               <Bar isAnimationActive={false} dataKey="kcal" fill="var(--accent-deep)" radius={[4, 4, 0, 0]} />
+              {/* extendDomain, so a goal set above the tallest bar still shows —
+                  Recharts otherwise clips a reference line outside the auto Y
+                  domain. No text label: at phone width it lands on top of the
+                  bars; the caption under the chart names the goal instead. */}
+              {goals.calories != null && (
+                <ReferenceLine y={goals.calories} ifOverflow="extendDomain" stroke="var(--accent)" strokeDasharray="4 3" />
+              )}
             </BarChart>
           </ResponsiveContainer>
           <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs text-ink-300">
-            <Avg label="Protein" v={totalMacro.p / mealDays} />
+            <Avg label="Protein" v={totalMacro.p / mealDays} goal={goals.protein_g} />
             <Avg label="Fat" v={totalMacro.f / mealDays} />
             <Avg label="Carbs" v={totalMacro.c / mealDays} />
             <Avg label="Fiber" v={totalMacro.fb / mealDays} />
           </div>
+          {goalSummary && <p className="mt-2 text-xs text-ink-400">{goalSummary}</p>}
         </ChartCard>
       )}
 
@@ -829,11 +853,12 @@ function Stat({ label, value }: { label: string; value: number }) {
   )
 }
 
-function Avg({ label, v }: { label: string; v: number }) {
+function Avg({ label, v, goal }: { label: string; v: number; goal?: number | null }) {
   return (
     <div>
       <div className="font-semibold text-cream">{Math.round(v)}g</div>
       <div className="text-ink-400">{label}/day</div>
+      {goal != null && <div className="text-ink-400">of {Math.round(goal)}g</div>}
     </div>
   )
 }

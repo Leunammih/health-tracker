@@ -721,6 +721,22 @@ export async function dismissCheckin(activityId: string): Promise<void> {
   await persist()
 }
 
+// ---- meta: small key/value settings that belong to the DATA, not the device ----
+// `meta` already existed for `schema_version`. Anything stored here rides along
+// with the .db file, so it syncs through Dropbox and survives an export/import —
+// unlike lib/storage.ts's Settings (localStorage, deliberately per-device: API
+// key, model, theme, Dropbox config).
+export function getMeta(key: string): string | null {
+  const rows = all<{ value: string | null }>('SELECT value FROM meta WHERE key = ?', [key])
+  return rows[0]?.value ?? null
+}
+
+export async function setMeta(key: string, value: string | null): Promise<void> {
+  if (value === null) exec('DELETE FROM meta WHERE key = ?', [key])
+  else exec('INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)', [key, value])
+  await persist()
+}
+
 export function counts(): Record<string, number> {
   const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations', 'segment_values', 'events']
   const out: Record<string, number> = {}
