@@ -156,25 +156,58 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   right.
 
 ## Not started — for new sessions
-- **Phase C:** ~~(1) bulk/range entry~~ ✅; (2) calorie/protein goals + progress display;
-  (3) supplements (start date, composition via photo or name, periodic re-check reusing the
-  B2 check-in queue pattern).
+- **Phase C:** ~~(1) bulk/range entry~~ ✅; (2) calorie/protein goals + progress display —
+  chosen as the next step, see "Exact next step" below for the full spec; (3) supplements.
 - **Phase E:** eating-pattern quick-adds by time of day (client-side frequency over `meals`).
 
 ## Exact next step
-Phase D and Phase D-2 (P1–P4) are both code-complete and pushed. Next up is either:
-1. **User verification on a phone** — see "Try Phase D + D-2 on a phone" above.
-2. Or resume the backlog: **Phase C item 2 — calorie/protein goals + progress display**.
-   Meals already store macros (`src/db/queries.ts`, `meals` table):
-   - Store daily goals (calories, protein) — a small settings/prefs store (localStorage or
-     a 1-row `settings` table); add a Settings input for them.
-   - Sum today's `meals` macros and show progress (bar/ring) against the goals — likely on
-     NutritionTab and/or InsightsTab.
-   - Verify in-browser: set goals, log meals, confirm progress updates.
-3. Or Phase C item 3 — **supplements** (start date, composition via photo or name,
-   periodic re-check reusing the B2 check-in queue pattern). The new `events` table
-   (Phase D-2 P2) may be a natural home for "started supplement X" markers already —
-   check before building a parallel structure.
+Phase D and Phase D-2 (P1–P4) are both code-complete, pushed, and awaiting the user's
+phone verification (see "Try Phase D + D-2 on a phone" above — not blocking, just not
+yet confirmed). **Next up, chosen by the user (2026-07-29): Phase C item 2 — calorie/
+protein daily goals + progress display.** Detailed enough to start straight from, no
+re-exploration needed:
+
+**Where goals should live — use the `meta` table, not localStorage.** The app already
+has two persistence layers: `src/lib/storage.ts`'s `Settings` (localStorage, per-device,
+holds API key/model/theme/Dropbox config — deliberately *not* synced) and the SQLite DB
+itself (synced via Dropbox). Health goals belong with the synced data, not stuck on one
+device. `src/db/schema.ts` already has a generic `meta(key TEXT PRIMARY KEY, value TEXT)`
+table (currently only holds `schema_version`, written once in `src/db/sqlite.ts:103`
+`INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)`). No new table needed — add
+`getMeta(key)` / `setMeta(key, value)` helpers to `src/db/queries.ts` following the
+existing `all`/`exec` helpers at the top of that file, and store e.g. `goal_calories` /
+`goal_protein_g` as string-encoded numbers. `meta` is already in `TABLES`
+(`schema.ts`) so it round-trips through export/Dropbox sync for free.
+
+**Data already available.** `meals` (schema.ts) has `calories`, `protein_g` per row.
+`mealsSince(dateISO)` (`src/db/queries.ts`) is the existing bulk reader; for "today"
+specifically, filter its result to `date === todayISO()` (see the pattern already used
+in `src/tabs/HomeTab.tsx`'s yesterday-summary `useMemo` — same filter-after-fetch idiom).
+
+**UI — two places, both additive, no redesign needed:**
+- **Settings** (`src/tabs/SettingsTab.tsx`): a small "Goals" card, two number inputs
+  (daily calories, daily protein grams), save via `setMeta`. Mirror the existing
+  Anthropic API key input's field styling in that file.
+- **Progress display**: likely `src/tabs/NutritionTab.tsx` (top of the Meals tab, above
+  "Recent meals" — a small stat/progress-bar card showing today's calories/protein sum
+  vs. goal) and optionally `src/tabs/InsightsTab.tsx`'s "Daily calories" `ChartCard`
+  (`InsightsTab.tsx`, search `Daily calories` — could add a `ReferenceLine` at the goal
+  value, same `Recharts` import already in that file, same pattern as the existing
+  `ReferenceLine y={4}` on the Illness & gut chart).
+
+**Verify in-browser**: set goals in Settings, log a meal (or use `window.__ht.seed()` /
+raw SQL via `window.__ht.run`/`all` for synthetic meals — see this session's Phase D-2
+verification transcript for the exact devtools pattern), confirm progress updates and
+survives a reload (i.e. actually persisted to `meta`, not just component state). Check
+both themes. `npx tsc -b --noEmit && npm run build` before committing, per Dev hygiene
+below.
+
+**Still open after that, not yet started:** Phase C item 3 — supplements (start date,
+composition via photo or name, periodic re-check reusing the B2 check-in queue pattern
+in `src/db/queries.ts`'s `pendingCheckins`/`recordCheckin`). The Phase D-2 `events`
+table (`date, kind, label, notes` — `src/db/queries.ts`'s `saveEvent`/`eventsSince`)
+may already be a reasonable home for "started supplement X" markers — check before
+building a parallel structure.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
