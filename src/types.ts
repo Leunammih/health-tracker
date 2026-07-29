@@ -1,4 +1,5 @@
 // Domain types shared across the app. These mirror the SQLite schema in db/schema.ts.
+import type { FoodGroupBreakdown } from './lib/foodGroups'
 
 export type PrecededBy = 'travel' | 'ceremony' | 'work_project' | 'online_work' | 'transition' | 'other'
 export type GentleMovementEffect = 'helped' | 'hurt' | 'neutral' | 'unknown'
@@ -121,6 +122,7 @@ export interface Meal {
   source: string // 'photo' | 'text' | 'mixed'
   notes: string | null // raw dictated description, if any
   meal_type: string | null // 'breakfast' | 'lunch' | 'dinner' | 'snack'
+  food_groups: string | null // JSON FoodGroupBreakdown (lib/foodGroups.ts); null pre-dates the feature
 }
 
 export type TrackCategory = 'practice' | 'symptom' | 'measurement' | 'activity' | 'release' | 'other'
@@ -242,6 +244,7 @@ export interface MealAnalysis {
   confidence: 'low' | 'medium' | 'high'
   clarifying_questions: string[]
   meal_type?: MealType
+  food_groups?: FoodGroupBreakdown
 }
 
 // One meal out of a multi-meal dictation — same macro shape as MealAnalysis, plus
@@ -259,4 +262,5 @@ export interface MultiMealItem {
   fiber_g: number
   confidence: 'low' | 'medium' | 'high'
   meal_type?: MealType
+  food_groups?: FoodGroupBreakdown
 }

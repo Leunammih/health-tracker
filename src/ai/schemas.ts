@@ -5,6 +5,24 @@ const precededBy = {
   items: { type: 'string', enum: ['travel', 'ceremony', 'work_project', 'online_work', 'transition', 'other'] },
 }
 
+// Shared between MEAL_TOOL and MULTI_MEAL_TOOL (their ingredient sub-schemas are
+// already separately duplicated below — this one stays a single constant so a
+// future field only needs to change in one place).
+const foodGroups = {
+  type: 'object',
+  description:
+    'What fraction of this meal (by mass/calories, not ingredient count) came from each source. Should sum to roughly 1. Grains, vegetables, fruit, legumes, tofu, and oil all count as vegan.',
+  properties: {
+    vegan: { type: 'number', description: '0-1' },
+    dairy_eggs: { type: 'number', description: '0-1' },
+    meat_beef: { type: 'number', description: '0-1' },
+    meat_chicken: { type: 'number', description: '0-1' },
+    meat_fish: { type: 'number', description: '0-1, includes other seafood' },
+    meat_other: { type: 'number', description: '0-1, pork/lamb/duck/etc.' },
+  },
+  required: ['vegan', 'dairy_eggs', 'meat_beef', 'meat_chicken', 'meat_fish', 'meat_other'],
+}
+
 export const DIARY_TOOL = {
   name: 'record_health_log',
   description:
@@ -162,6 +180,7 @@ export const MEAL_TOOL = {
       fat_g: { type: 'number' },
       carbs_g: { type: 'number' },
       fiber_g: { type: 'number' },
+      food_groups: foodGroups,
       confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
       clarifying_questions: {
         type: 'array',
@@ -169,7 +188,7 @@ export const MEAL_TOOL = {
         description: 'Questions to confirm portions or hidden ingredients. Empty if confident.',
       },
     },
-    required: ['name', 'meal_type', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence', 'clarifying_questions'],
+    required: ['name', 'meal_type', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'food_groups', 'confidence', 'clarifying_questions'],
   },
 } as const
 
@@ -206,9 +225,10 @@ export const MULTI_MEAL_TOOL = {
             fat_g: { type: 'number' },
             carbs_g: { type: 'number' },
             fiber_g: { type: 'number' },
+            food_groups: foodGroups,
             confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
           },
-          required: ['date', 'meal_time', 'meal_type', 'name', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'confidence'],
+          required: ['date', 'meal_time', 'meal_type', 'name', 'ingredients', 'calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'food_groups', 'confidence'],
         },
       },
     },

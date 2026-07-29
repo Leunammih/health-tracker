@@ -87,6 +87,10 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'wellbeing', 'sleep_quality')) {
     target.run('ALTER TABLE wellbeing ADD COLUMN sleep_quality INTEGER')
   }
+  // v10: per-meal food-group breakdown for the Insights macro/food-group bars.
+  if (!hasColumn(target, 'meals', 'food_groups')) {
+    target.run('ALTER TABLE meals ADD COLUMN food_groups TEXT')
+  }
 }
 
 export async function initDb(): Promise<Database> {

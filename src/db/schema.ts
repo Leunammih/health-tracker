@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 9
+export const SCHEMA_VERSION = 10
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS meals (
   confirmed INTEGER NOT NULL DEFAULT 1,
   source TEXT NOT NULL DEFAULT 'photo',
   notes TEXT,
-  meal_type TEXT
+  meal_type TEXT,
+  food_groups TEXT -- JSON FoodGroupBreakdown (lib/foodGroups.ts); null for meals saved before this existed
 );
 
 -- Generic time-series for anything the user wants to track/graph beyond the

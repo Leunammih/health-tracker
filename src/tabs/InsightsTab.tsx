@@ -15,7 +15,8 @@ import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
 import heroResources from '../assets/hero-resources.jpg'
-import type { Track } from '../types'
+import { classifyMeal, FOOD_GROUP_KEYS, type FoodGroupBreakdown } from '../lib/foodGroups'
+import type { Track, Meal, Ingredient } from '../types'
 
 const RANGES = [
   { label: '3d', days: 3 },
@@ -24,6 +25,22 @@ const RANGES = [
   { label: '30d', days: 30 },
   { label: '90d', days: 90 },
 ]
+
+// Fixed (not hashed) — a small, always-present set of categories rather than an
+// open-ended list of user-named tracks, so unlike chartPalette()'s hue arcs these
+// are just picked once: meat sub-coloured by animal (beef red, chicken yellow,
+// fish pink) as asked for, vegan/dairy in cool greens/violets to read as distinct
+// from the meat family, "unclassified" a neutral grey rather than a hue at all.
+const MACRO_COLORS = { protein: '#14b8a6', fat: '#eab308', carbs: '#38bdf8' }
+const FOOD_GROUP_COLORS = {
+  vegan: '#22c55e',
+  dairy_eggs: '#a78bfa',
+  meat_beef: '#ef4444',
+  meat_chicken: '#facc15',
+  meat_fish: '#ec4899',
+  meat_other: '#f97316',
+  unclassified: 'var(--faint)',
+}
 
 // Free-text infection severity → 0-10. The user logs recovery by saying it's gone,
 // which must read as 0 so the carried-forward line can end.
@@ -255,22 +272,80 @@ export default function InsightsTab() {
     [light],
   )
 
-  // --- calories on the shared spine so bars line up with everything above.
-  const kcalByDate = new Map<string, number>()
-  for (const m of meals) kcalByDate.set(m.date, (kcalByDate.get(m.date) ?? 0) + (m.calories ?? 0))
-  const calData = spine.map((d) => ({ date: fmtDate(d), kcal: kcalByDate.get(d) ?? 0 }))
+  // --- calories, and the macro/food-group 100%-stacked bars, all on the shared
+  // spine. Bar A splits calories into protein/fat/carbs by calorie share (4/4/9
+  // kcal per g) rather than against the meal's own `calories` field, so it always
+  // sums to 100 by construction even if that field disagrees by a few kcal from
+  // rounding. Bar B splits into food-group source, weighted by each meal's
+  // calories (a garnish shouldn't count the same as the meal itself) — using
+  // Claude's per-meal estimate when stored, falling back to a keyword
+  // classification of the ingredient list (lib/foodGroups.ts) for meals saved
+  // before that field existed. A day with meals but nothing classifiable gets a
+  // flat "unclassified" segment instead of silently vanishing; a day with no
+  // meals at all just renders empty, same as the calories bar beside it.
+  const { kcalByDate, calData, totalMacro, mealDays, mealBarsData } = useMemo(() => {
+    const kcalByDate = new Map<string, number>()
+    for (const m of meals) kcalByDate.set(m.date, (kcalByDate.get(m.date) ?? 0) + (m.calories ?? 0))
+    const calData = spine.map((d) => ({ date: fmtDate(d), kcal: kcalByDate.get(d) ?? 0 }))
 
-  const totalMacro = meals.reduce(
-    (acc, m) => {
-      acc.p += m.protein_g ?? 0
-      acc.f += m.fat_g ?? 0
-      acc.c += m.carbs_g ?? 0
-      acc.fb += m.fiber_g ?? 0
-      return acc
-    },
-    { p: 0, f: 0, c: 0, fb: 0 },
-  )
-  const mealDays = kcalByDate.size || 1
+    const totalMacro = meals.reduce(
+      (acc, m) => {
+        acc.p += m.protein_g ?? 0
+        acc.f += m.fat_g ?? 0
+        acc.c += m.carbs_g ?? 0
+        acc.fb += m.fiber_g ?? 0
+        return acc
+      },
+      { p: 0, f: 0, c: 0, fb: 0 },
+    )
+    const mealDays = kcalByDate.size || 1
+
+    const mealsByDate = new Map<string, Meal[]>()
+    for (const m of meals) {
+      const arr = mealsByDate.get(m.date) ?? []
+      arr.push(m)
+      mealsByDate.set(m.date, arr)
+    }
+
+    const mealBarsData = spine.map((d) => {
+      const dayMeals = mealsByDate.get(d) ?? []
+
+      let pKcal = 0, fKcal = 0, cKcal = 0
+      for (const m of dayMeals) {
+        pKcal += (m.protein_g ?? 0) * 4
+        fKcal += (m.fat_g ?? 0) * 9
+        cKcal += (m.carbs_g ?? 0) * 4
+      }
+      const macroTotal = pKcal + fKcal + cKcal
+
+      const fg = { vegan: 0, dairy_eggs: 0, meat_beef: 0, meat_chicken: 0, meat_fish: 0, meat_other: 0 }
+      for (const m of dayMeals) {
+        const breakdown: FoodGroupBreakdown = m.food_groups
+          ? JSON.parse(m.food_groups)
+          : classifyMeal(parseMealIngredients(m.ingredients))
+        const weight = m.calories && m.calories > 0 ? m.calories : 1
+        for (const k of FOOD_GROUP_KEYS) fg[k] += breakdown[k] * weight
+      }
+      const fgTotal = FOOD_GROUP_KEYS.reduce((s, k) => s + fg[k], 0)
+
+      return {
+        date: fmtDate(d),
+        protein: macroTotal ? (pKcal / macroTotal) * 100 : 0,
+        fat: macroTotal ? (fKcal / macroTotal) * 100 : 0,
+        carbs: macroTotal ? (cKcal / macroTotal) * 100 : 0,
+        macroUnclassified: !macroTotal && dayMeals.length ? 100 : 0,
+        vegan: fgTotal ? (fg.vegan / fgTotal) * 100 : 0,
+        dairy_eggs: fgTotal ? (fg.dairy_eggs / fgTotal) * 100 : 0,
+        meat_beef: fgTotal ? (fg.meat_beef / fgTotal) * 100 : 0,
+        meat_chicken: fgTotal ? (fg.meat_chicken / fgTotal) * 100 : 0,
+        meat_fish: fgTotal ? (fg.meat_fish / fgTotal) * 100 : 0,
+        meat_other: fgTotal ? (fg.meat_other / fgTotal) * 100 : 0,
+        fgUnclassified: !fgTotal && dayMeals.length ? 100 : 0,
+      }
+    })
+
+    return { kcalByDate, calData, totalMacro, mealDays, mealBarsData }
+  }, [meals, spine])
 
   // Remaining tracks that none of the dedicated charts claimed.
   const trackGroups = useMemo(() => {
@@ -580,6 +655,47 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
+      {kcalByDate.size > 0 && (
+        <ChartCard title="Macros & food groups" hint="two 100% bars per day, side by side">
+          <ResponsiveContainer width="100%" height={170}>
+            <BarChart data={mealBarsData} margin={{ left: -20, right: 8, top: 8 }}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 100]} tick={{ fill: 'var(--faint)', fontSize: 11 }} unit="%" />
+              <Tooltip contentStyle={tooltipStyle} />
+              <Bar isAnimationActive={false} stackId="macro" dataKey="protein" fill={MACRO_COLORS.protein} />
+              <Bar isAnimationActive={false} stackId="macro" dataKey="fat" fill={MACRO_COLORS.fat} />
+              <Bar isAnimationActive={false} stackId="macro" dataKey="carbs" fill={MACRO_COLORS.carbs} />
+              <Bar isAnimationActive={false} stackId="macro" dataKey="macroUnclassified" fill={FOOD_GROUP_COLORS.unclassified} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="vegan" fill={FOOD_GROUP_COLORS.vegan} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="dairy_eggs" fill={FOOD_GROUP_COLORS.dairy_eggs} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="meat_beef" fill={FOOD_GROUP_COLORS.meat_beef} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="meat_chicken" fill={FOOD_GROUP_COLORS.meat_chicken} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="meat_fish" fill={FOOD_GROUP_COLORS.meat_fish} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="meat_other" fill={FOOD_GROUP_COLORS.meat_other} radius={[3, 3, 0, 0]} />
+              <Bar isAnimationActive={false} stackId="food" dataKey="fgUnclassified" fill={FOOD_GROUP_COLORS.unclassified} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <Legend
+            items={[
+              { color: MACRO_COLORS.protein, label: 'Protein' },
+              { color: MACRO_COLORS.fat, label: 'Fat' },
+              { color: MACRO_COLORS.carbs, label: 'Carbs' },
+            ]}
+          />
+          <Legend
+            items={[
+              { color: FOOD_GROUP_COLORS.vegan, label: 'Vegan' },
+              { color: FOOD_GROUP_COLORS.dairy_eggs, label: 'Dairy & eggs' },
+              { color: FOOD_GROUP_COLORS.meat_beef, label: 'Beef' },
+              { color: FOOD_GROUP_COLORS.meat_chicken, label: 'Chicken' },
+              { color: FOOD_GROUP_COLORS.meat_fish, label: 'Fish' },
+              { color: FOOD_GROUP_COLORS.meat_other, label: 'Other meat' },
+            ]}
+          />
+        </ChartCard>
+      )}
+
       {trackGroups.length > 0 && <SectionLabel title="Other" />}
 
       {trackGroups.map((g) => (
@@ -598,6 +714,16 @@ export default function InsightsTab() {
       )}
     </div>
   )
+}
+
+function parseMealIngredients(json: string | null): Ingredient[] {
+  if (!json) return []
+  try {
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
 }
 
 // One row per spine date with a column per track name (null where unlogged).

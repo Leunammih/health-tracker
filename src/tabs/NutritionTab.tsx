@@ -6,6 +6,7 @@ import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera, IconMic } from '../components/icons'
+import type { FoodGroupBreakdown } from '../lib/foodGroups'
 import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
 
 type Phase = 'input' | 'analysing' | 'review' | 'multiReview'
@@ -108,6 +109,7 @@ export default function NutritionTab() {
           confidence: m.confidence,
           clarifying_questions: [],
           meal_type: m.meal_type,
+          food_groups: m.food_groups,
         }
         await saveMeal(analysis, m.date, m.meal_time || null, null, 'text', describeText.trim() || null)
       }
@@ -230,6 +232,7 @@ export default function NutritionTab() {
       confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
       clarifying_questions: [],
       meal_type: (m.meal_type as MealAnalysis['meal_type']) ?? undefined,
+      food_groups: parseFoodGroups(m.food_groups),
     })
     setPhase('review')
   }
@@ -259,6 +262,7 @@ export default function NutritionTab() {
       confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
       clarifying_questions: [],
       meal_type: (m.meal_type as MealAnalysis['meal_type']) ?? undefined,
+      food_groups: parseFoodGroups(m.food_groups),
     })
     setPhase('review')
   }
@@ -732,6 +736,15 @@ function MacroField({ label, value, onChange }: { label: string; value: number; 
       />
     </div>
   )
+}
+
+function parseFoodGroups(json: string | null): FoodGroupBreakdown | undefined {
+  if (!json) return undefined
+  try {
+    return JSON.parse(json) as FoodGroupBreakdown
+  } catch {
+    return undefined
+  }
 }
 
 function parseIngredients(json: string | null): Ingredient[] {

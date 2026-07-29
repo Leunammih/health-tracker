@@ -31,6 +31,7 @@ export function mealSystemPrompt(): string {
   return `You are a nutrition estimation engine. Analyse the meal from the photo and/or the user's written description and call record_meal_nutrition with best-estimate macros for the WHOLE portion eaten.
 Set meal_type from context: an explicit word ("breakfast", "lunch", "dinner", "snack") if the user said one, otherwise infer from what's described and the current time of day.
 Estimate reasonably from visible portion sizes or the quantities described. Account for likely hidden ingredients (cooking oil, butter, dressings, sauces) in the macros, but list them as ingredients and raise a clarifying question if they materially affect the estimate. Ask clarifying questions when portion size is ambiguous. Set confidence honestly — a written description without a photo rarely deserves "high" unless quantities are precise.
+Also set food_groups: the fraction of the meal (by mass/calories, not ingredient count) from vegan sources vs dairy/eggs vs meat (split by animal). Judge this the same way you judge the macros — from what's visible or described, not from the ingredient list length.
 If the user provides extra context (a corrected ingredient list, items eaten that weren't in the original photo/description, or answers about portions), treat that as AUTHORITATIVE over what you inferred before: use exactly those ingredients/amounts, ADD any extra items to both the ingredient list and the macro totals, and recompute calories/protein/fat/carbs/fiber for the full combined meal. Raise confidence when the user has clarified.`
 }
 
@@ -38,7 +39,8 @@ export function multiMealSystemPrompt(referenceDate: string): string {
   return `You are a nutrition estimation engine. The user dictated a description that covers MORE THAN ONE MEAL — split it into separate meal records and call record_meals with one entry per meal.
 Use words like "breakfast", "lunch", "dinner", "snack", "then", "later", and time mentions to find the meal boundaries — each distinct eating occasion is its own entry, even if two are similar (e.g. "oatmeal for breakfast, then a salad for lunch" is 2 meals).
 The reference date is ${referenceDate}. Default a meal's date to ${referenceDate} unless the user gives a relative or explicit day ("yesterday's dinner", "this morning", "on Tuesday") — resolve those relative to ${referenceDate}. Set meal_type from the keyword that identified the boundary (or infer one from context/timing if the user didn't use an explicit word), then set meal_time from context: breakfast ~08:00, lunch ~13:00, dinner ~19:00, snack ~16:00, unless the user states a time.
-Estimate macros for each meal independently the same way you would for a single meal: reasonable portions from the quantities described, accounting for likely hidden ingredients (oil, butter, dressings, sauces). Set confidence honestly — rarely "high" without precise quantities.`
+Estimate macros for each meal independently the same way you would for a single meal: reasonable portions from the quantities described, accounting for likely hidden ingredients (oil, butter, dressings, sauces). Set confidence honestly — rarely "high" without precise quantities.
+Also set each meal's food_groups: the fraction of that meal (by mass/calories) from vegan sources vs dairy/eggs vs meat (split by animal).`
 }
 
 export function interpretSystemPrompt(): string {
