@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-27_
+_Last updated: 2026-07-29_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -87,16 +87,73 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     against the shared `spine` instead of only its own logged days.
   - Full details/rationale in the session's plan file if resuming this thread.
 
+- **Phase D-2 (2026-07-28/29)** — the rest of the Phase D backlog plus a 10th item found
+  by testing on a phone. Shipped as four separately-pushed phases, each verified
+  in-browser in both themes against the existing populated DB before pushing.
+  - **P1 foundation** — new `src/lib/metricStore.ts`: a single `{read, readLast, write,
+    datesWithValue}` dispatch table over tracks/wellbeing/day_context, replacing five
+    separate store branches that used to be split across `QuickEntryPanel` and
+    `QuickLogSheet`. **Stress** is now a first-class quick-loggable metric
+    (`day_context.stress_load` + its own `stress_notes` column, schema **v8**). Every
+    Insights chart legend (Energy & mood, Illness & gut, Movement, Practice — Pain
+    already worked) is now tap-to-log; "Gut pain" routes to the existing "stomach pain"
+    metric. Added 3d/7d range chips. Fixed two real pre-existing bugs found along the
+    way: `saveDiaryExtraction`'s `day_context` write was a destructive delete+insert
+    that could wipe an earlier entry's stress/tasks/travel on a second diary save for
+    the same date, and its `tracks` write was a bare INSERT that could leave duplicate
+    rows for one (date, name) instead of replacing.
+  - **P2 segments/sleep/events** — new **additive** `segment_values` table
+    (date/segment/metric/value/notes, unique-indexed) for morning/afternoon/evening
+    sub-day entries: writing a segment recomputes that day's rollup through the
+    *existing* upserts, so every chart and read path stays untouched. Rollup rule
+    (`rollupFor` in `metrics.ts`): minutes sum, 0-10/percent average, everything else
+    (weight, Bristol stool) takes the last reading — averaging Bristol would silently
+    read as "normal," which is wrong. `LogTab` gained a Morning/Afternoon/Evening/Whole
+    day selector. **Sleep**: `wellbeing.sleep_start/sleep_end/sleep_quality`, duration
+    computed (not stored) via `sleepDurationMin()` in `lib/dates.ts` (handles crossing
+    midnight), new `SleepCard` + an Insights chart. **Single events**: new `events`
+    table for one-off markers ("started magnesium"), `EventsCard` in Log, rendered as
+    dashed `ReferenceLine`s on three Insights charts. Schema **v9**.
+  - **P3 Home + Insights polish** — new Home tab (landing by default; `App.tsx`'s `Tab`
+    union, 6-up nav) with a theme-aware MBWF emblem, the coaching hero image, and a
+    yesterday-summary card built entirely from existing queries. Brand assets sourced
+    from the MindBodyWorkFlow website repo, downscaled/recompressed via `sips` (512²
+    PNG emblems → 256px, 3168×1344 JPEG heroes → 1200px) to ~50-125KB each before
+    adding to the PWA's offline precache; `vite.config.ts`'s workbox `globPatterns`
+    gained `jpg`. Insights got a faint tinted background image (a same-colour wash
+    over the image, not plain opacity, so it reads as texture and never competes with
+    the fully-opaque chart cards on top of it) and its "Tap to log" grid — previously
+    the whole first screen — is now collapsed by default. Charts grouped under section
+    labels (Wellbeing & sleep → Illness & gut → Movement & practice → Pain →
+    Nutrition → Other).
+  - **P4 Meals macro/food-group bars** — new `src/lib/foodGroups.ts`:
+    `classifyMeal()` derives a vegan/dairy&eggs/meat(beef/chicken/fish/other) split
+    from an ingredient list by keyword, equal-weighted per ingredient — the fallback
+    for meals saved before this existed. New meals get a real per-meal estimate from
+    Claude instead (`MEAL_TOOL`/`MULTI_MEAL_TOOL` both gained `food_groups`, schema
+    **v10**: `meals.food_groups`, nullable JSON). Two 100%-stacked bars per day in
+    Insights, side by side on the shared spine: macros by calorie share (4/4/9 kcal
+    per g, independent of the meal's own `calories` field so it's exactly 100% by
+    construction) and food-group source weighted by each meal's calories, meat
+    sub-coloured by animal. A day with meals but nothing classifiable gets a flat grey
+    "unclassified" segment instead of vanishing.
+  - `design/BASELINE.md`'s regression checklist re-verified — nothing on it broke; the
+    6-tab nav and 5 range chips are this round's intentional additions, not drift.
+
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
   Scoped access → App folder → enable `files.content.read` + `files.content.write` →
   add Redirect URIs `https://leunammih.github.io/health-tracker/` **and**
   `http://localhost:5199/` → copy the **App key** → paste in the app's Settings → Dropbox
   sync → **Connect**. Until then sync is off (app still works locally; export/import is the manual fallback).
-- **Try Phase D on a phone** — the whole overhaul (plateau charts, tap-to-log sliders,
-  day-strip swipe, multi-day/multi-meal toggles) has only been verified with seeded data
-  and DEV-only injection in the Browser pane, never against a live Claude call or a real
-  touchscreen.
+- **Try Phase D + D-2 on a phone** — the whole overhaul (plateau charts, tap-to-log
+  sliders, day-strip swipe, multi-day/multi-meal toggles, time-of-day segments, sleep,
+  single events, the Home tab, the macro/food-group bars) has only been verified with
+  seeded data and DEV-only injection in the Browser pane, never against a live Claude
+  call or a real touchscreen. In particular: does Claude reliably return sensible
+  `food_groups` and `meal_type` values from a real photo/dictation, and does a real
+  multi-day segment-entry session (log morning, then evening, on an actual phone) feel
+  right.
 
 ## Not started — for new sessions
 - **Phase C:** ~~(1) bulk/range entry~~ ✅; (2) calorie/protein goals + progress display;
@@ -105,9 +162,8 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
 - **Phase E:** eating-pattern quick-adds by time of day (client-side frequency over `meals`).
 
 ## Exact next step
-Phase D (D1–D4) is code-complete. Next up is either:
-1. **User verification on a phone** — swipe the day strip, drag quick-log sliders, try a
-   real multi-day dictation and a real multi-meal dictation against the live API.
+Phase D and Phase D-2 (P1–P4) are both code-complete and pushed. Next up is either:
+1. **User verification on a phone** — see "Try Phase D + D-2 on a phone" above.
 2. Or resume the backlog: **Phase C item 2 — calorie/protein goals + progress display**.
    Meals already store macros (`src/db/queries.ts`, `meals` table):
    - Store daily goals (calories, protein) — a small settings/prefs store (localStorage or
@@ -115,6 +171,10 @@ Phase D (D1–D4) is code-complete. Next up is either:
    - Sum today's `meals` macros and show progress (bar/ring) against the goals — likely on
      NutritionTab and/or InsightsTab.
    - Verify in-browser: set goals, log meals, confirm progress updates.
+3. Or Phase C item 3 — **supplements** (start date, composition via photo or name,
+   periodic re-check reusing the B2 check-in queue pattern). The new `events` table
+   (Phase D-2 P2) may be a natural home for "started supplement X" markers already —
+   check before building a parallel structure.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
