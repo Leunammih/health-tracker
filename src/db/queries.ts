@@ -17,6 +17,7 @@ import type {
   Segment,
   SegmentValue,
   HealthEvent,
+  Supplement,
 } from '../types'
 
 // Run a SELECT and return an array of plain objects.
@@ -506,6 +507,75 @@ export async function deleteEvent(id: string): Promise<void> {
   await persist()
 }
 
+// ---- Supplements: ongoing regimens with a start, an optional end, and a
+// recurring "is it working?" check-in — unlike `events`, which is a one-off
+// point-in-time marker with no lifecycle of its own. ----
+
+export function activeSupplements(): Supplement[] {
+  return all<Supplement>('SELECT * FROM supplements WHERE end_date IS NULL ORDER BY start_date DESC')
+}
+
+export function stoppedSupplements(limit = 10): Supplement[] {
+  return all<Supplement>(
+    'SELECT * FROM supplements WHERE end_date IS NOT NULL ORDER BY end_date DESC LIMIT ?',
+    [limit],
+  )
+}
+
+export async function saveSupplement(
+  name: string,
+  composition: string | null,
+  photoPath: string | null,
+  startDate: string,
+  checkinDays: number,
+): Promise<string> {
+  const id = uid()
+  exec(
+    `INSERT INTO supplements(id, name, composition, photo_path, start_date, checkin_days)
+     VALUES (?,?,?,?,?,?)`,
+    [id, name.trim(), composition?.trim() || null, photoPath, startDate, checkinDays],
+  )
+  await persist()
+  return id
+}
+
+export async function stopSupplement(id: string, endDate: string = todayISO()): Promise<void> {
+  exec('UPDATE supplements SET end_date = ? WHERE id = ?', [endDate, id])
+  await persist()
+}
+
+export async function deleteSupplement(id: string): Promise<void> {
+  exec('DELETE FROM supplements WHERE id = ?', [id])
+  await persist()
+}
+
+// Active supplements whose check-in interval has elapsed since the last one (or
+// since starting, if never checked). Mirrors pendingCheckins()'s "the queue IS the
+// query" shape rather than a stored due-date, so changing checkin_days on an
+// existing supplement takes effect immediately.
+export function pendingSupplementCheckins(): Supplement[] {
+  return all<Supplement>(
+    `SELECT * FROM supplements
+     WHERE end_date IS NULL
+       AND date(COALESCE(last_checkin, start_date), '+' || checkin_days || ' days') <= date(?)
+     ORDER BY start_date`,
+    [todayISO()],
+  )
+}
+
+export async function recordSupplementCheckin(id: string, note: string): Promise<void> {
+  const rows = all<Supplement>('SELECT * FROM supplements WHERE id = ?', [id])
+  const existing = rows[0]?.notes?.trim()
+  const merged = [existing, `Check-in (${todayISO()}): ${note.trim()}`].filter(Boolean).join(' | ')
+  exec('UPDATE supplements SET notes = ?, last_checkin = ? WHERE id = ?', [merged, todayISO(), id])
+  await persist()
+}
+
+export async function dismissSupplementCheckin(id: string): Promise<void> {
+  exec('UPDATE supplements SET last_checkin = ? WHERE id = ?', [todayISO(), id])
+  await persist()
+}
+
 // ---- Sleep ----
 // Bedtime/wake time/felt quality live on `wellbeing` alongside energy and mood
 // (one row per day); duration is computed from the two times, not stored.
@@ -738,7 +808,7 @@ export async function setMeta(key: string, value: string | null): Promise<void> 
 }
 
 export function counts(): Record<string, number> {
-  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations', 'segment_values', 'events']
+  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations', 'segment_values', 'events', 'supplements']
   const out: Record<string, number> = {}
   for (const name of t) {
     const r = all<{ n: number }>(`SELECT COUNT(*) as n FROM ${name}`)

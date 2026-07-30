@@ -480,7 +480,7 @@ export default function InsightsTab() {
               {hasRelease && (
                 <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: colRelease, fontSize: 10 }} />
               )}
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="energy" stroke={colEnergy} strokeWidth={2} dot={false} connectNulls />
               <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="mood" stroke={colMood} strokeWidth={2} dot={false} connectNulls />
               {hasRelease && (
@@ -515,7 +515,7 @@ export default function InsightsTab() {
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis yAxisId="l" domain={[0, 12]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={{ fill: colSleepQuality, fontSize: 10 }} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
               <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
             </LineChart>
@@ -536,7 +536,7 @@ export default function InsightsTab() {
               <CartesianGrid stroke="var(--line)" vertical={false} />
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke={colStress} strokeWidth={2} dot={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
@@ -567,7 +567,7 @@ export default function InsightsTab() {
               ))}
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               <ReferenceLine y={4} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
               <Line isAnimationActive={false} type="monotone" dataKey="infection" name="Infection" stroke={illnessPalette.Infection} strokeWidth={2} dot={false} connectNulls />
               <Line isAnimationActive={false} type="monotone" dataKey="gutPain" name="Gut pain" stroke={illnessPalette['Gut pain']} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
@@ -623,7 +623,7 @@ export default function InsightsTab() {
               ))}
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               {painKeys.map((k) => (
                 <Line isAnimationActive={false}
                   key={k}
@@ -658,7 +658,7 @@ export default function InsightsTab() {
               <CartesianGrid stroke="var(--line)" vertical={false} />
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               <Bar isAnimationActive={false} dataKey="kcal" fill="var(--accent-deep)" radius={[4, 4, 0, 0]} />
               {/* extendDomain, so a goal set above the tallest bar still shows —
                   Recharts otherwise clips a reference line outside the auto Y
@@ -686,7 +686,7 @@ export default function InsightsTab() {
               <CartesianGrid stroke="var(--line)" vertical={false} />
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 100]} tick={{ fill: 'var(--faint)', fontSize: 11 }} unit="%" />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip content={<MealBarsTooltip />} />
               <Bar isAnimationActive={false} stackId="macro" dataKey="protein" fill={MACRO_COLORS.protein} />
               <Bar isAnimationActive={false} stackId="macro" dataKey="fat" fill={MACRO_COLORS.fat} />
               <Bar isAnimationActive={false} stackId="macro" dataKey="carbs" fill={MACRO_COLORS.carbs} />
@@ -800,7 +800,7 @@ function TrackCard({
             <CartesianGrid stroke="var(--line)" vertical={false} />
             <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis domain={domain} reversed={reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} allowDecimals={false} />
-            <Tooltip contentStyle={tooltipStyle} />
+            <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
             <Line isAnimationActive={false} type="monotone" dataKey="value" stroke={colorForTrack(group.name)} strokeWidth={2} dot={{ r: 2 }} connectNulls />
           </LineChart>
         </ResponsiveContainer>
@@ -823,6 +823,67 @@ function TrackCard({
 }
 
 const tooltipStyle = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, color: 'var(--text)' }
+
+// Segment rollups (a day logged morning *and* evening averages the two) and
+// computed values arrive as long floats — nothing wants "6.666666666666667" in a
+// tooltip. One decimal is past the precision any of these metrics actually has.
+const roundTip = (v: number | string): number | string => (typeof v === 'number' ? Math.round(v * 10) / 10 : v)
+
+const MEAL_BAR_LABELS: Record<string, string> = {
+  protein: 'Protein',
+  fat: 'Fat',
+  carbs: 'Carbs',
+  macroUnclassified: 'Unclassified',
+  vegan: 'Vegan',
+  dairy_eggs: 'Dairy & eggs',
+  meat_beef: 'Beef',
+  meat_chicken: 'Chicken',
+  meat_fish: 'Fish',
+  meat_other: 'Other meat',
+  fgUnclassified: 'Unclassified',
+}
+const MACRO_STACK_KEYS = new Set(['protein', 'fat', 'carbs', 'macroUnclassified'])
+
+type TipItem = { dataKey?: string | number; value?: number | string; color?: string }
+
+// The stacked meal bars carry eleven series, most of them zero on any given day,
+// and the percentages are computed to full float precision. Recharts' default
+// tooltip renders every one of them at full length — on a phone that covers the
+// whole chart. This one rounds to a tenth of a percent, uses real names instead of
+// dataKeys, drops slices that round to nothing, and keeps the two stacks apart.
+function MealBarsTooltip({ active, payload, label }: { active?: boolean; payload?: TipItem[]; label?: string }) {
+  if (!active || !payload?.length) return null
+  const rows = payload
+    .map((p) => ({
+      key: String(p.dataKey ?? ''),
+      value: typeof p.value === 'number' ? p.value : 0,
+      color: p.color,
+    }))
+    .filter((r) => r.value >= 0.05)
+  if (!rows.length) return null
+
+  const section = (title: string, items: typeof rows) =>
+    items.length > 0 && (
+      <div className="mt-1.5 first:mt-0">
+        <div className="text-[10px] uppercase tracking-wide text-ink-400">{title}</div>
+        {items.map((r) => (
+          <div key={r.key} className="flex items-center gap-1.5">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: r.color }} />
+            <span className="text-ink-300">{MEAL_BAR_LABELS[r.key] ?? r.key}</span>
+            <span className="ml-auto tabular-nums text-cream">{r.value.toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    )
+
+  return (
+    <div style={tooltipStyle} className="min-w-[9rem] px-3 py-2 text-xs">
+      <div className="mb-1 font-semibold text-cream">{label}</div>
+      {section('Macros', rows.filter((r) => MACRO_STACK_KEYS.has(r.key)))}
+      {section('Food groups', rows.filter((r) => !MACRO_STACK_KEYS.has(r.key)))}
+    </div>
+  )
+}
 
 // Groups the flat run of ChartCards into a deliberate reading order (Wellbeing &
 // sleep → Illness & gut → Movement & practice → Pain → Nutrition → Other) instead

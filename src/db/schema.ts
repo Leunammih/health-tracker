@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 10
+export const SCHEMA_VERSION = 11
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -135,6 +135,21 @@ CREATE TABLE IF NOT EXISTS events (
   notes TEXT
 );
 
+-- Ongoing regimens (supplements, and anything else with a start, an optional end,
+-- and "is it working?" worth periodically revisiting) — a start/stop history plus
+-- a recurring check-in, unlike the events table's one-off point-in-time markers.
+CREATE TABLE IF NOT EXISTS supplements (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  composition TEXT,        -- dose/ingredients, typed or noted from a label photo
+  photo_path TEXT,          -- optional photo of the label/bottle
+  start_date TEXT NOT NULL,
+  end_date TEXT,            -- null = still taking
+  checkin_days INTEGER NOT NULL DEFAULT 14,
+  last_checkin TEXT,        -- date of the last check-in (answered or skipped)
+  notes TEXT                -- accumulated check-in notes, newest last
+);
+
 CREATE TABLE IF NOT EXISTS interpretations (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -161,6 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_tracks_name ON tracks(name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_segment_unique ON segment_values(date, segment, metric);
 CREATE INDEX IF NOT EXISTS idx_segment_metric ON segment_values(metric);
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
+CREATE INDEX IF NOT EXISTS idx_supplements_active ON supplements(end_date);
 `
 
 // Table list used by the generic export routines.
@@ -176,6 +192,7 @@ export const TABLES = [
   'interpretations',
   'segment_values',
   'events',
+  'supplements',
   // Included so DB-level settings (nutrition goals) appear in the JSON/CSV
   // exports too. The .db export and Dropbox sync copy the whole file and always
   // carried it; only these generic per-table dumps were missing it.

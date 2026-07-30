@@ -3,6 +3,7 @@ import { extractDiary, refineDiary } from '../ai/anthropic'
 import {
   saveDiaryExtraction, deleteEntry, recentEntries, entryDetail,
   pendingCheckins, recordCheckin, dismissCheckin, loggedDates, type EntryDetail,
+  pendingSupplementCheckins, recordSupplementCheckin, dismissSupplementCheckin,
 } from '../db/queries'
 import { fmtDate, todayISO, dateSpine, daysAgoISO } from '../lib/dates'
 import { IconMic } from '../components/icons'
@@ -10,8 +11,9 @@ import DayStrip from '../components/DayStrip'
 import QuickEntryPanel from '../components/QuickEntryPanel'
 import SleepCard from '../components/SleepCard'
 import EventsCard from '../components/EventsCard'
+import SupplementsCard from '../components/SupplementsCard'
 import { colorForTrack } from '../lib/metrics'
-import type { DiaryExtraction, Activity, Entry, Segment } from '../types'
+import type { DiaryExtraction, Activity, Entry, Segment, Supplement } from '../types'
 
 // How far back the date strip lets you swipe.
 const STRIP_DAYS = 27
@@ -46,6 +48,7 @@ export default function LogTab() {
 
   const entries = useMemo(() => recentEntries(8), [refreshKey, phase])
   const checkins = useMemo(() => pendingCheckins(), [refreshKey, phase])
+  const supplementCheckins = useMemo(() => pendingSupplementCheckins(), [refreshKey, phase])
   const strip = useMemo(() => dateSpine(daysAgoISO(STRIP_DAYS)), [])
   const marked = useMemo(() => loggedDates(daysAgoISO(STRIP_DAYS)), [refreshKey])
 
@@ -175,6 +178,34 @@ export default function LogTab() {
         </div>
       )}
 
+      {phase === 'input' && supplementCheckins.length > 0 && (
+        <div
+          className="space-y-4 rounded-2xl border border-brand-600/25 p-5"
+          style={{ background: 'linear-gradient(160deg, var(--surface-2), var(--surface))' }}
+        >
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-brand-500">✦</span>
+              <span className="label !mb-0 !text-brand-500">Supplement check-in</span>
+            </div>
+            <p className="font-serif text-xl leading-tight text-cream">Still on track?</p>
+            <p className="mt-2 text-sm font-light leading-relaxed text-ink-300">
+              A quick note on how it's going — or skip if there's nothing to say yet.
+            </p>
+          </div>
+          <div className="space-y-3">
+            {supplementCheckins.map((s) => (
+              <SupplementCheckinRow
+                key={s.id}
+                supplement={s}
+                onDone={() => setRefreshKey((k) => k + 1)}
+                onError={(m) => setError(m)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {phase === 'input' && editingId && (
         <div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
           <span>Editing an existing entry — re-analyzing will replace it.</span>
@@ -272,6 +303,10 @@ export default function LogTab() {
 
       {phase === 'input' && !editingId && (
         <EventsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+      )}
+
+      {phase === 'input' && !editingId && (
+        <SupplementsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'processing' && (
@@ -500,6 +535,66 @@ function CheckinRow({
       <div className="mt-2 flex gap-2">
         <button className="btn-ghost flex-1 !py-2 text-sm" disabled={busy} onClick={() => void dismiss()}>
           No issues
+        </button>
+        <button className="btn-primary flex-1 !py-2 text-sm" disabled={busy || !text.trim()} onClick={() => void save()}>
+          Save
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SupplementCheckinRow({
+  supplement,
+  onDone,
+  onError,
+}: {
+  supplement: Supplement
+  onDone: () => void
+  onError: (m: string) => void
+}) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function save() {
+    if (!text.trim()) return
+    setBusy(true)
+    try {
+      await recordSupplementCheckin(supplement.id, text)
+      onDone()
+    } catch (e) {
+      onError(msg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function dismiss() {
+    setBusy(true)
+    try {
+      await dismissSupplementCheckin(supplement.id)
+      onDone()
+    } catch (e) {
+      onError(msg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl p-3" style={{ background: 'var(--surface-3)' }}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-[15px] text-cream">{supplement.name}</span>
+        <span className="shrink-0 text-xs text-ink-400">since {fmtDate(supplement.start_date)}</span>
+      </div>
+      <textarea
+        className="field min-h-[2.75rem]"
+        placeholder="Noticing anything — good or bad?"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="mt-2 flex gap-2">
+        <button className="btn-ghost flex-1 !py-2 text-sm" disabled={busy} onClick={() => void dismiss()}>
+          Nothing to add
         </button>
         <button className="btn-primary flex-1 !py-2 text-sm" disabled={busy || !text.trim()} onClick={() => void save()}>
           Save

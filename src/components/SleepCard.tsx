@@ -2,6 +2,29 @@ import { useEffect, useState } from 'react'
 import { sleepOn, upsertSleep } from '../db/queries'
 import { sleepDurationMin } from '../lib/dates'
 
+// Where the native time wheel opens when the field is still empty. Without this
+// iOS starts at the current time, which is never the answer — you log sleep in
+// the morning, not at bedtime. Deliberately NOT applied as an initial state
+// value: the fields must stay visibly empty until tapped, or "Save sleep" would
+// write a night you never actually had.
+const DEFAULT_BEDTIME = '23:00'
+const DEFAULT_WAKE = '09:00'
+
+// Set the DOM value as well as React state. The picker snapshots the input the
+// moment it opens, and a setState alone can land a frame too late for that —
+// writing the element directly makes the value present immediately, with the
+// state update keeping React in sync so the next render doesn't undo it.
+function prefill(
+  el: HTMLInputElement,
+  current: string,
+  set: (v: string) => void,
+  fallback: string,
+): void {
+  if (current) return
+  el.value = fallback
+  set(fallback)
+}
+
 // Bedtime, wake time, and felt quality for the selected day. Separate from
 // QuickEntryPanel because sleep is three related fields saved together, not one
 // slider — duration is computed live from the two times, never stored.
@@ -40,11 +63,25 @@ export default function SleepCard({ date, onChanged }: { date: string; onChanged
       <div className="flex items-end gap-3">
         <div>
           <label className="label !mb-1 !text-[10px]">Bedtime</label>
-          <input type="time" className="field !w-auto" value={start} onChange={(e) => setStart(e.target.value)} />
+          <input
+            type="time"
+            step={300}
+            className="field !w-auto"
+            value={start}
+            onFocus={(e) => prefill(e.currentTarget, start, setStart, DEFAULT_BEDTIME)}
+            onChange={(e) => setStart(e.target.value)}
+          />
         </div>
         <div>
           <label className="label !mb-1 !text-[10px]">Wake</label>
-          <input type="time" className="field !w-auto" value={end} onChange={(e) => setEnd(e.target.value)} />
+          <input
+            type="time"
+            step={300}
+            className="field !w-auto"
+            value={end}
+            onFocus={(e) => prefill(e.currentTarget, end, setEnd, DEFAULT_WAKE)}
+            onChange={(e) => setEnd(e.target.value)}
+          />
         </div>
         {duration != null && (
           <div className="ml-auto text-right">

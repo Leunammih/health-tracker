@@ -77,6 +77,18 @@ export interface SegmentValue {
 
 export type Segment = 'morning' | 'afternoon' | 'evening'
 
+export interface Supplement {
+  id: string
+  name: string
+  composition: string | null
+  photo_path: string | null
+  start_date: string
+  end_date: string | null // null = still taking
+  checkin_days: number
+  last_checkin: string | null
+  notes: string | null // accumulated check-in notes, newest last
+}
+
 export interface HealthEvent {
   id: string
   entry_id: string | null

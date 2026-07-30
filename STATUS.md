@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-29 (Phase C-2: nutrition goals)_
+_Last updated: 2026-07-29 (Phase C-3: supplements — Phase C complete)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -171,39 +171,80 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   - Verified in-browser in both themes against seeded data: set/clear/reload round-trip
     through `meta`, under-goal, over-goal, zero-meals, and calories-cleared-protein-kept.
 
+- **Phase C-3 — supplements, + two fixes from phone testing (2026-07-29)** — schema **v11**.
+  - **Fixes first.** (1) The Macros & food-groups tooltip rendered raw floats
+    (`meat_beef : 14.017437961099933`) for all eleven series including the zeros, which
+    on a phone covered the whole chart. Replaced with a custom `MealBarsTooltip`:
+    one decimal, real labels, zero slices dropped, split under MACROS / FOOD GROUPS
+    headings. Every other chart's `<Tooltip>` gained a `roundTip` formatter, since
+    segment rollups (a day logged morning *and* evening averages the two) can produce
+    the same long floats. (2) **Sleep picker** — `step={300}` for 5-minute increments,
+    and an empty field prefills to 23:00 (bedtime) / 09:00 (wake) **on focus**, because
+    iOS otherwise opens the wheel at the current time, which is never the answer when
+    you log sleep the morning after. The prefill writes `el.value` *and* setState: the
+    picker snapshots the input as it opens and a bare setState can land a frame too
+    late. Deliberately not an initial state value — the fields must read empty until
+    tapped, or "Save sleep" would write a night that never happened.
+  - **Supplements** — new `supplements` table rather than reusing `events`: an
+    `events` row is a one-off point-in-time marker with no lifecycle, and a regimen
+    needs a start, an optional end, and a recurring check-in. Columns: `name`,
+    `composition`, `photo_path`, `start_date`, `end_date` (null = still taking),
+    `checkin_days`, `last_checkin`, `notes`. The two coexist — a supplement does *not*
+    auto-create an event, so if you want the Insights reference line, add the event
+    separately in the card above it.
+  - **Check-in queue** reuses the B2 pattern exactly: `pendingSupplementCheckins()` is
+    a query, not a stored due-date (`date(COALESCE(last_checkin, start_date), '+N days')
+    <= today`), so editing `checkin_days` takes effect immediately;
+    `recordSupplementCheckin` appends a dated note the way `recordCheckin` does, and
+    "Nothing to add" just stamps `last_checkin` to requeue it a full interval later.
+  - **UI** — `SupplementsCard` at the bottom of the Log tab (next to `EventsCard`, the
+    same family of "things that started and stopped"), plus a due-check-in prompt at
+    the top styled like the existing recovery check-in. The label photo is stored, not
+    read: no Claude call — the composition field is typed. Wiring a vision call to read
+    a supplement label is the obvious follow-up if typing it proves annoying.
+  - `supplements` added to `TABLES` (exports), `counts()` (Settings → Data) and
+    devtools' `wipe()`. No `runMigrations` entry needed: it's a new table, so
+    `CREATE TABLE IF NOT EXISTS` in `SCHEMA_SQL` covers both fresh and existing DBs —
+    only *columns added to an existing table* need an ALTER.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for the most recent push
-(`ba5bab8`, Phase C-2 nutrition goals). Open https://leunammih.github.io/health-tracker/
-and pull down to refresh first, so the service worker picks up the new build._
+_Replaced each iteration — this is the list for the most recent push (Phase C-3
+supplements + the sleep-picker and tooltip fixes). Open
+https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
+service worker picks up the new build._
 
-1. **Settings → scroll past the orange "Save settings" button** → a new card,
-   **"Daily nutrition goals"**. Type a calorie target and a protein target →
-   **"Save goals"** → the button reads **"Saved ✓"** for ~2 seconds.
-2. **Force-quit the app and reopen it** → Settings → both numbers are still filled in.
-   (This is the real test: it proves they went into the synced database, not into
-   throwaway screen state.)
-3. **Meals tab, at the very top** → a **"Today · <date>"** card with a **Calories** bar
-   and a **Protein** bar. With nothing logged yet it should read `0 / your goal` and
-   "… to go · 0%".
-4. **Log a real meal** (photo or dictation) → back on the Meals landing screen the two
-   bars have moved by that meal's numbers. ⚠️ This is also the first *real* Claude call
-   since the Phase D-2 work — glance at whether the meal type (breakfast/lunch/…) and
-   the food-group split look sensible, not just the calories.
-5. **Log enough to pass your calorie goal** (or set a deliberately low goal for a
-   moment) → the bar fills completely, turns a **darker** orange, and the line under it
-   switches from "… to go" to **"N kcal over · 123%"**.
-6. **Insights → Nutrition → "Daily calories"** → a **dashed horizontal line** at your
-   calorie goal, and under the chart: *"Dashed line: your X kcal goal — N of M logged
-   days at or under it."* The Protein tile under the chart gains a small **"of Xg"**.
-7. **Edge case** — Settings → clear the **calories** field only → Save goals. The Meals
-   card should now show **only** the Protein bar (no empty calorie row), and the dashed
-   line + caption should vanish from Insights. Put your number back afterwards.
-8. **Both looks** — Settings → Appearance → Dark, then back to Parchment. The new card
-   and bars should be legible in both.
+**Sleep picker (fix you asked for)**
+1. **Log tab → Sleep card.** Both fields still show `--:--` until you touch them.
+   Tap **Bedtime** → the wheel opens at **23:00**. Tap **Wake** → opens at **09:00**.
+   Spinning either wheel moves in **5-minute** steps.
+2. Tap a day on the strip that already *has* sleep saved → the saved times show, and
+   tapping a field opens on **those**, not on the 23:00/09:00 defaults.
 
-Nothing else should have changed. If a chart, the day-strip, the quick-entry sliders or
-meal saving behaves differently than before, that's a regression worth reporting — it
-matters more than anything on this list.
+**Macro tooltip (fix you asked for)**
+3. **Insights → Macros & food groups → tap a bar.** One decimal place now
+   (`Protein 20.1%`), real names instead of `dairy_eggs`/`meat_beef`, grouped under
+   **MACROS** / **FOOD GROUPS**, and zero-value slices are gone — so the box is small
+   enough to not cover the chart.
+
+**Supplements (new)**
+4. **Log tab → scroll to the bottom → "Supplements".** Add one: name (e.g. "Magnesium
+   glycinate"), optionally dose/composition, optionally a **photo of the label**, pick
+   a check-in interval (7/14/30 days) → **Add supplement**. It appears above the form
+   with "since <date> · check-in every Nd".
+5. **Attach a label photo** — only uploads if Dropbox is connected; without it the
+   supplement still saves, just without the picture. A 📷 shows on saved ones.
+6. **Stop** on a supplement → confirms, then it moves under **"Show stopped (N)"**.
+   **✕** deletes outright (also confirms). Both survive a force-quit and reopen.
+7. **Check-in queue** — a supplement asks again once its interval has elapsed. To see
+   it without waiting N days, add one, then in Settings → Data confirm the count went
+   up; the prompt ("Still on track?") appears at the **top of the Log tab** when due.
+   *Not testable same-day by design* — flag it if it ever nags on the day you added it.
+8. **Both looks** — Settings → Appearance → Dark and back.
+
+Nothing else should have changed. The Log tab gained one card at the bottom and can
+gain one prompt at the top; everything above that — day strip, dictation, quick entry,
+events — should behave exactly as before. A regression there matters more than
+anything on this list.
 
 Still outstanding from earlier rounds (fold in if you have the patience): the whole
 Phase D/D-2 overhaul has never been touched on a real phone — see the next section.
@@ -224,7 +265,8 @@ Phase D/D-2 overhaul has never been touched on a real phone — see the next sec
   right.
 
 ## Not started — for new sessions
-- **Phase C:** ~~(1) bulk/range entry~~ ✅; ~~(2) calorie/protein goals~~ ✅; (3) supplements.
+- **Phase C:** ~~(1) bulk/range entry~~ ✅; ~~(2) calorie/protein goals~~ ✅;
+  ~~(3) supplements~~ ✅ — Phase C is complete.
 - **Phase E:** eating-pattern quick-adds by time of day (client-side frequency over `meals`).
 
 ## How these sessions run
@@ -234,23 +276,30 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-Phase D, Phase D-2 (P1–P4) and Phase C-2 (goals) are all code-complete and pushed;
-the D/D-2 overhaul is still awaiting the user's phone verification (see "Try Phase D +
-D-2 on a phone" above — not blocking, just not yet confirmed).
+Phases A–D are all code-complete and pushed. **Phase C is now finished** (bulk entry,
+goals, supplements). The D/D-2 overhaul is still awaiting phone verification (see
+"Try Phase D + D-2 on a phone" — not blocking, just not yet confirmed).
 
-**Next up: Phase C item 3 — supplements.** Not yet spec'd in detail; the shape to check
-before building anything new:
-- The Phase D-2 `events` table (`date, kind, label, notes` — `saveEvent`/`eventsSince`
-  in `src/db/queries.ts`, `EventsCard` in Log, dashed `ReferenceLine`s in Insights)
-  already stores "started magnesium" markers with `kind = 'supplement'`. Check whether
-  that plus a `notes` payload covers it before adding a parallel table.
-- What it doesn't cover: composition (captured via photo or name — would reuse the meal
-  photo path in `src/lib/image.ts` + an Anthropic tool in `src/ai/schemas.ts`), an end
-  date, and a periodic "still taking this? noticing anything?" re-check. That re-check
-  is the same shape as the B2 recovery check-in queue (`pendingCheckins`/`recordCheckin`
-  in `src/db/queries.ts`) — reuse that pattern rather than inventing a second one.
-- **Phase E** (eating-pattern quick-adds by time of day) is the other unstarted item and
-  needs no new storage at all — it's client-side frequency analysis over `meals`.
+**Next up: Phase E — eating-pattern quick-adds by time of day.** The only remaining
+planned phase, and it needs no new storage: it's client-side frequency analysis over
+the existing `meals` table.
+- Shape: group `meals` by `meal_type` (added in the Phase D gap-closing round) and/or
+  by hour bucket from `meals.time`, count the most frequent recent entries per bucket,
+  and offer them as one-tap re-adds at the top of the Meals tab — "you usually have
+  porridge around now". `mealsSince()` is the reader; `duplicateMeal()`
+  (`NutritionTab.tsx`) already does exactly the "save this again as a new row" step,
+  so the quick-add can reuse it rather than a new insert path.
+- Open question worth deciding first: does it suggest by *time of day now* (needs no
+  interaction) or by *meal type you tapped* (more deliberate, less magic)? The former
+  is the stated Phase E intent.
+
+**Follow-ups noticed while building, not yet done:**
+- A supplement's label photo is stored but never read. If typing the composition is
+  annoying in practice, wire a vision call (mirror `analyseMeal` in `ai/anthropic.ts`
+  + a tool in `ai/schemas.ts`) to fill the composition field from the photo.
+- Adding a supplement does not create an `events` row, so it draws no reference line
+  on the Insights charts. If correlating "started magnesium" against energy/sleep is
+  the actual goal, that link should be made automatic rather than a second manual step.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
