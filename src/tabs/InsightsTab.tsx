@@ -682,11 +682,16 @@ export default function InsightsTab() {
       {kcalByDate.size > 0 && (
         <ChartCard title="Macros & food groups" hint="two 100% bars per day, side by side">
           <ResponsiveContainer width="100%" height={170}>
-            <BarChart data={mealBarsData} margin={{ left: -20, right: 8, top: 8 }}>
+            {/* Left margin -8, not the -20 every other chart here uses: this is
+                the one chart with a 4-character axis label ("100%"), and -20
+                left it clipped/overlapping under the hover cursor. tickFormatter
+                instead of the `unit` prop for the same reason — sidesteps
+                whatever Recharts does internally to append a unit string. */}
+            <BarChart data={mealBarsData} margin={{ left: -8, right: 8, top: 8 }}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
               <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 100]} tick={{ fill: 'var(--faint)', fontSize: 11 }} unit="%" />
-              <Tooltip content={<MealBarsTooltip />} />
+              <YAxis domain={[0, 100]} tick={{ fill: 'var(--faint)', fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
+              <Tooltip content={<MealBarsTooltip />} cursor={{ fill: 'var(--faint)', fillOpacity: 0.08 }} />
               <Bar isAnimationActive={false} stackId="macro" dataKey="protein" fill={MACRO_COLORS.protein} />
               <Bar isAnimationActive={false} stackId="macro" dataKey="fat" fill={MACRO_COLORS.fat} />
               <Bar isAnimationActive={false} stackId="macro" dataKey="carbs" fill={MACRO_COLORS.carbs} />

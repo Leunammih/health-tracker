@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-29 (Phase C-3: supplements — Phase C complete)_
+_Last updated: 2026-07-30 (Phase C-3 fixes: sleep picker, macro tooltip, Supplements layout)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -179,12 +179,8 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     headings. Every other chart's `<Tooltip>` gained a `roundTip` formatter, since
     segment rollups (a day logged morning *and* evening averages the two) can produce
     the same long floats. (2) **Sleep picker** — `step={300}` for 5-minute increments,
-    and an empty field prefills to 23:00 (bedtime) / 09:00 (wake) **on focus**, because
-    iOS otherwise opens the wheel at the current time, which is never the answer when
-    you log sleep the morning after. The prefill writes `el.value` *and* setState: the
-    picker snapshots the input as it opens and a bare setState can land a frame too
-    late. Deliberately not an initial state value — the fields must read empty until
-    tapped, or "Save sleep" would write a night that never happened.
+    and an empty field prefilled to 23:00 (bedtime) / 09:00 (wake) **on focus**.
+    Didn't survive real-device testing — see the correction below.
   - **Supplements** — new `supplements` table rather than reusing `events`: an
     `events` row is a one-off point-in-time marker with no lifecycle, and a regimen
     needs a start, an optional end, and a recurring check-in. Columns: `name`,
@@ -207,44 +203,73 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     `CREATE TABLE IF NOT EXISTS` in `SCHEMA_SQL` covers both fresh and existing DBs —
     only *columns added to an existing table* need an ALTER.
 
+- **Phase C-3 fixes round (2026-07-30)** — three things found on a real phone within
+  the C-3 build, all fixed same-day, no schema change (still v11).
+  - **Sleep picker didn't work at all on-device**, despite passing in-browser
+    verification via a genuine dispatched `focus` event. Root cause: iOS Safari
+    snapshots a native time-wheel's opening position from the input's *value at the
+    instant the tap gesture begins* — before any JS focus handler gets a chance to
+    run, no matter how synchronous. There is no reliable way to inject a default in
+    response to the tap itself. **Fix:** default the field's value at load time
+    instead (`useEffect` on date change, when no row is saved), not on focus. The
+    onFocus/prefill helper was removed entirely. Nothing is written to the DB until
+    "Save sleep" is tapped either way, so this carries no more accidental-write risk
+    than the rest of the app's explicit-save pattern.
+  - **Macro/food-group chart's "100%" Y-axis label read as garbled digits**
+    ("0.0001%") once a tooltip was open near it. Likely cause: this was the only
+    chart using Recharts' `unit="%"` prop (appends the suffix internally) combined
+    with an aggressive `margin.left: -20` tuned for the shorter 3-char labels
+    elsewhere ("50%", "75%") — the one 4-char label ("100%") clipped/overlapped
+    under the default (opaque) hover-cursor highlight. **Fix:** `margin.left: -8`
+    for this chart only, `tickFormatter={(v) => `${v}%`}` instead of the `unit`
+    prop, and an explicit low-opacity `cursor` fill on the `Tooltip` instead of
+    Recharts' default. (The garbled text could not have come from the custom
+    tooltip's own number formatting — `toFixed(1)` mathematically cannot produce a
+    4-decimal string like "0.0001%" — which is what pointed at axis/cursor
+    rendering rather than the data.)
+  - **New supplement "disappeared" after Add.** It was rendering correctly — just
+    *above* the Add form, off-screen above where the user's eyes/thumb already were.
+    **Fix:** moved the active list to render directly *below* the form (matching
+    `EventsCard`'s own layout, which already gets this right), added a 2-second
+    "Added ✓" flash on the button, and a matching brief tint on the new row.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for the most recent push (Phase C-3
-supplements + the sleep-picker and tooltip fixes). Open
-https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build._
+_Replaced each iteration — this is the list for the round that fixed three things you
+found in the Phase C-3 build (sleep picker, macro tooltip, "where did it go" on
+Supplements). Open https://leunammih.github.io/health-tracker/ and pull down to
+refresh first, so the service worker picks up the new build._
 
-**Sleep picker (fix you asked for)**
-1. **Log tab → Sleep card.** Both fields still show `--:--` until you touch them.
-   Tap **Bedtime** → the wheel opens at **23:00**. Tap **Wake** → opens at **09:00**.
-   Spinning either wheel moves in **5-minute** steps.
-2. Tap a day on the strip that already *has* sleep saved → the saved times show, and
-   tapping a field opens on **those**, not on the 23:00/09:00 defaults.
+**Sleep picker — re-fix.** The first attempt tried to inject the default when you
+*tapped* the field (`onFocus`), which turned out not to work: iOS snapshots the wheel's
+starting position from the field's value at the moment your tap *begins*, before any
+JS can react — so there's no reliable way to influence it from a focus handler. Now the
+fields show **23:00** / **09:00** immediately, before you've touched anything, so the
+wheel opens on the right value by construction rather than by timing.
+1. **Log tab → Sleep card**, a day with nothing saved yet → Bedtime already reads
+   **23:00**, Wake already reads **09:00** (not `--:--` anymore). Tap either → wheel
+   opens right there, moves in **5-minute** steps. Nothing is written to the day until
+   you tap **Save sleep**, same as before.
+2. A day that already has sleep saved → shows those saved times instead, as before.
 
-**Macro tooltip (fix you asked for)**
-3. **Insights → Macros & food groups → tap a bar.** One decimal place now
-   (`Protein 20.1%`), real names instead of `dairy_eggs`/`meat_beef`, grouped under
-   **MACROS** / **FOOD GROUPS**, and zero-value slices are gone — so the box is small
-   enough to not cover the chart.
+**Macro tooltip — the "100%" garbling.** The chart's left margin was tuned for 3-char
+axis labels ("0%"/"50%"/"75%") and clipped/overlapped the one 4-char label ("100%")
+under the hover highlight — that's what read as "0.0001%". Margin widened, the tick
+now built from a plain formatter instead of Recharts' `unit` prop, and the hover
+highlight given an explicit, subtle fill instead of Recharts' default.
+3. **Insights → Macros & food groups.** The **100%** label at the top should be crisp
+   at rest. Tap/hold a bar → the tooltip box appears clearly clear of the axis labels,
+   still one-decimal/real-names from the previous fix.
 
-**Supplements (new)**
-4. **Log tab → scroll to the bottom → "Supplements".** Add one: name (e.g. "Magnesium
-   glycinate"), optionally dose/composition, optionally a **photo of the label**, pick
-   a check-in interval (7/14/30 days) → **Add supplement**. It appears above the form
-   with "since <date> · check-in every Nd".
-5. **Attach a label photo** — only uploads if Dropbox is connected; without it the
-   supplement still saves, just without the picture. A 📷 shows on saved ones.
-6. **Stop** on a supplement → confirms, then it moves under **"Show stopped (N)"**.
-   **✕** deletes outright (also confirms). Both survive a force-quit and reopen.
-7. **Check-in queue** — a supplement asks again once its interval has elapsed. To see
-   it without waiting N days, add one, then in Settings → Data confirm the count went
-   up; the prompt ("Still on track?") appears at the **top of the Log tab** when due.
-   *Not testable same-day by design* — flag it if it ever nags on the day you added it.
-8. **Both looks** — Settings → Appearance → Dark and back.
+**Supplements — "where's the info after entering?"** It was rendering *above* the Add
+form, so a new entry appeared off-screen above where you were looking. Moved it to
+directly *below* the form (same layout "Log an event" already uses), and the Add
+button now flashes **"Added ✓"** with the new row briefly highlighted.
+4. **Log tab → Supplements → add one** → the row appears immediately under the "Add
+   supplement" button (not scrolled away above the form), briefly tinted, button
+   flashes "Added ✓" for ~2 seconds.
 
-Nothing else should have changed. The Log tab gained one card at the bottom and can
-gain one prompt at the top; everything above that — day strip, dictation, quick entry,
-events — should behave exactly as before. A regression there matters more than
-anything on this list.
+Nothing else should have changed — day strip, dictation, quick entry, events, every
+other Insights chart. A regression there matters more than anything on this list.
 
 Still outstanding from earlier rounds (fold in if you have the patience): the whole
 Phase D/D-2 overhaul has never been touched on a real phone — see the next section.

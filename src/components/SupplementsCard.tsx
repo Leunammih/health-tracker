@@ -26,6 +26,7 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   const [error, setError] = useState<string | null>(null)
   const [showStopped, setShowStopped] = useState(false)
   const [refresh, setRefresh] = useState(0)
+  const [justAddedId, setJustAddedId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const active = useMemo(() => activeSupplements(), [refresh])
@@ -49,12 +50,16 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
       if (photo && isConfigured()) {
         photoPath = await pushPhoto(photo.bytes, `supplement-${uid().slice(0, 8)}.jpg`)
       }
-      await saveSupplement(name.trim(), composition.trim() || null, photoPath, date, checkinDays)
+      const id = await saveSupplement(name.trim(), composition.trim() || null, photoPath, date, checkinDays)
       setName('')
       setComposition('')
       setPhoto(null)
       setRefresh((k) => k + 1)
       onChanged()
+      // Briefly highlight the new row — it lands directly below this form, but a
+      // silent, unhighlighted list update after tapping "Add" is easy to miss.
+      setJustAddedId(id)
+      setTimeout(() => setJustAddedId(null), 2000)
     } catch (e) {
       setError(msg(e))
     } finally {
@@ -79,31 +84,6 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   return (
     <div className="card space-y-3">
       <div className="label">Supplements</div>
-
-      {active.length > 0 && (
-        <div className="space-y-1.5">
-          {active.map((s) => (
-            <div key={s.id} className="rounded-lg bg-ink-900 px-3 py-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-sm text-cream">{s.name}</span>
-                <div className="flex shrink-0 gap-2">
-                  <button className="text-ink-500 hover:text-cream" onClick={() => void stop(s)}>
-                    Stop
-                  </button>
-                  <button className="text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
-                    ✕
-                  </button>
-                </div>
-              </div>
-              {s.composition && <div className="mt-0.5 text-ink-300">{s.composition}</div>}
-              <div className="mt-0.5 text-ink-400">
-                since {fmtDate(s.start_date)} · check-in every {s.checkin_days}d
-                {s.photo_path ? ' · 📷' : ''}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="space-y-2 rounded-lg bg-ink-900 p-3">
         <input
@@ -167,10 +147,42 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
           ))}
         </div>
         <button className="btn-primary w-full !py-2 text-sm" disabled={busy || !name.trim()} onClick={() => void add()}>
-          Add supplement
+          {justAddedId ? 'Added ✓' : 'Add supplement'}
         </button>
         {error && <p className="text-xs text-red-400">{error}</p>}
       </div>
+
+      {/* Directly below the form — where you're already looking right after
+          tapping Add — rather than above it, where a new entry is easy to miss
+          without scrolling back up. */}
+      {active.length > 0 && (
+        <div className="space-y-1.5">
+          {active.map((s) => (
+            <div
+              key={s.id}
+              className="rounded-lg bg-ink-900 px-3 py-2 text-xs transition-colors duration-500"
+              style={s.id === justAddedId ? { background: 'var(--accent-dim)' } : undefined}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 truncate text-sm text-cream">{s.name}</span>
+                <div className="flex shrink-0 gap-2">
+                  <button className="text-ink-500 hover:text-cream" onClick={() => void stop(s)}>
+                    Stop
+                  </button>
+                  <button className="text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
+                    ✕
+                  </button>
+                </div>
+              </div>
+              {s.composition && <div className="mt-0.5 text-ink-300">{s.composition}</div>}
+              <div className="mt-0.5 text-ink-400">
+                since {fmtDate(s.start_date)} · check-in every {s.checkin_days}d
+                {s.photo_path ? ' · 📷' : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {stopped.length > 0 && (
         <div>
