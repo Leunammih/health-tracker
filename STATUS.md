@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-30 (Phase C-3 fixes: sleep picker, macro tooltip, Supplements layout)_
+_Last updated: 2026-07-31 (Phase E: eating-pattern quick-adds — all planned phases done)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -233,43 +233,66 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     `EventsCard`'s own layout, which already gets this right), added a 2-second
     "Added ✓" flash on the button, and a matching brief tint on the new row.
 
+- **Phase E — eating-pattern quick-adds (2026-07-31)** — the last planned phase. No
+  schema change (still v11); pure client-side frequency analysis over the existing
+  `meals` table, as scoped.
+  - **`src/lib/mealPatterns.ts`** — `mealTypeForHour(hour)` maps a clock hour to one
+    of the four existing `meal_type` values (breakfast/lunch/dinner/snack); there's no
+    fifth "late night" bucket so 22:00–03:59 folds into `snack` along with the
+    mid-afternoon gap. `suggestQuickAdds(meals, now?)` groups meals from a 60-day
+    lookback by (current time bucket, lowercased name), keeps the most recent
+    occurrence as the re-add template, and surfaces up to 3 with ≥2 occurrences —
+    sorted by frequency then recency. A meal's bucket is its own `meal_type` when set,
+    else derived from `time`; one with neither is excluded from suggestions entirely
+    (it still shows fine in Recent meals, just can't be time-bucketed). A dish already
+    logged **today** in the same bucket is excluded too — re-suggesting something you
+    logged five minutes ago is noise, and "Recent meals → Duplicate" already covers a
+    genuine second helping.
+  - **`src/components/QuickAddMeals.tsx`** — "Quick add" card, renders nothing when
+    there are no suggestions (same pattern as "Recent meals" only appearing once
+    there's something to show). Tapping a suggestion calls `saveMeal` directly with
+    today's date and the current time — no review screen — then flashes "Added ✓"
+    for 1.5s before recomputing (recomputing immediately would swap the row out from
+    under the confirmation before it's ever seen, since the just-added dish now fails
+    the "not already logged today" filter).
+  - **`src/lib/meals.ts`** (new) — `mealToAnalysis()`/`parseIngredients()`/
+    `parseFoodGroups()` pulled out of `NutritionTab.tsx`, which had three
+    near-identical copies of this Meal→MealAnalysis mapping (edit, duplicate, and now
+    quick-add) by the time this landed. `startEditMeal`/`duplicateMeal` now call the
+    shared helper; behaviour unchanged, verified via the Duplicate button after the
+    refactor.
+  - Placed between the goal-progress card and the photo/dictation capture card on the
+    Meals tab, so it's the first thing you can act on without typing anything.
+  - Verified in-browser in both themes: seeded a 3× "Greek yogurt with almonds" snack
+    pattern, confirmed the suggestion appears, tapping it saves instantly with today's
+    date/current time/carried-over macros and meal_type, the card then disappears
+    (already-logged-today), and today's totals update immediately.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for the round that fixed three things you
-found in the Phase C-3 build (sleep picker, macro tooltip, "where did it go" on
-Supplements). Open https://leunammih.github.io/health-tracker/ and pull down to
-refresh first, so the service worker picks up the new build._
+_Replaced each iteration — this is the list for Phase E, the last planned phase. Open
+https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
+service worker picks up the new build._
 
-**Sleep picker — re-fix.** The first attempt tried to inject the default when you
-*tapped* the field (`onFocus`), which turned out not to work: iOS snapshots the wheel's
-starting position from the field's value at the moment your tap *begins*, before any
-JS can react — so there's no reliable way to influence it from a focus handler. Now the
-fields show **23:00** / **09:00** immediately, before you've touched anything, so the
-wheel opens on the right value by construction rather than by timing.
-1. **Log tab → Sleep card**, a day with nothing saved yet → Bedtime already reads
-   **23:00**, Wake already reads **09:00** (not `--:--` anymore). Tap either → wheel
-   opens right there, moves in **5-minute** steps. Nothing is written to the day until
-   you tap **Save sleep**, same as before.
-2. A day that already has sleep saved → shows those saved times instead, as before.
+**"Quick add" on the Meals tab.** After a few repeats of the same dish around the same
+time of day, a one-tap re-add appears — no photo, no dictation, no review screen.
+1. Open **Meals** around a time of day you eat something repeatedly (e.g. the same
+   breakfast most mornings) — after you've logged it **2+ times** in roughly that
+   slot, a **"Quick add"** card appears above "Photograph a meal", showing the dish
+   name, its kcal, and "logged N× recently".
+2. **Tap it** → saves immediately with today's date and right-now's time (check
+   "Recent meals" — the new entry should carry over the same calories/macros/meal
+   type as before). The button briefly shows **"Added ✓"**, then the card either
+   shows your next most common dish or disappears if that was the only pattern.
+3. **It shouldn't nag** — if you tap Meals again right after adding one, that same
+   suggestion should be gone (you just logged it for today); a *different* frequent
+   dish for the same time slot can still appear if you have one.
+4. **Nothing to see yet is expected** if you don't have 2+ repeats of the same meal
+   around the same time in your real history — the card simply doesn't appear, same
+   as "Recent meals" before you've logged anything.
+5. **Both looks** — Settings → Appearance → Dark and back.
 
-**Macro tooltip — the "100%" garbling.** The chart's left margin was tuned for 3-char
-axis labels ("0%"/"50%"/"75%") and clipped/overlapped the one 4-char label ("100%")
-under the hover highlight — that's what read as "0.0001%". Margin widened, the tick
-now built from a plain formatter instead of Recharts' `unit` prop, and the hover
-highlight given an explicit, subtle fill instead of Recharts' default.
-3. **Insights → Macros & food groups.** The **100%** label at the top should be crisp
-   at rest. Tap/hold a bar → the tooltip box appears clearly clear of the axis labels,
-   still one-decimal/real-names from the previous fix.
-
-**Supplements — "where's the info after entering?"** It was rendering *above* the Add
-form, so a new entry appeared off-screen above where you were looking. Moved it to
-directly *below* the form (same layout "Log an event" already uses), and the Add
-button now flashes **"Added ✓"** with the new row briefly highlighted.
-4. **Log tab → Supplements → add one** → the row appears immediately under the "Add
-   supplement" button (not scrolled away above the form), briefly tinted, button
-   flashes "Added ✓" for ~2 seconds.
-
-Nothing else should have changed — day strip, dictation, quick entry, events, every
-other Insights chart. A regression there matters more than anything on this list.
+Nothing else on the Meals tab should have changed — goal progress bars, photograph/
+dictate, Edit/Duplicate/Delete on Recent meals, all exactly as before.
 
 Still outstanding from earlier rounds (fold in if you have the patience): the whole
 Phase D/D-2 overhaul has never been touched on a real phone — see the next section.
@@ -292,7 +315,7 @@ Phase D/D-2 overhaul has never been touched on a real phone — see the next sec
 ## Not started — for new sessions
 - **Phase C:** ~~(1) bulk/range entry~~ ✅; ~~(2) calorie/protein goals~~ ✅;
   ~~(3) supplements~~ ✅ — Phase C is complete.
-- **Phase E:** eating-pattern quick-adds by time of day (client-side frequency over `meals`).
+- **Phase E:** ~~eating-pattern quick-adds by time of day~~ ✅ — all planned phases (A–E) are now done.
 
 ## How these sessions run
 One feature per iteration: build it → verify in-browser → typecheck + build → **commit
@@ -301,30 +324,32 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-Phases A–D are all code-complete and pushed. **Phase C is now finished** (bulk entry,
-goals, supplements). The D/D-2 overhaul is still awaiting phone verification (see
-"Try Phase D + D-2 on a phone" — not blocking, just not yet confirmed).
+**All planned phases (A through E) are code-complete and pushed.** There is no queued
+next feature — the roadmap in this file's "Not started" section is now empty. Two
+things remain, neither of them new scope:
 
-**Next up: Phase E — eating-pattern quick-adds by time of day.** The only remaining
-planned phase, and it needs no new storage: it's client-side frequency analysis over
-the existing `meals` table.
-- Shape: group `meals` by `meal_type` (added in the Phase D gap-closing round) and/or
-  by hour bucket from `meals.time`, count the most frequent recent entries per bucket,
-  and offer them as one-tap re-adds at the top of the Meals tab — "you usually have
-  porridge around now". `mealsSince()` is the reader; `duplicateMeal()`
-  (`NutritionTab.tsx`) already does exactly the "save this again as a new row" step,
-  so the quick-add can reuse it rather than a new insert path.
-- Open question worth deciding first: does it suggest by *time of day now* (needs no
-  interaction) or by *meal type you tapped* (more deliberate, less magic)? The former
-  is the stated Phase E intent.
+1. **Phone verification backlog** — the biggest unverified surface is the whole
+   Phase D/D-2 overhaul (plateau charts, tap-to-log sliders, day-strip swipe,
+   multi-day/multi-meal toggles, time-of-day segments, sleep, single events, the
+   Home tab, macro/food-group bars) plus Phase E's quick-adds: all built and verified
+   against seeded data in the Browser pane, none of it exercised yet against a real
+   Claude call + real touchscreen over real, organically-entered data. See "Try Phase
+   D + D-2 on a phone" above. **If Immanuel wants a next iteration with no new
+   feature in mind, this is it** — pick one unverified area, use the app for real for
+   a few days, report back what feels off.
+2. **Two follow-ups noticed while building Phase C-3, not yet done** (small, optional,
+   not blocking anything):
+   - A supplement's label photo is stored but never read. If typing the composition
+     is annoying in practice, wire a vision call (mirror `analyseMeal` in
+     `ai/anthropic.ts` + a tool in `ai/schemas.ts`) to fill it in from the photo.
+   - Adding a supplement does not create an `events` row, so it draws no reference
+     line on the Insights charts. If correlating "started magnesium" against
+     energy/sleep is the actual goal, that link should be automatic rather than a
+     second manual step.
 
-**Follow-ups noticed while building, not yet done:**
-- A supplement's label photo is stored but never read. If typing the composition is
-  annoying in practice, wire a vision call (mirror `analyseMeal` in `ai/anthropic.ts`
-  + a tool in `ai/schemas.ts`) to fill the composition field from the photo.
-- Adding a supplement does not create an `events` row, so it draws no reference line
-  on the Insights charts. If correlating "started magnesium" against energy/sleep is
-  the actual goal, that link should be made automatic rather than a second manual step.
+A fresh session with no other instruction should default to (1): ask Immanuel which
+unverified area he wants exercised for real, or just start using the app itself and
+narrate friction as it's found, rather than inventing new features.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

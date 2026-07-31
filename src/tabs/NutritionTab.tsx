@@ -7,8 +7,9 @@ import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
 import { IconCamera, IconMic } from '../components/icons'
 import GoalProgress from '../components/GoalProgress'
+import QuickAddMeals from '../components/QuickAddMeals'
 import { loadGoals, hasAnyGoal, totalsFor } from '../lib/goals'
-import type { FoodGroupBreakdown } from '../lib/foodGroups'
+import { mealToAnalysis } from '../lib/meals'
 import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
 
 type Phase = 'input' | 'analysing' | 'review' | 'multiReview'
@@ -231,19 +232,7 @@ export default function NutritionTab() {
     setAnswer('')
     setExtraItems('')
     setIngredientsDirty(false)
-    setAnalysis({
-      name: m.name ?? '',
-      ingredients: parseIngredients(m.ingredients),
-      calories: m.calories ?? 0,
-      protein_g: m.protein_g ?? 0,
-      fat_g: m.fat_g ?? 0,
-      carbs_g: m.carbs_g ?? 0,
-      fiber_g: m.fiber_g ?? 0,
-      confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
-      clarifying_questions: [],
-      meal_type: (m.meal_type as MealAnalysis['meal_type']) ?? undefined,
-      food_groups: parseFoodGroups(m.food_groups),
-    })
+    setAnalysis(mealToAnalysis(m))
     setPhase('review')
   }
 
@@ -261,19 +250,7 @@ export default function NutritionTab() {
     setAnswer('')
     setExtraItems('')
     setIngredientsDirty(false)
-    setAnalysis({
-      name: m.name ?? '',
-      ingredients: parseIngredients(m.ingredients),
-      calories: m.calories ?? 0,
-      protein_g: m.protein_g ?? 0,
-      fat_g: m.fat_g ?? 0,
-      carbs_g: m.carbs_g ?? 0,
-      fiber_g: m.fiber_g ?? 0,
-      confidence: (m.confidence as MealAnalysis['confidence']) ?? 'medium',
-      clarifying_questions: [],
-      meal_type: (m.meal_type as MealAnalysis['meal_type']) ?? undefined,
-      food_groups: parseFoodGroups(m.food_groups),
-    })
+    setAnalysis(mealToAnalysis(m))
     setPhase('review')
   }
 
@@ -326,6 +303,10 @@ export default function NutritionTab() {
           {Math.round(today.totals.protein_g).toLocaleString()} g protein. Set daily goals in Settings to
           track progress against them.
         </p>
+      )}
+
+      {phase === 'input' && captureMode === 'choose' && (
+        <QuickAddMeals onAdded={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'input' && captureMode === 'choose' && (
@@ -757,25 +738,6 @@ function MacroField({ label, value, onChange }: { label: string; value: number; 
       />
     </div>
   )
-}
-
-function parseFoodGroups(json: string | null): FoodGroupBreakdown | undefined {
-  if (!json) return undefined
-  try {
-    return JSON.parse(json) as FoodGroupBreakdown
-  } catch {
-    return undefined
-  }
-}
-
-function parseIngredients(json: string | null): Ingredient[] {
-  if (!json) return []
-  try {
-    const parsed = JSON.parse(json)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
 }
 
 function fmt(v: number | null): string {
