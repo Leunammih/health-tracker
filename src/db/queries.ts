@@ -18,7 +18,13 @@ import type {
   SegmentValue,
   HealthEvent,
   Supplement,
+  Food,
+  FoodUsageRow,
+  MealItem,
+  MealType,
 } from '../types'
+import type { BuildItem } from '../lib/mealBuild'
+import { gramsOf, itemMacros } from '../lib/mealBuild'
 
 // Run a SELECT and return an array of plain objects.
 export function all<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
@@ -207,15 +213,22 @@ export async function deleteEntryRows(entryId: string): Promise<void> {
 
 // ---- Meals ----
 
-export async function saveMeal(
+// Non-persisting bodies shared by saveMeal/updateMeal (the photo/dictation/multi-
+// meal/quick-add path) and saveBuiltMeal/updateBuiltMeal (the tap-to-build path) —
+// both write the exact same `meals` columns, so every existing reader (Insights,
+// classifyMeal, CSV/JSON export, quick-add) keeps working unchanged either way.
+// Split out so a builder save writes `meals` + `meal_items` under ONE persist(),
+// not two — persist() exports the whole DB, so two calls per save would double
+// every write's cost on a phone for no reason.
+function insertMealRow(
+  id: string,
   a: MealAnalysis,
   date: string,
   time: string | null,
   photoPath: string | null,
   source: string,
   notes: string | null,
-): Promise<string> {
-  const id = uid()
+): void {
   exec(
     `INSERT INTO meals(id, date, time, name, calories, protein_g, fat_g, carbs_g, fiber_g,
       ingredients, photo_path, confidence, confirmed, source, notes, meal_type, food_groups) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)`,
@@ -225,6 +238,38 @@ export async function saveMeal(
       a.food_groups ? JSON.stringify(a.food_groups) : null,
     ],
   )
+}
+
+function updateMealRow(
+  id: string,
+  a: MealAnalysis,
+  date: string,
+  time: string | null,
+  photoPath: string | null,
+  source: string,
+  notes: string | null,
+): void {
+  exec(
+    `UPDATE meals SET date=?, time=?, name=?, calories=?, protein_g=?, fat_g=?, carbs_g=?, fiber_g=?,
+      ingredients=?, photo_path=?, confidence=?, source=?, notes=?, meal_type=?, food_groups=? WHERE id=?`,
+    [
+      date, time, a.name, a.calories, a.protein_g, a.fat_g, a.carbs_g, a.fiber_g,
+      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes, a.meal_type ?? null,
+      a.food_groups ? JSON.stringify(a.food_groups) : null, id,
+    ],
+  )
+}
+
+export async function saveMeal(
+  a: MealAnalysis,
+  date: string,
+  time: string | null,
+  photoPath: string | null,
+  source: string,
+  notes: string | null,
+): Promise<string> {
+  const id = uid()
+  insertMealRow(id, a, date, time, photoPath, source, notes)
   await persist()
   return id
 }
@@ -238,21 +283,250 @@ export async function updateMeal(
   source: string,
   notes: string | null,
 ): Promise<void> {
+  updateMealRow(id, a, date, time, photoPath, source, notes)
+  // A meal previously built with the tap-to-build builder may have meal_items rows
+  // underneath it. The plain review form is authoritative when it's the one being
+  // used to save — leaving old items in place would describe a breakdown that no
+  // longer matches these totals, which is worse than having no breakdown at all.
+  exec('DELETE FROM meal_items WHERE meal_id = ?', [id])
+  await persist()
+}
+
+export async function deleteMeal(id: string): Promise<void> {
+  // sql.js runs with foreign keys off, so this cascade has to happen in code.
+  exec('DELETE FROM meal_items WHERE meal_id = ?', [id])
+  exec('DELETE FROM meals WHERE id = ?', [id])
+  await persist()
+}
+
+// ---- Tap-to-build meal builder: foods + meal_items ----
+
+function writeMealItems(mealId: string, items: BuildItem[]): void {
+  items.forEach((item, i) => {
+    const grams = gramsOf(item)
+    const m = itemMacros(item)
+    exec(
+      `INSERT INTO meal_items(id, meal_id, food_id, name, grams, servings, unit_label, prep,
+        calories, protein_g, fat_g, carbs_g, fiber_g, position) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        uid(), mealId, item.foodId, item.name, grams,
+        item.mode === 'servings' ? item.servings : null,
+        item.servingLabel, item.prep,
+        m.calories, m.protein_g, m.fat_g, m.carbs_g, m.fiber_g, i,
+      ],
+    )
+  })
+}
+
+export async function saveBuiltMeal(
+  a: MealAnalysis,
+  items: BuildItem[],
+  date: string,
+  time: string | null,
+  notes: string | null,
+): Promise<string> {
+  const id = uid()
+  insertMealRow(id, a, date, time, null, 'builder', notes)
+  writeMealItems(id, items)
+  await persist()
+  return id
+}
+
+export async function updateBuiltMeal(
+  id: string,
+  a: MealAnalysis,
+  items: BuildItem[],
+  date: string,
+  time: string | null,
+  photoPath: string | null,
+  notes: string | null,
+): Promise<void> {
+  updateMealRow(id, a, date, time, photoPath, 'builder', notes)
+  exec('DELETE FROM meal_items WHERE meal_id = ?', [id])
+  writeMealItems(id, items)
+  await persist()
+}
+
+export const mealItems = (mealId: string) =>
+  all<MealItem>('SELECT * FROM meal_items WHERE meal_id = ? ORDER BY position', [mealId])
+
+export function mealItemCount(mealId: string): number {
+  const r = all<{ n: number }>('SELECT COUNT(*) AS n FROM meal_items WHERE meal_id = ?', [mealId])
+  return r[0]?.n ?? 0
+}
+
+export const normaliseFoodKey = (name: string): string =>
+  name.trim().toLowerCase().replace(/\s+/g, ' ').replace(/^[\d.,/½¼¾ ]+/, '').replace(/[.,;:]+$/, '')
+
+// Lookup by normalised name — the enforcement point for food uniqueness, since
+// name_key deliberately has NO unique index (see the comment on the `foods` table
+// in schema.ts: a unique constraint there would make one duplicate row permanently
+// break Dropbox sync in one direction). Every food-creation path must call this
+// first.
+export function findFoodByKey(name: string): Food | null {
+  const key = normaliseFoodKey(name)
+  if (!key) return null
+  const rows = all<Food>('SELECT * FROM foods WHERE name_key = ? AND archived = 0 LIMIT 1', [key])
+  return rows[0] ?? null
+}
+
+export const allFoods = (includeArchived = false) =>
+  all<Food>(includeArchived ? 'SELECT * FROM foods ORDER BY name' : 'SELECT * FROM foods WHERE archived = 0 ORDER BY name')
+
+export const foodsByIds = (ids: string[]): Map<string, Food> => {
+  if (!ids.length) return new Map()
+  const placeholders = ids.map(() => '?').join(',')
+  const rows = all<Food>(`SELECT * FROM foods WHERE id IN (${placeholders})`, ids)
+  return new Map(rows.map((f) => [f.id, f]))
+}
+
+// Insert a brand-new food row (caller must have already checked findFoodByKey).
+export async function insertFood(f: Omit<Food, 'id' | 'name_key' | 'created_at'>): Promise<Food> {
+  const id = uid()
+  const created_at = nowISO()
+  const name_key = normaliseFoodKey(f.name)
   exec(
-    `UPDATE meals SET date=?, time=?, name=?, calories=?, protein_g=?, fat_g=?, carbs_g=?, fiber_g=?,
-      ingredients=?, photo_path=?, confidence=?, source=?, notes=?, meal_type=?, food_groups=? WHERE id=?`,
+    `INSERT INTO foods(id, name, name_key, kcal_100g, protein_100g, fat_100g, carbs_100g, fiber_100g,
+      serving_g, serving_label, food_groups, brand, barcode, source, seed_count, seed_slots,
+      seed_last_used, created_at, archived) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
-      date, time, a.name, a.calories, a.protein_g, a.fat_g, a.carbs_g, a.fiber_g,
-      JSON.stringify(a.ingredients ?? []), photoPath, a.confidence, source, notes, a.meal_type ?? null,
-      a.food_groups ? JSON.stringify(a.food_groups) : null, id,
+      id, f.name, name_key, f.kcal_100g, f.protein_100g, f.fat_100g, f.carbs_100g, f.fiber_100g,
+      f.serving_g, f.serving_label, f.food_groups, f.brand, f.barcode, f.source, f.seed_count,
+      f.seed_slots, f.seed_last_used, created_at, f.archived,
+    ],
+  )
+  await persist()
+  return { id, name_key, created_at, ...f }
+}
+
+// Update an existing food's editable fields (from the picker sheet, or when
+// describeFoods() fills in macros for a previously macro-less backfilled row).
+export async function updateFood(id: string, patch: Partial<Food>): Promise<void> {
+  const current = all<Food>('SELECT * FROM foods WHERE id = ?', [id])[0]
+  if (!current) return
+  const next = { ...current, ...patch }
+  const name_key = patch.name ? normaliseFoodKey(patch.name) : current.name_key
+  exec(
+    `UPDATE foods SET name=?, name_key=?, kcal_100g=?, protein_100g=?, fat_100g=?, carbs_100g=?, fiber_100g=?,
+      serving_g=?, serving_label=?, food_groups=?, brand=?, barcode=?, source=?, seed_count=?, seed_slots=?,
+      seed_last_used=?, archived=? WHERE id=?`,
+    [
+      next.name, name_key, next.kcal_100g, next.protein_100g, next.fat_100g, next.carbs_100g, next.fiber_100g,
+      next.serving_g, next.serving_label, next.food_groups, next.brand, next.barcode, next.source,
+      next.seed_count, next.seed_slots, next.seed_last_used, next.archived, id,
     ],
   )
   await persist()
 }
 
-export async function deleteMeal(id: string): Promise<void> {
-  exec('DELETE FROM meals WHERE id = ?', [id])
+// Merge a losing food into a winner (same normalised name, created independently —
+// e.g. "Avocado" typed twice before a rename collided). Re-points every meal_items
+// row, sums usage history, and removes the loser, so the two don't split the
+// ranking in foodUsageForSlot and both under-rank forever.
+export async function mergeFoods(winnerId: string, loserId: string): Promise<void> {
+  if (winnerId === loserId) return
+  const winner = all<Food>('SELECT * FROM foods WHERE id = ?', [winnerId])[0]
+  const loser = all<Food>('SELECT * FROM foods WHERE id = ?', [loserId])[0]
+  if (!winner || !loser) return
+  exec('UPDATE meal_items SET food_id = ? WHERE food_id = ?', [winnerId, loserId])
+  const winnerSlots = (JSON.parse(winner.seed_slots || '{}') || {}) as Record<string, number>
+  const loserSlots = (JSON.parse(loser.seed_slots || '{}') || {}) as Record<string, number>
+  const mergedSlots: Record<string, number> = { ...winnerSlots }
+  for (const k of Object.keys(loserSlots)) mergedSlots[k] = (mergedSlots[k] ?? 0) + loserSlots[k]
+  const mergedLastUsed =
+    !winner.seed_last_used || (loser.seed_last_used && loser.seed_last_used > winner.seed_last_used)
+      ? loser.seed_last_used
+      : winner.seed_last_used
+  exec(
+    'UPDATE foods SET seed_count = ?, seed_slots = ?, seed_last_used = ? WHERE id = ?',
+    [winner.seed_count + loser.seed_count, JSON.stringify(mergedSlots), mergedLastUsed, winnerId],
+  )
+  exec('DELETE FROM foods WHERE id = ?', [loserId])
   await persist()
+}
+
+// Every food, with how often it's actually been used in a given meal slot inside
+// the lookback window. The slot filter lives in the LEFT JOIN's ON clause, not
+// WHERE — filtering a LEFT JOIN in WHERE silently turns it into an INNER JOIN and
+// drops every food with zero uses in this slot, including every backfilled food,
+// whose whole point is to rank on seed_count before they have any live use at all.
+// The CASE mirrors lib/mealPatterns.ts's mealTypeForHour() hour buckets — keep the
+// two in sync if those boundaries ever change.
+export function foodUsageForSlot(slot: MealType, sinceISO: string): FoodUsageRow[] {
+  return all<FoodUsageRow>(
+    `SELECT f.*,
+            COUNT(mi.id) AS uses,
+            MAX(m.date)  AS last_used
+       FROM foods f
+       LEFT JOIN meal_items mi ON mi.food_id = f.id
+       LEFT JOIN meals m
+              ON m.id = mi.meal_id
+             AND m.date >= ?
+             AND COALESCE(
+                   NULLIF(m.meal_type, ''),
+                   CASE
+                     WHEN m.time IS NULL THEN NULL
+                     WHEN CAST(substr(m.time,1,2) AS INTEGER) BETWEEN 4  AND 10 THEN 'breakfast'
+                     WHEN CAST(substr(m.time,1,2) AS INTEGER) BETWEEN 11 AND 14 THEN 'lunch'
+                     WHEN CAST(substr(m.time,1,2) AS INTEGER) BETWEEN 15 AND 17 THEN 'snack'
+                     WHEN CAST(substr(m.time,1,2) AS INTEGER) BETWEEN 18 AND 21 THEN 'dinner'
+                     ELSE 'snack'
+                   END
+                 ) = ?
+      WHERE f.archived = 0
+      GROUP BY f.id`,
+    [sinceISO, slot],
+  )
+}
+
+// ---- One-time foods backfill (lib/foodSeed.ts) ----
+
+// Every meal that has a real (non-empty) ingredients list to mine. insertMealRow
+// always writes at least '[]', so this excludes meals saved before the ingredients
+// column existed or written directly via raw SQL (e.g. devtools' seed()).
+export const mealsForFoodSeed = () =>
+  all<{ date: string; time: string | null; meal_type: string | null; ingredients: string }>(
+    "SELECT date, time, meal_type, ingredients FROM meals WHERE ingredients IS NOT NULL AND ingredients != '[]'",
+  )
+
+export interface BackfillFoodEntry {
+  name: string
+  count: number
+  slots: Partial<Record<MealType, number>>
+  lastUsed: string
+}
+
+// Insert or merge a batch of backfill-mined foods in as few persist() calls as
+// possible (two: one for any new/updated rows, one from setMeta's own write when
+// the caller marks the backfill done) rather than one per food — persist() exports
+// the whole database, so a per-row loop would cost the same as saving ~120 meals.
+// Each entry is looked up by normalised key first, so a food the user already
+// created manually (or a previous partial run left behind) gets its usage history
+// merged in rather than duplicated — see findFoodByKey's comment on why name_key
+// has no unique index to enforce this at the DB level instead.
+export async function bulkUpsertBackfillFoods(entries: BackfillFoodEntry[]): Promise<number> {
+  let created = 0
+  for (const e of entries) {
+    const existing = findFoodByKey(e.name)
+    if (existing) {
+      const slots = { ...(JSON.parse(existing.seed_slots || '{}') as Record<string, number>) }
+      for (const k of Object.keys(e.slots)) slots[k] = (slots[k] ?? 0) + (e.slots[k as MealType] ?? 0)
+      const lastUsed =
+        !existing.seed_last_used || e.lastUsed > existing.seed_last_used ? e.lastUsed : existing.seed_last_used
+      exec('UPDATE foods SET seed_count = seed_count + ?, seed_slots = ?, seed_last_used = ? WHERE id = ?', [
+        e.count, JSON.stringify(slots), lastUsed, existing.id,
+      ])
+    } else {
+      exec(
+        `INSERT INTO foods(id, name, name_key, source, seed_count, seed_slots, seed_last_used, created_at, archived)
+         VALUES (?,?,?,?,?,?,?,?,0)`,
+        [uid(), e.name, normaliseFoodKey(e.name), 'backfill', e.count, JSON.stringify(e.slots), e.lastUsed, nowISO()],
+      )
+      created++
+    }
+  }
+  if (entries.length) await persist()
+  return created
 }
 
 // ---- Interpretations ----
@@ -808,7 +1082,7 @@ export async function setMeta(key: string, value: string | null): Promise<void> 
 }
 
 export function counts(): Record<string, number> {
-  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations', 'segment_values', 'events', 'supplements']
+  const t = ['entries', 'activities', 'gut_events', 'infections', 'wellbeing', 'day_context', 'meals', 'tracks', 'interpretations', 'segment_values', 'events', 'supplements', 'foods', 'meal_items']
   const out: Record<string, number> = {}
   for (const name of t) {
     const r = all<{ n: number }>(`SELECT COUNT(*) as n FROM ${name}`)

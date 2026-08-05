@@ -276,3 +276,73 @@ export interface MultiMealItem {
   meal_type?: MealType
   food_groups?: FoodGroupBreakdown
 }
+
+// ---- Tap-to-build ingredient meal builder ----
+
+export type PrepTag = 'raw' | 'steamed' | 'boiled' | 'fried' | 'baked' | 'grilled'
+export type FoodSource = 'claude' | 'off' | 'manual' | 'backfill'
+
+export interface Food {
+  id: string
+  name: string
+  name_key: string
+  kcal_100g: number | null
+  protein_100g: number | null
+  fat_100g: number | null
+  carbs_100g: number | null
+  fiber_100g: number | null
+  serving_g: number | null
+  serving_label: string | null
+  food_groups: string | null // JSON FoodGroupBreakdown per 100g
+  brand: string | null
+  barcode: string | null
+  source: string // FoodSource
+  seed_count: number
+  seed_slots: string | null // JSON Partial<Record<MealType, number>>
+  seed_last_used: string | null
+  created_at: string
+  archived: number // 0/1
+}
+
+// A food row joined with its live+seeded usage count for one meal slot — the shape
+// foodUsageForSlot() returns and rankFoodsForSlot() scores.
+export interface FoodUsageRow extends Food {
+  uses: number
+  last_used: string | null
+}
+
+export interface MealItem {
+  id: string
+  meal_id: string
+  food_id: string | null
+  name: string
+  grams: number | null
+  servings: number | null
+  unit_label: string | null
+  prep: string | null // PrepTag
+  calories: number | null
+  protein_g: number | null
+  fat_g: number | null
+  carbs_g: number | null
+  fiber_g: number | null
+  position: number
+}
+
+// What describeFoods() returns for one requested ingredient name, before a DB id
+// is assigned — mirrors how MealAnalysis relates to the meals table.
+export interface FoodProfile {
+  query: string
+  name: string
+  brand?: string
+  state: 'raw' | 'cooked' | 'dry' | 'as_sold'
+  kcal_100g: number
+  protein_100g: number
+  fat_100g: number
+  carbs_100g: number
+  fiber_100g: number
+  serving_g: number
+  serving_label: string
+  food_groups: FoodGroupBreakdown
+  confidence: 'low' | 'medium' | 'high'
+  note?: string
+}

@@ -1,18 +1,21 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { analyseMeal, analyseMealText, analyseMealsText } from '../ai/anthropic'
-import { saveMeal, updateMeal, deleteMeal, recentMeals, mealsSince } from '../db/queries'
+import { saveMeal, updateMeal, deleteMeal, recentMeals, mealsSince, mealItems, foodsByIds } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
 import { uid } from '../lib/id'
-import { IconCamera, IconMic } from '../components/icons'
+import { IconCamera, IconMic, IconMeal } from '../components/icons'
 import GoalProgress from '../components/GoalProgress'
 import QuickAddMeals from '../components/QuickAddMeals'
+import MealBuilder from '../components/MealBuilder'
 import { loadGoals, hasAnyGoal, totalsFor } from '../lib/goals'
 import { mealToAnalysis } from '../lib/meals'
+import { ensureFoodSeed } from '../lib/foodSeed'
+import { builderInitFromMeal, type BuilderInit } from '../lib/mealBuild'
 import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
 
-type Phase = 'input' | 'analysing' | 'review' | 'multiReview'
+type Phase = 'input' | 'analysing' | 'review' | 'multiReview' | 'build'
 type CaptureMode = 'choose' | 'text'
 // 'single' -> analyseMealText (one MealAnalysis). 'multiMeal'/'multiDay' both go through
 // analyseMealsText (record_meals); the only difference is whether the multi-day prompt
@@ -53,6 +56,21 @@ export default function NutritionTab() {
   const [existingPhotoPath, setExistingPhotoPath] = useState<string | null>(null)
   const [entryTime, setEntryTime] = useState<string | null>(null)
   const [ingredientsDirty, setIngredientsDirty] = useState(false)
+
+  // Tap-to-build state. builderMealId set (non-null) means the builder is editing
+  // an existing meal rather than creating a new one — separate from `editingId`,
+  // which is only ever read by the plain review-form save path.
+  const [builderMealId, setBuilderMealId] = useState<string | null>(null)
+  const [builderPhotoPath, setBuilderPhotoPath] = useState<string | null>(null)
+  const [builderInit, setBuilderInit] = useState<BuilderInit | null>(null)
+
+  // One-time, idempotent (see foodSeed.ts's meta flag) — mines historical meals so
+  // the tap-to-build ingredient grid has something to rank on the first time it's
+  // opened. Runs on mount here (not in App.tsx's boot effect) so it happens after
+  // initDb + any Dropbox pull have already settled, not racing them.
+  useEffect(() => {
+    void ensureFoodSeed()
+  }, [])
 
   const meals = useMemo(() => recentMeals(10), [refreshKey, phase])
   // Today's totals vs. the goals set in Settings. Read from the DB (not from
@@ -246,10 +264,25 @@ export default function NutritionTab() {
     setDate(todayISO())
     setDictateMode('single')
     setMultiMeals(null)
+    setBuilderMealId(null)
+    setBuilderPhotoPath(null)
+    setBuilderInit(null)
   }
 
   function startEditMeal(m: Meal) {
     setError(null)
+    // A meal built with the tap-to-build builder has meal_items rows underneath
+    // it — route those to the builder so they can be edited item by item, rather
+    // than as five flattened macro numbers in the plain review form.
+    const items = mealItems(m.id)
+    if (items.length) {
+      const foodIds = items.map((i) => i.food_id).filter((id): id is string => !!id)
+      setBuilderMealId(m.id)
+      setBuilderPhotoPath(m.photo_path)
+      setBuilderInit(builderInitFromMeal(m, items, foodsByIds(foodIds)))
+      setPhase('build')
+      return
+    }
     setEditingId(m.id)
     setExistingPhotoPath(m.photo_path)
     setEntryTime(m.time)
@@ -263,11 +296,22 @@ export default function NutritionTab() {
     setPhase('review')
   }
 
-  // Same pre-fill as edit, but WITHOUT setting editingId — save() then falls through to
-  // saveMeal() (a new row) instead of updateMeal() (overwriting the original). Defaults
-  // to today/now since a duplicate means "eating this again", not backdating the source.
+  // Same pre-fill as edit, but WITHOUT setting editingId/builderMealId — save()
+  // then creates a new row instead of overwriting the original. Defaults to
+  // today/now since a duplicate means "eating this again", not backdating the
+  // source.
   function duplicateMeal(m: Meal) {
     setError(null)
+    const items = mealItems(m.id)
+    if (items.length) {
+      const foodIds = items.map((i) => i.food_id).filter((id): id is string => !!id)
+      const init = builderInitFromMeal(m, items, foodsByIds(foodIds))
+      setBuilderMealId(null)
+      setBuilderPhotoPath(null)
+      setBuilderInit({ ...init, date: todayISO(), time: null })
+      setPhase('build')
+      return
+    }
     setEditingId(null)
     setExistingPhotoPath(m.photo_path)
     setEntryTime(null)
@@ -350,15 +394,21 @@ export default function NutritionTab() {
               e.target.value = ''
             }}
           />
-          <button className="btn-primary w-full py-6 text-base" onClick={() => fileRef.current?.click()}>
-            <IconCamera width={22} height={22} /> Photograph a meal
+          <button
+            className="btn-primary w-full py-6 text-base"
+            onClick={() => { setBuilderMealId(null); setBuilderPhotoPath(null); setBuilderInit(null); setPhase('build') }}
+          >
+            <IconMeal width={22} height={22} /> Build from ingredients
+          </button>
+          <button className="btn-ghost w-full py-4 text-base" onClick={() => fileRef.current?.click()}>
+            <IconCamera width={20} height={20} /> Photograph a meal
           </button>
           <button className="btn-ghost w-full py-4 text-base" onClick={() => setCaptureMode('text')}>
             <IconMic width={20} height={20} /> Dictate a meal
           </button>
           <p className="text-xs text-ink-400">
-            Claude estimates ingredients, calories and macros, then asks to confirm portions. No photo? Dictate it
-            instead and attach a picture later if you get one.
+            Tap your usual ingredients — no API call. Photo and dictation still use Claude to estimate from a
+            picture or description.
           </p>
         </div>
       )}
@@ -436,6 +486,21 @@ export default function NutritionTab() {
             {dictateMode !== 'single' ? 'Splitting into meals…' : 'Estimating nutrition…'}
           </div>
         </div>
+      )}
+
+      {phase === 'build' && (
+        <MealBuilder
+          mealId={builderMealId}
+          photoPath={builderPhotoPath}
+          init={builderInit}
+          onSaved={(m) => {
+            setNote(m)
+            resetForm()
+            setRefreshKey((k) => k + 1)
+            setTimeout(() => setNote(null), 2500)
+          }}
+          onCancel={resetForm}
+        />
       )}
 
       {phase === 'multiReview' && multiMeals && (
@@ -679,6 +744,7 @@ export default function NutritionTab() {
                   {m.meal_type ? ` · ${mealTypeLabel(m.meal_type)}` : ''}
                   {m.photo_path ? ' · 📷' : ''}
                   {m.source === 'text' ? ' · 🎙' : ''}
+                  {m.source === 'builder' ? ' · 🥣' : ''}
                 </div>
                 <div className="mt-2 text-[13px] text-ink-300">
                   {m.calories ?? '—'} kcal ·{' '}

@@ -303,42 +303,146 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     multi-meal); `npx tsc -b --noEmit && npm run build` clean. Not exercised against a
     live Claude call in this session (no API key in the dev sandbox) — the actual
     multi-day split quality needs checking against a real dictation on your phone.
+  - **Phone-verified 2026-08-05:** all three chips, both looks, multi-day grouping,
+    and the photo path all confirmed working. One real issue was flagged and put on
+    the backlog rather than fixed blind — see "Not started" below: a noticeable
+    accuracy discrepancy between the dictation path and the photo path (Immanuel's
+    words: "a big discrepancy between dictation and photo analysis"). Not yet
+    characterised — no side-by-side example captured yet, needs one before it can be
+    diagnosed (same meal, once dictated and once photographed, compared).
+
+- **Phase F-2 — ingredient database + tap-to-build meal builder** (2026-08-05, the
+  big one in the "easier meal & ingredient entry" plan). Full design at
+  `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 2";
+  summary of what actually landed:
+  - **Schema (v11 → v12):** two new tables, `foods` (canonical ingredient —
+    per-100g macros, default serving, `food_groups`, `brand`/`barcode` columns
+    already there for the later barcode phase, provenance `source`, and frozen
+    `seed_count`/`seed_slots`/`seed_last_used` from the backfill) and `meal_items`
+    (one row per ingredient in a built meal, snapshotting name/unit/prep/macros so
+    editing a food's numbers later never rewrites what a past day says was eaten).
+    `foods.name_key` deliberately has **no unique index** — `SCHEMA_SQL` replays
+    against bytes pulled from Dropbox in `replaceDb()`, and a unique constraint
+    that throws there would make one duplicate row permanently block sync in one
+    direction. Uniqueness is enforced in code instead, at `findFoodByKey()`.
+  - **`src/lib/mealBuild.ts`** (new, pure) — `BuildItem`, `gramsOf`/`itemMacros`/
+    `buildTotals` (kcal rounds to an integer, macros to 1dp, summed from the
+    already-rounded per-item values so the total always matches the rows under
+    it), `buildFoodGroups` (mass-weighted — strictly better than the existing
+    `classifyMeal()`'s equal-weight-by-ingredient-count fallback, and lands in the
+    same `meals.food_groups` column so Insights needed no changes), `buildToAnalysis`
+    (the bridge to the existing `MealAnalysis` shape — ingredient `name` stays bare
+    so `classifyIngredient`'s regexes keep matching; amount+prep go in `quantity`).
+  - **`src/db/queries.ts`** — `saveMeal`/`updateMeal` split into non-persisting
+    `insertMealRow`/`updateMealRow` + a `persist()` call, so `saveBuiltMeal`/
+    `updateBuiltMeal` can write `meals` + `meal_items` under ONE `persist()` (which
+    exports the whole DB — a per-tap write would be far too expensive on a phone).
+    `deleteMeal` and `updateMeal` now cascade to `meal_items` (sql.js runs with
+    foreign keys off). New: `findFoodByKey`/`upsertFood`/`allFoods`/`foodsByIds`/
+    `mergeFoods`/`foodUsageForSlot` (a LEFT JOIN with the slot filter in the ON
+    clause, not WHERE — filtering in WHERE would silently become an INNER JOIN and
+    drop every backfilled, zero-live-use food from the ranking).
+    **Regression-verified live** (real API key, not just seeded data): dictation
+    save, multi-meal save, edit, duplicate, and the delete cascade (via direct SQL)
+    all still work correctly after the extraction.
+  - **`src/lib/foodSeed.ts`** — one-time backfill mining `meals.ingredients` JSON
+    into macro-less `foods` rows with real usage history, gated by a `meta` flag.
+    Found and fixed a real bug during testing: React 18 StrictMode double-invokes
+    effects in dev, and the flag-check-then-write wasn't atomic, so two concurrent
+    calls both tallied and both wrote — doubling every count. Fixed with an
+    in-flight promise guard; verified fixed (11/10 counts, not 22/20) and
+    idempotent (re-mounting after the flag is set does nothing).
+  - **`src/lib/foodPatterns.ts`** — `rankFoodsForSlot`, scored multiplicatively
+    (`uses × (1 + recency) + seed × 0.5`) so ten uses six weeks ago rank below six
+    uses yesterday. Ranked once per slot selection, not on every item-list change
+    — the grid must not reshuffle mid-build.
+  - **AI triple for new ingredients** — `FOOD_TOOL` (`record_food_profiles`,
+    array-shaped so "one new ingredient" and "fill in the N the backfill left
+    macro-less" cost one request either way) in `ai/schemas.ts`,
+    `foodProfileSystemPrompt` in `ai/prompts.ts`, `describeFoods()` in
+    `ai/anthropic.ts` with clamps (kcal 0–900, per-100g macros 0–100, serving
+    1–2000; anything clamped drops to `confidence: 'low'`) since these numbers are
+    written once and trusted for months. **Verified live**: avocado, rolled oats
+    (correctly 379 kcal/100g **dry**, not the ~130 a cooked-weight mixup would give
+    — the exact threefold error the prompt warns against), chicken breast, and an
+    ad-hoc "quinoa" typed mid-build all returned accurate, sensibly-stated values.
+  - **UI** — `MealBuilder.tsx` (day → slot → ranked ingredient grid → item rows
+    with a stepper/exact-grams toggle/collapsible prep chips → sticky running
+    total → optional "Refine all with Claude" comparison → save), plus
+    `IngredientGrid`, `BuildItemRow`, `NewIngredientField` (checks `findFoodByKey`
+    before ever calling the API), and `FoodPickerSheet` (search/edit/archive/merge
+    over the full ingredient library — copies `QuickLogSheet`'s bottom-sheet
+    wrapper). Wired into `NutritionTab` as a third, now-primary chooser button
+    ("Build from ingredients"); `Edit`/`Duplicate` on a built meal route into the
+    builder instead of the plain review form when `mealItems(id).length > 0`.
+  - **Verified live end-to-end** (real API key, both themes, mobile width): built
+    a 3-ingredient dinner from the ranked grid (tap-to-add, tap-again-increments,
+    "Fill in the missing" batch lookup, prep tag, save) — totals matched the sum
+    of the rows every time; edited it back open with items correctly pre-filled;
+    changed a serving and prep tag and saved — confirmed same meal ID (an update,
+    not a duplicate) with fresh `meal_items` rows; typed a brand-new ingredient
+    mid-build; opened the picker sheet and edited a food's macros in place;
+    Settings → Data panel's `foods`/`meal_items` counts matched; Insights charts
+    (which now read the mass-weighted `food_groups` from a couple of these test
+    meals) rendered with no console errors, both themes, mobile width.
+  - **Not yet exercised**: `FoodPickerSheet`'s merge-on-rename-collision path
+    (code follows the same confirm-then-merge pattern as the rest of the app, but
+    wasn't hit in this session's testing) and the barcode/brand columns (unused
+    until F-4).
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for Phase F-1. Open
+_Replaced each iteration — this is the list for Phase F-2. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build._
+service worker picks up the new build. **After this update, your local database
+gets a one-time, automatic, harmless upgrade** (two new tables) — nothing existing
+changes or disappears._
 
-**Multi-day meal dictation, on the Meals tab.**
-1. Open **Meals → Dictate a meal**. You should see three pill buttons at the top:
-   **One meal**, **Several meals**, **Several days** (replacing the old checkbox).
-   "One meal" is selected by default and the screen looks exactly as before.
-2. Tap **Several days**. The date field's label changes to **"Most recent day
-   described"**, and the text box placeholder shows a two-day example. Type or
-   dictate something like: *"Yesterday I had oatmeal for breakfast and a chicken
-   salad for lunch. The day before, dinner was pasta with meatballs and I skipped
-   lunch."* Tap **Split into meals**.
-3. **Expected:** the review list shows the meals grouped under date headers (e.g.
-   "Aug 4" and "Aug 3"), each header showing which date it is relative to what you
-   picked. Each meal's own date/time/meal-type should look sensible for what you
-   said (dinner ≈ 19:00, breakfast ≈ 08:00, etc.) — the dates should NOT all be
-   bunched onto today or onto the single date you picked.
-4. Adjust anything wrong inline (each row has its own date/time/meal-type
-   editable), then **Save N meals**, and confirm they land on the right days in
-   **Recent meals** / **Home**.
-5. Also try **Several meals** (single day, several meals — e.g. "Breakfast was
-   toast. Lunch was a salad. Dinner was chicken and rice.") — this should behave
-   like the old checkbox: all meals land on the one date you picked, no date
-   grouping shown (grouping only appears once more than one date is present).
-6. **Photo path (accuracy)**: photograph an actual meal and check the returned
-   `meal_type` (shown as a chip in the review screen) makes sense for the actual
-   time of day you're logging it — this is the "Claude now knows the date/time"
-   fix, worth a sanity check even though the UI hasn't visibly changed there.
-7. **Both looks** — Settings → Appearance → Dark and back, on both the chip picker
-   and the grouped review list.
+**Tap-to-build meal builder, on the Meals tab.**
+1. Open **Meals**. The orange primary button is now **"Build from ingredients"**
+   (Photograph/Dictate are still there, just demoted below it).
+2. Tap it. You'll see: a day strip (today selected), four meal-slot chips
+   (defaulting to whichever makes sense for the current time), and a grid of
+   ingredient buttons under **"Your usual for this meal"**.
+   - **First time only**, that grid is mining your existing meal history in the
+     background — it may show nothing or only a few items the very first time you
+     open it after this update; it should be populated on the second open.
+   - Any grid button with a small amber dot hasn't got real macro numbers yet
+     (nobody's looked it up) — tapping it still works, it just shows "no numbers"
+     until filled in.
+3. **Tap an ingredient** — it's added below with a default amount (e.g. "1
+   avocado"). **Tap the same button again** — the count on the grid button goes up
+   and the row's amount increases by a whole serving.
+4. On an added ingredient's row: use **− / +** to adjust in half-servings up to 2,
+   then whole servings after that; tap **Use grams** to switch to an exact-grams
+   number field instead; tap a **prep** word (raw/steamed/boiled/fried/baked/
+   grilled) to tag how you made it — this is recorded only, it doesn't change the
+   numbers.
+5. If you added anything with the amber "no numbers" flag, a button appears:
+   **"Fill in the N missing (1 Claude call)"** — tap it, wait a couple seconds,
+   and every flagged ingredient should get real per-100g values in one request
+   (check the running total at the bottom updates from "412 kcal + 2 unknown" to
+   a real number).
+6. Type something **not** in the grid into the **"Type an ingredient…"** box and
+   tap **+ Add** — this calls Claude once to look it up and adds it with real
+   numbers already filled in.
+7. Check the **sticky total** at the bottom matches what the rows above it add up
+   to. Set a **time**, optionally edit the **dish name** (auto-suggested from your
+   top ingredients), and **Save meal**.
+8. In **Recent meals**, the new entry should show a 🥣 icon (vs 📷 for photo, 🎙
+   for dictation) and the same numbers you saw while building.
+9. Tap **Edit** on that meal — it should reopen the builder with your exact
+   ingredients, amounts, and prep tags still there (not the plain macro-fields
+   review screen). Change something and save — confirm it's the same meal
+   (doesn't duplicate) with the new numbers.
+10. Tap **More…** on the ingredient grid to open the full ingredient list —
+    search for something, tap **Edit** on a row, change a number, **Save**, and
+    confirm it sticks.
+11. **Both looks** — Settings → Appearance → Dark and back, mid-build if you can
+    (the sticky total bar and the grid especially).
 
 Nothing else on the Meals tab should have changed — goal progress, Quick add,
-Photograph a meal, Edit/Duplicate/Delete on Recent meals, all exactly as before.
+Photograph a meal, Dictate a meal (including last iteration's multi-day chips),
+Edit/Duplicate/Delete on a photo/dictated meal, all exactly as before.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
@@ -362,20 +466,29 @@ Photograph a meal, Edit/Duplicate/Delete on Recent meals, all exactly as before.
 - **Phase F — easier meal & ingredient entry** (plan approved 2026-08-05, full detail at
   `~/.claude/plans/lets-add-some-adaptations-clever-blum.md`):
   - ~~F-1: multi-day dictation + photo/text date-time accuracy fixes~~ ✅ (above).
-  - **F-2 (next, queued): ingredient database + tap-to-build meal builder.** New
-    `foods`/`meal_items` tables, macros computed locally from stored per-100g values
-    (Claude called once per brand-new ingredient, never per meal), a one-time backfill
-    that mines existing `meals.ingredients` JSON so the "most used" grid isn't empty
-    on day one, most-used-per-meal-slot suggestions, and a tap-to-build `MealBuilder`
-    UI (day → slot → tap ingredients → grams/prep → save). This is the big one — it
-    also refactors `saveMeal`/`updateMeal` underneath every existing meal write path,
-    so it needs a full regression pass (photo, dictation, edit, duplicate, delete,
-    quick-add) before it ships. See the plan file for the complete schema, query, and
-    component design.
-  - F-3: multi-meal build session (breakfast → lunch → dinner without leaving the
-    builder). Deliberately deferred until F-2 is proven on a phone.
+  - ~~F-2: ingredient database + tap-to-build meal builder~~ ✅ (above) — built and
+    verified live in this session; **not yet phone-verified**, see "Check on your
+    phone" above.
+  - **F-3 (queued next, after F-2 is phone-verified): multi-meal build session**
+    (breakfast → lunch → dinner without leaving the builder, then one combined
+    review). Schema already supports it — `meals` rows are independent — so this is
+    purely `MealBuilder` state: a "Save & start the next meal" button that keeps
+    the date and advances the slot. Deliberately deferred until single-meal
+    building is proven on a phone.
   - F-4: barcode scanner + Open Food Facts lookup for packaged food. New camera-stream
     dependency (first `getUserMedia` in the app) + a third-party network call.
+    `foods.barcode`/`foods.brand` already exist from F-2, so this is a write path
+    plus one component, not another schema change.
+- **Backlog (flagged 2026-08-05, not yet scoped):** dictation-path and photo-path
+  macro estimates disagree noticeably for what should be comparable meals. Both call
+  the same `mealSystemPrompt()` / `MEAL_TOOL`, so the divergence is presumably about
+  what each input modality actually conveys (a photo shows portion size directly; a
+  dictated description relies on the user stating quantities, which may be vaguer
+  than intended) rather than a prompt bug. Needs a real side-by-side example
+  (same meal, once dictated, once photographed) before it can be diagnosed — ask
+  Immanuel for one, or capture one during F-2/F-3 testing. Note this may partly
+  resolve itself once the F-2 builder exists, since it lets him log common meals
+  precisely by grams without depending on either estimation path.
 
 ## How these sessions run
 One feature per iteration: build it → verify in-browser → typecheck + build → **commit
@@ -384,27 +497,26 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for Phase F-1** (multi-day dictation + photo/text
-date-time fixes — checklist above). Once that comes back and anything broken is fixed:
+**Waiting on Immanuel's phone report for Phase F-2** (tap-to-build meal builder —
+checklist above). It's built, typechecked, and verified live in the Browser pane
+against the real Anthropic API (not just seeded data), but never on a real touchscreen
+against organically-entered data — that's the one gap only his phone can close, same
+pattern as every prior phase.
 
-1. **Start Phase F-2 — ingredient database + tap-to-build meal builder.** This is the
-   queued next feature; full design (schema, back-compat, seeding, ranking, UI
-   components, AI tool, risks) is written up in
-   `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 2" —
-   read it before starting rather than re-deriving the design. Build in the sequencing
-   order the plan lays out (schema/types → pure `mealBuild.ts` → query-layer
-   refactor+regression-check → seeding → ranking → AI triple → UI), since the query
-   refactor touches every existing meal write path and needs to be verified solid
-   before the UI is built on top of it.
-2. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
+Once that comes back and anything broken is fixed:
+1. **Start Phase F-3** — multi-meal build session. Small relative to F-2; see the
+   "Not started" entry above for the shape.
+2. Investigate the dictation-vs-photo accuracy backlog item, now that the builder
+   gives a third, non-AI-estimated way to log common meals for comparison.
+3. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
    not scheduled):
    - A supplement's label photo is stored but never read — wire a vision call
      (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
    - Adding a supplement doesn't create an `events` row, so it draws no reference
      line on Insights charts.
-3. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
+4. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
    log sliders, day-strip swipe, time-of-day segments, sleep, single events) — lower
-   priority than F-2 unless Immanuel specifically asks for it.
+   priority than F-3/F-4 unless Immanuel specifically asks for it.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

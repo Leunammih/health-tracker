@@ -1,9 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { DiaryExtraction, MealAnalysis, MultiMealItem } from '../types'
+import type { DiaryExtraction, MealAnalysis, MultiMealItem, FoodProfile } from '../types'
 import { loadSettings } from '../lib/storage'
-import { DIARY_TOOL, MEAL_TOOL, MULTI_MEAL_TOOL, INTERPRET_TOOL } from './schemas'
+import { DIARY_TOOL, MEAL_TOOL, MULTI_MEAL_TOOL, INTERPRET_TOOL, FOOD_TOOL } from './schemas'
 import {
   diarySystemPrompt, refineSystemPrompt, mealSystemPrompt, multiMealSystemPrompt, interpretSystemPrompt,
+  foodProfileSystemPrompt,
 } from './prompts'
 
 function client(): Anthropic {
@@ -170,6 +171,71 @@ function normaliseMeal(input: ToolInput): MealAnalysis {
     clarifying_questions: (input.clarifying_questions as string[]) ?? [],
     meal_type: input.meal_type as MealAnalysis['meal_type'],
     food_groups: input.food_groups as MealAnalysis['food_groups'],
+  }
+}
+
+// ---- Food profile lookup (tap-to-build meal builder) ----
+//
+// Unlike every other function here, this is called once per NEW ingredient and
+// the result is stored forever, not re-estimated per meal — see FOOD_TOOL's
+// comment in schemas.ts. `names` is array-shaped so "one new ingredient" and
+// "fill in the N the backfill left macro-less" cost exactly one request either way.
+
+export async function describeFoods(names: string[], context?: string): Promise<FoodProfile[]> {
+  if (!names.length) return []
+  const res = await client().messages.create({
+    model: model(),
+    max_tokens: Math.min(4096, 320 + 220 * names.length),
+    system: foodProfileSystemPrompt(context),
+    tools: [FOOD_TOOL as unknown as Anthropic.Messages.Tool],
+    tool_choice: { type: 'tool', name: FOOD_TOOL.name },
+    messages: [{ role: 'user', content: names.map((n, i) => `${i + 1}. ${n}`).join('\n') }],
+  })
+  const input = firstToolInput(res.content, FOOD_TOOL.name)
+  const foods = (input.foods as ToolInput[]) ?? []
+  return foods.map(normaliseFoodProfile)
+}
+
+const FOOD_STATES = new Set(['raw', 'cooked', 'dry', 'as_sold'])
+
+// These numbers are written once and trusted for months, so unlike normaliseMeal
+// (a fresh estimate every time, self-correcting on the next call) a hallucinated
+// outlier here needs to be caught rather than just coerced. Anything clamped drops
+// confidence to 'low' so the picker sheet visibly flags it for a manual look.
+function clamp(value: unknown, lo: number, hi: number, flag: { clamped: boolean }): number {
+  const n = Number(value ?? 0)
+  const safe = Number.isFinite(n) ? n : 0
+  if (safe < lo || safe > hi) flag.clamped = true
+  return Math.min(hi, Math.max(lo, safe))
+}
+
+function normaliseFoodProfile(input: ToolInput): FoodProfile {
+  const flag = { clamped: false }
+  const kcal_100g = clamp(input.kcal_100g, 0, 900, flag) // pure fat tops out ~884
+  const protein_100g = clamp(input.protein_100g, 0, 100, flag)
+  const fat_100g = clamp(input.fat_100g, 0, 100, flag)
+  const carbs_100g = clamp(input.carbs_100g, 0, 100, flag)
+  const fiber_100g = clamp(input.fiber_100g, 0, 100, flag)
+  const serving_g = clamp(input.serving_g, 1, 2000, flag)
+  const state = FOOD_STATES.has(input.state as string) ? (input.state as FoodProfile['state']) : 'as_sold'
+  const rawConfidence = (input.confidence as FoodProfile['confidence']) ?? 'medium'
+  return {
+    query: (input.query as string) || (input.name as string) || '',
+    name: (input.name as string) || 'Ingredient',
+    brand: (input.brand as string) || undefined,
+    state,
+    kcal_100g,
+    protein_100g,
+    fat_100g,
+    carbs_100g,
+    fiber_100g,
+    serving_g,
+    serving_label: (input.serving_label as string) || '1 serving',
+    food_groups: (input.food_groups as FoodProfile['food_groups']) ?? {
+      vegan: 1, dairy_eggs: 0, meat_beef: 0, meat_chicken: 0, meat_fish: 0, meat_other: 0,
+    },
+    confidence: flag.clamped ? 'low' : rawConfidence,
+    note: (input.note as string) || undefined,
   }
 }
 

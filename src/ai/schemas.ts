@@ -236,6 +236,71 @@ export const MULTI_MEAL_TOOL = {
   },
 } as const
 
+// Same shape as `foodGroups` above, described for a single ingredient rather than
+// a whole meal. Kept as its own constant rather than reusing `foodGroups` — that
+// one's wording is tuned for MEAL_TOOL/MULTI_MEAL_TOOL, which are shipped and
+// live; a single ingredient is described differently ("almost always 1 in exactly
+// one bucket") and the two should be free to diverge.
+const foodGroupsForFood = {
+  type: 'object',
+  description:
+    'What fraction of THIS ONE food comes from each source. Should sum to roughly 1, and for a single ingredient is almost always 1 in exactly one bucket (an egg is dairy_eggs: 1; olive oil, oats and lentils are vegan: 1). Split only for a genuinely mixed food like a filled pastry.',
+  properties: {
+    vegan: { type: 'number', description: '0-1' },
+    dairy_eggs: { type: 'number', description: '0-1' },
+    meat_beef: { type: 'number', description: '0-1' },
+    meat_chicken: { type: 'number', description: '0-1' },
+    meat_fish: { type: 'number', description: '0-1, includes other seafood' },
+    meat_other: { type: 'number', description: '0-1, pork/lamb/duck/etc.' },
+  },
+  required: ['vegan', 'dairy_eggs', 'meat_beef', 'meat_chicken', 'meat_fish', 'meat_other'],
+}
+
+// Used once per brand-new ingredient in the tap-to-build meal builder (lib/
+// mealBuild.ts, ai/anthropic.ts's describeFoods) — the result is stored in the
+// `foods` table and reused forever after, unlike MEAL_TOOL/MULTI_MEAL_TOOL which
+// are called on every single meal. Array-shaped so "one new ingredient" and
+// "fill in the N the backfill left macro-less" are the same call.
+export const FOOD_TOOL = {
+  name: 'record_food_profiles',
+  description:
+    'Give the per-100g nutrition profile and a sensible default serving for each named ingredient, so the app can compute meal macros locally from grams without calling you again.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      foods: {
+        type: 'array',
+        description: 'One entry per name requested, in the same order. Never omit or merge entries, even if two names are near-duplicates.',
+        items: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'The name exactly as given, echoed back verbatim so the app can match this entry to its request.' },
+            name: { type: 'string', description: 'Cleaned canonical name, e.g. "rolled oats", "avocado", "chicken breast". Lowercase unless a brand or proper noun. Singular.' },
+            brand: { type: 'string', description: 'Brand, only if one was named. Omit for generic foods.' },
+            state: {
+              type: 'string',
+              enum: ['raw', 'cooked', 'dry', 'as_sold'],
+              description: 'Which state the per-100g numbers below refer to — the state a person would actually put on a scale. Rice and pasta "dry" unless told otherwise; meat and fish "raw"; vegetables and fruit "raw"; bread, oil, yoghurt "as_sold".',
+            },
+            kcal_100g: { type: 'number', description: 'Calories per 100g in that state.' },
+            protein_100g: { type: 'number', description: 'Grams of protein per 100g.' },
+            fat_100g: { type: 'number', description: 'Grams of total fat per 100g.' },
+            carbs_100g: { type: 'number', description: 'Grams of total carbohydrate per 100g, INCLUDING fibre.' },
+            fiber_100g: { type: 'number', description: 'Grams of dietary fibre per 100g.' },
+            serving_g: { type: 'number', description: 'Grams in ONE natural serving — what a person means by "one" of the thing, or one sensible portion for foods with no natural unit. A whole avocado ~140, one egg ~55, one slice of bread ~35, one tablespoon of olive oil ~14, a portion of rolled oats ~50, a portion of dry rice ~75.' },
+            serving_label: { type: 'string', description: 'How that single serving reads in the UI: "1 avocado", "1 egg", "1 slice", "1 tbsp", "1 portion". Singular, leading "1" only, no macro values.' },
+            food_groups: foodGroupsForFood,
+            confidence: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How well-established these reference values are. A generic whole food is "high"; an unbranded composite dish is "low".' },
+            note: { type: 'string', description: 'One short line ONLY if something is genuinely ambiguous, e.g. "assumed dry weight". Omit otherwise.' },
+          },
+          required: ['query', 'name', 'state', 'kcal_100g', 'protein_100g', 'fat_100g', 'carbs_100g', 'fiber_100g', 'serving_g', 'serving_label', 'food_groups', 'confidence'],
+        },
+      },
+    },
+    required: ['foods'],
+  },
+} as const
+
 export const INTERPRET_TOOL = {
   name: 'record_interpretation',
   description: 'Record observed patterns and correlations across the health data.',

@@ -48,6 +48,21 @@ Estimate macros for each meal independently the same way you would for a single 
 Also set each meal's food_groups: the fraction of that meal (by mass/calories) from vegan sources vs dairy/eggs vs meat (split by animal).`
 }
 
+export function foodProfileSystemPrompt(context?: string): string {
+  return `You are a nutrition reference lookup. The user's app computes meal macros LOCALLY by multiplying per-100g values by grams, so you are called once per new ingredient and then never again for it — these numbers get stored and reused for months. Accuracy per 100g matters more than anything else here.
+Call record_food_profiles with exactly one entry per name you were given, in the same order, echoing each name back in "query" so the app can match them up. Never drop, merge, or invent entries.
+Give standard reference values for a generic version of the food (USDA/CIQUAL-style), not a specific brand, unless a brand was explicitly named.
+Give a single number per field, never a range and never a hedge. If a name is vague ("salad", "smoothie"), give the most common interpretation, set confidence "low", and say what you assumed in "note" — do not ask a question, there is no follow-up loop here.
+Pick "state" as the state a person would actually weigh, and make the per-100g numbers match that state: dry pasta and dry rice are roughly 350 kcal/100g, cooked are roughly 130 — getting this wrong is a threefold error that will silently distort every future meal built from this food.
+carbs_100g is TOTAL carbohydrate and includes fibre.
+serving_g is one natural serving — what a person means by "one" of the thing, or one sensible portion for something with no natural unit. serving_label names that unit in the singular.
+food_groups describes this one ingredient, not a meal: for a single food it is almost always 1.0 in exactly one bucket.${
+    context
+      ? `\n\nContext from the meal being built (use it only to disambiguate a name — still report per 100g, and do NOT adjust the numbers for any cooking method mentioned): ${context}`
+      : ''
+  }`
+}
+
 export function interpretSystemPrompt(): string {
   return `You are the interpretation engine of a personal health-tracking app. Today is ${todayISO()}.
 You receive structured JSON of the user's recent health data. Find genuine patterns and correlations and call record_interpretation.
