@@ -268,34 +268,77 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     date/current time/carried-over macros and meal_type, the card then disappears
     (already-logged-today), and today's totals update immediately.
 
+## Done ✅ (cont.)
+
+- **Phase F-1 — multi-day meal dictation + photo/text date-time accuracy fixes**
+  (2026-08-05, part of the larger "easier meal & ingredient entry" plan — full plan at
+  `~/.claude/plans/lets-add-some-adaptations-clever-blum.md`, iterations 2–4 still to
+  come):
+  - The Meals-tab dictation card's "this is more than one meal" checkbox is now three
+    chips: **One meal / Several meals / Several days**. The first two behave exactly
+    as before; "Several days" passes a new `multiDay` flag into `analyseMealsText` →
+    `multiMealSystemPrompt`, which gained an `IMPORTANT — MULTI-DAY` block (modelled on
+    the one `diarySystemPrompt` already had) telling Claude not to collapse everything
+    onto the reference date — give every meal its own date, resolve "yesterday"/"on
+    Saturday" against the reference date, and treat a run of meals with no day word as
+    staying on the same day as the meal before it. `max_tokens` bumps to 4096 for
+    multi-day (same reasoning as the existing diary multi-day bump).
+  - The multi-meal review list (`multiReview` phase) now groups rows under a date
+    header when more than one date is present, and flags any date that doesn't match
+    the one you picked ("not Aug 5"). Editing a row's own date still moves it between
+    groups on the next render — grouping is computed from the flat array, not a
+    separate data structure, so nothing about save/remove changed.
+  - Real bug fix: `mealSystemPrompt()` told Claude to infer `meal_type` from "the
+    current time of day" without ever telling it what day or time it was — the model
+    had no clock. It now takes `(entryDate, nowTime)` and states both explicitly. The
+    photo capture path (`onPick`) also silently dropped the chosen date before —  it's
+    now passed through, along with the current time whenever you're logging for today
+    (not passed at all when backfilling a past day, since "right now" isn't a
+    meaningful clock signal for a meal from another day).
+  - The review-form date field was the one of three Meals date inputs missing
+    `max={today}` — added, matching the other two.
+  - Verified in-browser in both themes and at mobile width: all three dictation-mode
+    chips switch correctly with the right label/placeholder/helper text for each
+    ("Most recent day described" for multi-day, "all on {date}" helper for
+    multi-meal); `npx tsc -b --noEmit && npm run build` clean. Not exercised against a
+    live Claude call in this session (no API key in the dev sandbox) — the actual
+    multi-day split quality needs checking against a real dictation on your phone.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for Phase E, the last planned phase. Open
+_Replaced each iteration — this is the list for Phase F-1. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
 service worker picks up the new build._
 
-**"Quick add" on the Meals tab.** After a few repeats of the same dish around the same
-time of day, a one-tap re-add appears — no photo, no dictation, no review screen.
-1. Open **Meals** around a time of day you eat something repeatedly (e.g. the same
-   breakfast most mornings) — after you've logged it **2+ times** in roughly that
-   slot, a **"Quick add"** card appears above "Photograph a meal", showing the dish
-   name, its kcal, and "logged N× recently".
-2. **Tap it** → saves immediately with today's date and right-now's time (check
-   "Recent meals" — the new entry should carry over the same calories/macros/meal
-   type as before). The button briefly shows **"Added ✓"**, then the card either
-   shows your next most common dish or disappears if that was the only pattern.
-3. **It shouldn't nag** — if you tap Meals again right after adding one, that same
-   suggestion should be gone (you just logged it for today); a *different* frequent
-   dish for the same time slot can still appear if you have one.
-4. **Nothing to see yet is expected** if you don't have 2+ repeats of the same meal
-   around the same time in your real history — the card simply doesn't appear, same
-   as "Recent meals" before you've logged anything.
-5. **Both looks** — Settings → Appearance → Dark and back.
+**Multi-day meal dictation, on the Meals tab.**
+1. Open **Meals → Dictate a meal**. You should see three pill buttons at the top:
+   **One meal**, **Several meals**, **Several days** (replacing the old checkbox).
+   "One meal" is selected by default and the screen looks exactly as before.
+2. Tap **Several days**. The date field's label changes to **"Most recent day
+   described"**, and the text box placeholder shows a two-day example. Type or
+   dictate something like: *"Yesterday I had oatmeal for breakfast and a chicken
+   salad for lunch. The day before, dinner was pasta with meatballs and I skipped
+   lunch."* Tap **Split into meals**.
+3. **Expected:** the review list shows the meals grouped under date headers (e.g.
+   "Aug 4" and "Aug 3"), each header showing which date it is relative to what you
+   picked. Each meal's own date/time/meal-type should look sensible for what you
+   said (dinner ≈ 19:00, breakfast ≈ 08:00, etc.) — the dates should NOT all be
+   bunched onto today or onto the single date you picked.
+4. Adjust anything wrong inline (each row has its own date/time/meal-type
+   editable), then **Save N meals**, and confirm they land on the right days in
+   **Recent meals** / **Home**.
+5. Also try **Several meals** (single day, several meals — e.g. "Breakfast was
+   toast. Lunch was a salad. Dinner was chicken and rice.") — this should behave
+   like the old checkbox: all meals land on the one date you picked, no date
+   grouping shown (grouping only appears once more than one date is present).
+6. **Photo path (accuracy)**: photograph an actual meal and check the returned
+   `meal_type` (shown as a chip in the review screen) makes sense for the actual
+   time of day you're logging it — this is the "Claude now knows the date/time"
+   fix, worth a sanity check even though the UI hasn't visibly changed there.
+7. **Both looks** — Settings → Appearance → Dark and back, on both the chip picker
+   and the grouped review list.
 
-Nothing else on the Meals tab should have changed — goal progress bars, photograph/
-dictate, Edit/Duplicate/Delete on Recent meals, all exactly as before.
-
-Still outstanding from earlier rounds (fold in if you have the patience): the whole
-Phase D/D-2 overhaul has never been touched on a real phone — see the next section.
+Nothing else on the Meals tab should have changed — goal progress, Quick add,
+Photograph a meal, Edit/Duplicate/Delete on Recent meals, all exactly as before.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
@@ -315,7 +358,24 @@ Phase D/D-2 overhaul has never been touched on a real phone — see the next sec
 ## Not started — for new sessions
 - **Phase C:** ~~(1) bulk/range entry~~ ✅; ~~(2) calorie/protein goals~~ ✅;
   ~~(3) supplements~~ ✅ — Phase C is complete.
-- **Phase E:** ~~eating-pattern quick-adds by time of day~~ ✅ — all planned phases (A–E) are now done.
+- **Phase E:** ~~eating-pattern quick-adds by time of day~~ ✅ — all planned phases (A–E) are done.
+- **Phase F — easier meal & ingredient entry** (plan approved 2026-08-05, full detail at
+  `~/.claude/plans/lets-add-some-adaptations-clever-blum.md`):
+  - ~~F-1: multi-day dictation + photo/text date-time accuracy fixes~~ ✅ (above).
+  - **F-2 (next, queued): ingredient database + tap-to-build meal builder.** New
+    `foods`/`meal_items` tables, macros computed locally from stored per-100g values
+    (Claude called once per brand-new ingredient, never per meal), a one-time backfill
+    that mines existing `meals.ingredients` JSON so the "most used" grid isn't empty
+    on day one, most-used-per-meal-slot suggestions, and a tap-to-build `MealBuilder`
+    UI (day → slot → tap ingredients → grams/prep → save). This is the big one — it
+    also refactors `saveMeal`/`updateMeal` underneath every existing meal write path,
+    so it needs a full regression pass (photo, dictation, edit, duplicate, delete,
+    quick-add) before it ships. See the plan file for the complete schema, query, and
+    component design.
+  - F-3: multi-meal build session (breakfast → lunch → dinner without leaving the
+    builder). Deliberately deferred until F-2 is proven on a phone.
+  - F-4: barcode scanner + Open Food Facts lookup for packaged food. New camera-stream
+    dependency (first `getUserMedia` in the app) + a third-party network call.
 
 ## How these sessions run
 One feature per iteration: build it → verify in-browser → typecheck + build → **commit
@@ -324,32 +384,27 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**All planned phases (A through E) are code-complete and pushed.** There is no queued
-next feature — the roadmap in this file's "Not started" section is now empty. Two
-things remain, neither of them new scope:
+**Waiting on Immanuel's phone report for Phase F-1** (multi-day dictation + photo/text
+date-time fixes — checklist above). Once that comes back and anything broken is fixed:
 
-1. **Phone verification backlog** — the biggest unverified surface is the whole
-   Phase D/D-2 overhaul (plateau charts, tap-to-log sliders, day-strip swipe,
-   multi-day/multi-meal toggles, time-of-day segments, sleep, single events, the
-   Home tab, macro/food-group bars) plus Phase E's quick-adds: all built and verified
-   against seeded data in the Browser pane, none of it exercised yet against a real
-   Claude call + real touchscreen over real, organically-entered data. See "Try Phase
-   D + D-2 on a phone" above. **If Immanuel wants a next iteration with no new
-   feature in mind, this is it** — pick one unverified area, use the app for real for
-   a few days, report back what feels off.
-2. **Two follow-ups noticed while building Phase C-3, not yet done** (small, optional,
-   not blocking anything):
-   - A supplement's label photo is stored but never read. If typing the composition
-     is annoying in practice, wire a vision call (mirror `analyseMeal` in
-     `ai/anthropic.ts` + a tool in `ai/schemas.ts`) to fill it in from the photo.
-   - Adding a supplement does not create an `events` row, so it draws no reference
-     line on the Insights charts. If correlating "started magnesium" against
-     energy/sleep is the actual goal, that link should be automatic rather than a
-     second manual step.
-
-A fresh session with no other instruction should default to (1): ask Immanuel which
-unverified area he wants exercised for real, or just start using the app itself and
-narrate friction as it's found, rather than inventing new features.
+1. **Start Phase F-2 — ingredient database + tap-to-build meal builder.** This is the
+   queued next feature; full design (schema, back-compat, seeding, ranking, UI
+   components, AI tool, risks) is written up in
+   `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 2" —
+   read it before starting rather than re-deriving the design. Build in the sequencing
+   order the plan lays out (schema/types → pure `mealBuild.ts` → query-layer
+   refactor+regression-check → seeding → ranking → AI triple → UI), since the query
+   refactor touches every existing meal write path and needs to be verified solid
+   before the UI is built on top of it.
+2. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
+   not scheduled):
+   - A supplement's label photo is stored but never read — wire a vision call
+     (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
+   - Adding a supplement doesn't create an `events` row, so it draws no reference
+     line on Insights charts.
+3. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
+   log sliders, day-strip swipe, time-of-day segments, sleep, single events) — lower
+   priority than F-2 unless Immanuel specifically asks for it.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
