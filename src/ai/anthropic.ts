@@ -90,6 +90,8 @@ export async function analyseMeal(
   base64: string,
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp',
   hint?: string,
+  entryDate?: string,
+  entryTime?: string,
 ): Promise<MealAnalysis> {
   const content: Array<Anthropic.Messages.ImageBlockParam | Anthropic.Messages.TextBlockParam> = [
     { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
@@ -99,7 +101,7 @@ export async function analyseMeal(
   const res = await client().messages.create({
     model: model(),
     max_tokens: 1536,
-    system: mealSystemPrompt(),
+    system: mealSystemPrompt(entryDate, entryTime),
     tools: [MEAL_TOOL as unknown as Anthropic.Messages.Tool],
     tool_choice: { type: 'tool', name: MEAL_TOOL.name },
     messages: [{ role: 'user', content }],
@@ -109,11 +111,11 @@ export async function analyseMeal(
 
 // ---- Meal text (dictated) analysis ----
 
-export async function analyseMealText(text: string): Promise<MealAnalysis> {
+export async function analyseMealText(text: string, entryDate?: string, entryTime?: string): Promise<MealAnalysis> {
   const res = await client().messages.create({
     model: model(),
     max_tokens: 1536,
-    system: mealSystemPrompt(),
+    system: mealSystemPrompt(entryDate, entryTime),
     tools: [MEAL_TOOL as unknown as Anthropic.Messages.Tool],
     tool_choice: { type: 'tool', name: MEAL_TOOL.name },
     messages: [{ role: 'user', content: text }],
@@ -123,11 +125,16 @@ export async function analyseMealText(text: string): Promise<MealAnalysis> {
 
 // ---- Multi-meal text (dictated) analysis ----
 
-export async function analyseMealsText(text: string, referenceDate: string): Promise<MultiMealItem[]> {
+export async function analyseMealsText(
+  text: string,
+  referenceDate: string,
+  multiDay = false,
+): Promise<MultiMealItem[]> {
   const res = await client().messages.create({
     model: model(),
-    max_tokens: 3072,
-    system: multiMealSystemPrompt(referenceDate),
+    // A multi-day entry fans out into many more records, so give it more room.
+    max_tokens: multiDay ? 4096 : 3072,
+    system: multiMealSystemPrompt(referenceDate, multiDay),
     tools: [MULTI_MEAL_TOOL as unknown as Anthropic.Messages.Tool],
     tool_choice: { type: 'tool', name: MULTI_MEAL_TOOL.name },
     messages: [{ role: 'user', content: text }],

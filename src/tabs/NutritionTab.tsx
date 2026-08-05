@@ -14,6 +14,11 @@ import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '..
 
 type Phase = 'input' | 'analysing' | 'review' | 'multiReview'
 type CaptureMode = 'choose' | 'text'
+// 'single' -> analyseMealText (one MealAnalysis). 'multiMeal'/'multiDay' both go through
+// analyseMealsText (record_meals); the only difference is whether the multi-day prompt
+// block is included, which controls whether Claude is willing to spread meals across
+// more than one date instead of collapsing everything onto the reference date.
+type DictateMode = 'single' | 'multiMeal' | 'multiDay'
 
 const MEAL_TYPES: { value: MealType; label: string }[] = [
   { value: 'breakfast', label: 'Breakfast' },
@@ -40,7 +45,7 @@ export default function NutritionTab() {
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-  const [isMultiMeal, setIsMultiMeal] = useState(false)
+  const [dictateMode, setDictateMode] = useState<DictateMode>('single')
   const [multiMeals, setMultiMeals] = useState<MultiMealItem[] | null>(null)
   const [savingMulti, setSavingMulti] = useState(false)
 
@@ -59,13 +64,35 @@ export default function NutritionTab() {
     return { goals: loadGoals(), totals: totalsFor(todayMeals), mealCount: todayMeals.length, label: fmtDate(t) }
   }, [refreshKey, phase])
 
+  // Group the flat multiMeals array by date for display, without changing how it's
+  // indexed — updateMultiMeal/removeMultiMeal still address the original array, so a
+  // per-row date edit just moves that row to a different group on the next render.
+  const multiMealGroups = useMemo(() => {
+    if (!multiMeals) return []
+    const groups = new Map<string, number[]>()
+    multiMeals.forEach((m, i) => {
+      const key = m.date || date
+      const bucket = groups.get(key)
+      if (bucket) bucket.push(i)
+      else groups.set(key, [i])
+    })
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [multiMeals, date])
+
+  // "Now" is only a meaningful clock signal for meal_type inference if we're actually
+  // logging for today — for a backfilled past day it would mislead the model into
+  // thinking a lunch dictated at 9pm was dinner.
+  function contextTime(): string | undefined {
+    return date === todayISO() ? nowTime() : undefined
+  }
+
   async function onPick(file: File) {
     setError(null)
     try {
       const prepared = await prepareImage(file)
       setImage(prepared)
       setPhase('analysing')
-      const res = await analyseMeal(prepared.base64, prepared.mediaType)
+      const res = await analyseMeal(prepared.base64, prepared.mediaType, undefined, date, contextTime())
       setAnalysis(res)
       setIngredientsDirty(false)
       setPhase('review')
@@ -80,12 +107,12 @@ export default function NutritionTab() {
     setError(null)
     setPhase('analysing')
     try {
-      if (isMultiMeal) {
-        const meals = await analyseMealsText(describeText.trim(), date)
+      if (dictateMode !== 'single') {
+        const meals = await analyseMealsText(describeText.trim(), date, dictateMode === 'multiDay')
         setMultiMeals(meals)
         setPhase('multiReview')
       } else {
-        const res = await analyseMealText(describeText.trim())
+        const res = await analyseMealText(describeText.trim(), date, contextTime())
         setAnalysis(res)
         setIngredientsDirty(false)
         setPhase('review')
@@ -164,8 +191,8 @@ export default function NutritionTab() {
       if (answer.trim()) parts.push(answer.trim())
       const hint = parts.join('. ')
       const res = image
-        ? await analyseMeal(image.base64, image.mediaType, hint)
-        : await analyseMealText([describeText.trim(), hint].filter(Boolean).join('. '))
+        ? await analyseMeal(image.base64, image.mediaType, hint, date, contextTime())
+        : await analyseMealText([describeText.trim(), hint].filter(Boolean).join('. '), date, contextTime())
       setAnalysis((prev) => ({ ...res, meal_type: prev?.meal_type ?? res.meal_type }))
       setAnswer('')
       setExtraItems('')
@@ -217,7 +244,7 @@ export default function NutritionTab() {
     setEntryTime(null)
     setIngredientsDirty(false)
     setDate(todayISO())
-    setIsMultiMeal(false)
+    setDictateMode('single')
     setMultiMeals(null)
   }
 
@@ -342,8 +369,19 @@ export default function NutritionTab() {
             <IconMic width={18} height={18} />
             <span className="text-sm">Dictate or type this meal</span>
           </div>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" className={dictateMode === 'single' ? 'chip-on' : 'chip'} onClick={() => setDictateMode('single')}>
+              One meal
+            </button>
+            <button type="button" className={dictateMode === 'multiMeal' ? 'chip-on' : 'chip'} onClick={() => setDictateMode('multiMeal')}>
+              Several meals
+            </button>
+            <button type="button" className={dictateMode === 'multiDay' ? 'chip-on' : 'chip'} onClick={() => setDictateMode('multiDay')}>
+              Several days
+            </button>
+          </div>
           <div>
-            <label className="label">Date</label>
+            <label className="label">{dictateMode === 'multiDay' ? 'Most recent day described' : 'Date'}</label>
             <input
               type="date"
               className="field !w-auto"
@@ -352,39 +390,39 @@ export default function NutritionTab() {
               onChange={(e) => setDate(e.target.value)}
             />
             {date !== todayISO() && (
-              <p className="mt-1 text-xs text-amber-300">Logging for {fmtDate(date)}.</p>
+              <p className="mt-1 text-xs text-amber-300">
+                {dictateMode === 'multiDay' ? `Other days resolve relative to ${fmtDate(date)}.` : `Logging for ${fmtDate(date)}.`}
+              </p>
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm text-ink-300">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded accent-brand-500"
-              checked={isMultiMeal}
-              onChange={(e) => setIsMultiMeal(e.target.checked)}
-            />
-            This is more than one meal
-          </label>
           <textarea
             className="field min-h-[7rem]"
             placeholder={
-              isMultiMeal
-                ? "E.g. 'Breakfast was oatmeal with a banana. Lunch was a chicken caesar salad. Yesterday's dinner was pasta with meatballs.'"
-                : "Tap here, then use the mic key on your keyboard. E.g. 'Bowl of oatmeal with a banana and peanut butter, about 350g total' or 'Chicken caesar salad, medium bowl, from the place downstairs'"
+              dictateMode === 'multiDay'
+                ? "E.g. 'Yesterday I had oatmeal for breakfast and a chicken salad for lunch. The day before, dinner was pasta with meatballs and I skipped lunch.'"
+                : dictateMode === 'multiMeal'
+                  ? "E.g. 'Breakfast was oatmeal with a banana. Lunch was a chicken caesar salad. Dinner was pasta with meatballs.'"
+                  : "Tap here, then use the mic key on your keyboard. E.g. 'Bowl of oatmeal with a banana and peanut butter, about 350g total' or 'Chicken caesar salad, medium bowl, from the place downstairs'"
             }
             value={describeText}
             onChange={(e) => setDescribeText(e.target.value)}
           />
           <div className="flex gap-2">
             <button className="btn-primary flex-1" disabled={!describeText.trim()} onClick={() => void onDescribe()}>
-              {isMultiMeal ? 'Split into meals' : 'Estimate nutrition'}
+              {dictateMode === 'single' ? 'Estimate nutrition' : 'Split into meals'}
             </button>
             <button className="btn-ghost" onClick={() => setCaptureMode('choose')}>
               Cancel
             </button>
           </div>
-          {isMultiMeal && (
+          {dictateMode === 'multiMeal' && (
             <p className="text-xs text-ink-400">
-              Claude will look for breakfast/lunch/dinner/snack and day words to split this into separate meals.
+              Claude will look for breakfast/lunch/dinner/snack and time words to split this into separate meals, all on {fmtDate(date)}.
+            </p>
+          )}
+          {dictateMode === 'multiDay' && (
+            <p className="text-xs text-ink-400">
+              Claude will look for day words ("yesterday", "on Saturday") as well as meal words to split this across both meals and days.
             </p>
           )}
         </div>
@@ -395,7 +433,7 @@ export default function NutritionTab() {
           {image && <img src={image.dataUrl} className="max-h-56 w-full rounded-xl object-cover" alt="meal" />}
           <div className="flex items-center gap-3 text-ink-300">
             <span className="h-3 w-3 animate-pulse rounded-full bg-brand-400" />
-            {isMultiMeal ? 'Splitting into meals…' : 'Estimating nutrition…'}
+            {dictateMode !== 'single' ? 'Splitting into meals…' : 'Estimating nutrition…'}
           </div>
         </div>
       )}
@@ -403,12 +441,29 @@ export default function NutritionTab() {
       {phase === 'multiReview' && multiMeals && (
         <div className="card space-y-4">
           <div>
-            <div className="label">{multiMeals.length} meals found</div>
+            <div className="label">
+              {multiMeals.length} meal{multiMeals.length === 1 ? '' : 's'} found
+              {multiMealGroups.length > 1 ? ` across ${multiMealGroups.length} days` : ''}
+            </div>
             <p className="text-xs text-ink-400">Check each one, adjust if needed, then save them all.</p>
           </div>
-          <div className="space-y-3">
-            {multiMeals.map((m, i) => (
-              <MultiMealRow key={i} meal={m} onChange={(p) => updateMultiMeal(i, p)} onRemove={() => removeMultiMeal(i)} />
+          <div className="space-y-4">
+            {multiMealGroups.map(([groupDate, idxs]) => (
+              <div key={groupDate} className="space-y-2">
+                {multiMealGroups.length > 1 && (
+                  <div className="flex items-center gap-2 border-t border-ink-700 pt-2 first:border-t-0 first:pt-0">
+                    <span className="text-xs font-medium uppercase tracking-wide text-ink-400">{fmtDate(groupDate)}</span>
+                    {groupDate !== date && (
+                      <span className="text-xs text-amber-300">not {fmtDate(date)}</span>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-3">
+                  {idxs.map((i) => (
+                    <MultiMealRow key={i} meal={multiMeals[i]} onChange={(p) => updateMultiMeal(i, p)} onRemove={() => removeMultiMeal(i)} />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
           {multiMeals.length === 0 && (
@@ -529,7 +584,13 @@ export default function NutritionTab() {
 
           <div className="flex flex-wrap items-center gap-3">
             <label className="label !mb-0">Date</label>
-            <input type="date" className="field !w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input
+              type="date"
+              className="field !w-auto"
+              value={date}
+              max={todayISO()}
+              onChange={(e) => setDate(e.target.value)}
+            />
             <label className="label !mb-0">Time</label>
             <input
               type="time"
