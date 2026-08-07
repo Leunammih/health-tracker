@@ -391,58 +391,36 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     until F-4).
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for Phase F-2. Open
+_Replaced each iteration — this is the list for the "Other" section fix. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build. **After this update, your local database
-gets a one-time, automatic, harmless upgrade** (two new tables) — nothing existing
-changes or disappears._
+service worker picks up the new build. No database migration this time — this is
+a registry/display fix only._
 
-**Tap-to-build meal builder, on the Meals tab.**
-1. Open **Meals**. The orange primary button is now **"Build from ingredients"**
-   (Photograph/Dictate are still there, just demoted below it).
-2. Tap it. You'll see: a day strip (today selected), four meal-slot chips
-   (defaulting to whichever makes sense for the current time), and a grid of
-   ingredient buttons under **"Your usual for this meal"**.
-   - **First time only**, that grid is mining your existing meal history in the
-     background — it may show nothing or only a few items the very first time you
-     open it after this update; it should be populated on the second open.
-   - Any grid button with a small amber dot hasn't got real macro numbers yet
-     (nobody's looked it up) — tapping it still works, it just shows "no numbers"
-     until filled in.
-3. **Tap an ingredient** — it's added below with a default amount (e.g. "1
-   avocado"). **Tap the same button again** — the count on the grid button goes up
-   and the row's amount increases by a whole serving.
-4. On an added ingredient's row: use **− / +** to adjust in half-servings up to 2,
-   then whole servings after that; tap **Use grams** to switch to an exact-grams
-   number field instead; tap a **prep** word (raw/steamed/boiled/fried/baked/
-   grilled) to tag how you made it — this is recorded only, it doesn't change the
-   numbers.
-5. If you added anything with the amber "no numbers" flag, a button appears:
-   **"Fill in the N missing (1 Claude call)"** — tap it, wait a couple seconds,
-   and every flagged ingredient should get real per-100g values in one request
-   (check the running total at the bottom updates from "412 kcal + 2 unknown" to
-   a real number).
-6. Type something **not** in the grid into the **"Type an ingredient…"** box and
-   tap **+ Add** — this calls Claude once to look it up and adds it with real
-   numbers already filled in.
-7. Check the **sticky total** at the bottom matches what the rows above it add up
-   to. Set a **time**, optionally edit the **dish name** (auto-suggested from your
-   top ingredients), and **Save meal**.
-8. In **Recent meals**, the new entry should show a 🥣 icon (vs 📷 for photo, 🎙
-   for dictation) and the same numbers you saw while building.
-9. Tap **Edit** on that meal — it should reopen the builder with your exact
-   ingredients, amounts, and prep tags still there (not the plain macro-fields
-   review screen). Change something and save — confirm it's the same meal
-   (doesn't duplicate) with the new numbers.
-10. Tap **More…** on the ingredient grid to open the full ingredient list —
-    search for something, tap **Edit** on a row, change a number, **Save**, and
-    confirm it sticks.
-11. **Both looks** — Settings → Appearance → Dark and back, mid-build if you can
-    (the sticky total bar and the grid especially).
+**Log tab → Quick entry → "Other" section.**
+1. Open **Log**. Scroll the Quick entry panel down to **Other**.
+2. **Brain Clarity** should now show a slider capped at **0–10** with the value
+   read as `X /10`, not `X min`. (It carries forward whatever number was already
+   saved — e.g. if it read "0 min" before, it now reads "0 /10".)
+3. **Muscle Soreness** and **Muscle Stiffness** — same check: `/10`, not `min`.
+   Your existing values (5 and 7 in the screenshot you sent) sit fine on a 0-10
+   scale, so nothing should look truncated or wrong.
+4. **Digestive Enzymes** should no longer appear in Other at all, **once you've
+   added "Digestive Enzymes" as a supplement**: go to the **Supplements** card
+   further down the Log tab, add it there (name only is enough), then pull to
+   refresh — the Other-section row for it should disappear, since it's now
+   tracked as an ongoing yes/no regimen instead of a daily slider. (If you don't
+   add it as a supplement, the old track row still shows for now — there's no way
+   to reach into your phone's local database from here to delete it directly.)
+5. **Kite Surfing** is untouched — still minutes, since that's a real duration
+   activity, not an intensity rating.
+6. New voice-diary entries mentioning muscle soreness/stiffness or brain
+   clarity should now get recorded as 0-10 severity, and mentions of taking a
+   supplement (enzymes, magnesium, etc.) should be left out of the structured
+   log entirely rather than turning into a new track.
 
-Nothing else on the Meals tab should have changed — goal progress, Quick add,
-Photograph a meal, Dictate a meal (including last iteration's multi-day chips),
-Edit/Duplicate/Delete on a photo/dictated meal, all exactly as before.
+A failure looks like: Brain Clarity/Muscle Soreness/Muscle Stiffness still
+showing "min", or Digestive Enzymes still appearing in Other after you've added
+it under Supplements and refreshed.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →

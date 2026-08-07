@@ -73,6 +73,12 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: paletteColor('shoulder pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   { key: 'stomach pain', label: 'Stomach pain', match: /stomach|belly|gut|abdom/i, color: paletteColor('stomach pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
 
+  // --- muscle soreness/stiffness (0-10, low is good → reversed axis). Distinct
+  // from the "knee/back/etc pain" symptoms above: these track post-exertion DOMS
+  // rather than a joint, but the scale and orientation are identical. ---
+  { key: 'muscle soreness', label: 'Muscle Soreness', match: /muscle soreness|sore muscles?/i, color: paletteColor('muscle soreness', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'muscle stiffness', label: 'Muscle Stiffness', match: /muscle stiffness|stiff muscles?/i, color: paletteColor('muscle stiffness', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+
   // --- illness (manual tap-to-log; merged into the Illness & gut chart in
   // InsightsTab.tsx alongside the AI-diary-extracted infections/gut_events data) ---
   { key: 'infection', label: 'Infection', match: /infection/i, color: paletteColor('infection', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
@@ -91,6 +97,9 @@ export const TRACK_DEFS: TrackDef[] = [
   // `tracks`; colours match the existing "Energy & mood" chart in InsightsTab. ---
   { key: 'energy', label: 'Energy', match: /^energy$/i, color: paletteColor('energy', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
   { key: 'mood', label: 'Mood', match: /^mood$/i, color: paletteColor('mood', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
+
+  // --- brain clarity (0-10, high is good, same as energy/mood) ---
+  { key: 'brain clarity', label: 'Brain Clarity', match: /brain clarity|mental clarity|^clarity$/i, color: paletteColor('brain clarity', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1 },
 
   // --- release (10% steps; 0% at top, 100% at bottom) ---
   { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true },

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { trackNamesSince } from '../db/queries'
+import { trackNamesSince, activeSupplements, stoppedSupplements } from '../db/queries'
 import {
   colorForTrack, labelForTrack, scaleForTrack, groupForTrack, categoryForDef, defForName,
   QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS, TRACK_DEFS,
@@ -109,12 +109,25 @@ export default function QuickEntryPanel({
   // mid-session — which is precisely what used to reset the sliders.
   const recent = useMemo(() => trackNamesSince(daysAgoISO(7)), [])
 
+  // Supplements (magnesium, digestive enzymes, ...) are a yes/no regimen tracked by
+  // SupplementsCard, not a daily slider — if dictation ever filed one as a generic
+  // track too (before a matching supplement existed), drop it here once the two
+  // names line up, so it doesn't show twice.
+  const supplementNames = useMemo(() => {
+    const names = new Set<string>()
+    for (const s of activeSupplements()) names.add(s.name.trim().toLowerCase())
+    for (const s of stoppedSupplements(50)) names.add(s.name.trim().toLowerCase())
+    return names
+  }, [])
+
   const items = useMemo<Item[]>(() => {
     const map = new Map<string, string | null>()
     for (const d of PINNED_QUICK_ENTRY_ITEMS) map.set(d.key, null)
-    for (const r of recent) if (!map.has(r.name)) map.set(r.name, r.category)
+    for (const r of recent) {
+      if (!map.has(r.name) && !supplementNames.has(r.name.trim().toLowerCase())) map.set(r.name, r.category)
+    }
     for (const name of extra) {
-      if (!map.has(name)) {
+      if (!map.has(name) && !supplementNames.has(name.trim().toLowerCase())) {
         const def = defForName(name)
         map.set(name, def ? categoryForDef(def) : null)
       }
@@ -127,7 +140,7 @@ export default function QuickEntryPanel({
         if (ia !== ib) return ia - ib
         return labelForTrack(a.name).localeCompare(labelForTrack(b.name))
       })
-  }, [recent, extra])
+  }, [recent, extra, supplementNames])
 
   const [saved, setSaved] = useState<Map<string, SavedState>>(() => initSavedMap(date, segment, items))
   const [drafts, setDrafts] = useState<Map<string, RowState>>(() => initDraftMap(date, segment, items))
