@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-07-31 (Phase E: eating-pattern quick-adds — all planned phases done)_
+_Last updated: 2026-08-12 (metric-scale fix: 0-10 intensities for ad-hoc tracks, supplements out of the sliders)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -390,59 +390,58 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     wasn't hit in this session's testing) and the barcode/brand columns (unused
     until F-4).
 
+- **Metric scales & supplement suppression** (2026-08-12) — ad-hoc track names no
+  longer default to a 0-180 **minutes** slider. `scaleForTrack()` now infers: a
+  duration has to be positively identified (category `activity`/`practice`, or a
+  duration-shaped name), everything else is a **0-10 intensity**. Registered
+  muscle soreness / muscle stiffness / headache / nausea / fatigue / brain fog
+  (symptoms) and brain clarity / focus (wellbeing, high-is-good); `TrackDef` gained
+  an explicit `category` so wellbeing-group tracks stop being stored as `release`.
+  Values are clamped into range on read (`clampToScale`), so a pre-fix "45 min" of
+  soreness shows as an out-of-range 10 waiting to be re-saved rather than silently
+  pinning the slider. Supplements are excluded from Quick entry, the Insights
+  tap-to-log chips and the Insights "Other" charts (`src/lib/hiddenMetrics.ts`),
+  and the extraction prompt now forbids filing a supplement/medication/food as a
+  track at all. Plus a per-row **✕ hide** with a Hidden/restore section, persisted
+  in the DB `meta` table so it syncs across devices.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for Phase F-2. Open
+_Replaced each iteration — this is the list for the metric-scale fix. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build. **After this update, your local database
-gets a one-time, automatic, harmless upgrade** (two new tables) — nothing existing
-changes or disappears._
+service worker picks up the new build. No schema change, no data touched._
 
-**Tap-to-build meal builder, on the Meals tab.**
-1. Open **Meals**. The orange primary button is now **"Build from ingredients"**
-   (Photograph/Dictate are still there, just demoted below it).
-2. Tap it. You'll see: a day strip (today selected), four meal-slot chips
-   (defaulting to whichever makes sense for the current time), and a grid of
-   ingredient buttons under **"Your usual for this meal"**.
-   - **First time only**, that grid is mining your existing meal history in the
-     background — it may show nothing or only a few items the very first time you
-     open it after this update; it should be populated on the second open.
-   - Any grid button with a small amber dot hasn't got real macro numbers yet
-     (nobody's looked it up) — tapping it still works, it just shows "no numbers"
-     until filled in.
-3. **Tap an ingredient** — it's added below with a default amount (e.g. "1
-   avocado"). **Tap the same button again** — the count on the grid button goes up
-   and the row's amount increases by a whole serving.
-4. On an added ingredient's row: use **− / +** to adjust in half-servings up to 2,
-   then whole servings after that; tap **Use grams** to switch to an exact-grams
-   number field instead; tap a **prep** word (raw/steamed/boiled/fried/baked/
-   grilled) to tag how you made it — this is recorded only, it doesn't change the
-   numbers.
-5. If you added anything with the amber "no numbers" flag, a button appears:
-   **"Fill in the N missing (1 Claude call)"** — tap it, wait a couple seconds,
-   and every flagged ingredient should get real per-100g values in one request
-   (check the running total at the bottom updates from "412 kcal + 2 unknown" to
-   a real number).
-6. Type something **not** in the grid into the **"Type an ingredient…"** box and
-   tap **+ Add** — this calls Claude once to look it up and adds it with real
-   numbers already filled in.
-7. Check the **sticky total** at the bottom matches what the rows above it add up
-   to. Set a **time**, optionally edit the **dish name** (auto-suggested from your
-   top ingredients), and **Save meal**.
-8. In **Recent meals**, the new entry should show a 🥣 icon (vs 📷 for photo, 🎙
-   for dictation) and the same numbers you saw while building.
-9. Tap **Edit** on that meal — it should reopen the builder with your exact
-   ingredients, amounts, and prep tags still there (not the plain macro-fields
-   review screen). Change something and save — confirm it's the same meal
-   (doesn't duplicate) with the new numbers.
-10. Tap **More…** on the ingredient grid to open the full ingredient list —
-    search for something, tap **Edit** on a row, change a number, **Save**, and
-    confirm it sticks.
-11. **Both looks** — Settings → Appearance → Dark and back, mid-build if you can
-    (the sticky total bar and the grid especially).
+**The bug:** ad-hoc metrics that dictation invented (muscle soreness, muscle
+stiffness, brain clarity) were falling through to a "minutes, 0–180" slider,
+because minutes used to be the catch-all for any name the registry didn't know.
+Supplements were showing up as sliders too — a supplement is not a 0–10 question.
 
-Nothing else on the Meals tab should have changed — goal progress, Quick add,
-Photograph a meal, Dictate a meal (including last iteration's multi-day chips),
-Edit/Duplicate/Delete on a photo/dictated meal, all exactly as before.
+1. **Log tab → Quick entry.** The rows that showed **"0 min"** in your screenshot —
+   Muscle Soreness, Muscle Stiffness, Brain Clarity — should now read **"/10"**
+   with a slider that runs 0–10, and sit under sensible headings: soreness and
+   stiffness under **Health & pain**, brain clarity under **Wellbeing**.
+2. **Digestive Enzymes should be gone from Quick entry entirely.** It should still
+   be there in the **Supplements** card further down the same tab, with its
+   check-in — that's where it belongs. Same for any other supplement.
+3. **Kite Surfing should still be in minutes**, under Movement — it's a duration,
+   not an intensity. If you'd rather rate it 0–10 instead, say so, it's one line.
+4. **Old values look clamped.** A day where you'd dragged the old minutes slider to
+   e.g. 45 for soreness now shows **10** with an amber "unsaved" dot. That's
+   deliberate: the stored number is still 45, the 0–10 slider can't show it, so it
+   pins at the top and asks you to re-set it. Drag to the real intensity and
+   **Save** on each — only the days you actually logged are affected.
+5. **New ✕ button on every row.** Tap it on anything that shouldn't be a slider at
+   all — the row disappears and a **Hidden** section appears at the bottom of Quick
+   entry. Tap the name there (with the ↩) to bring it back. **Nothing is deleted**;
+   this only controls what's offered. It's stored in the database, not the browser,
+   so a row you hide on the phone stays hidden on the laptop after a sync.
+6. **Insights tab.** Under the charts: **"Brain clarity (/10)"**, not "(min)". No
+   "Digestive Enzymes" chart at all any more. The pain chart will still show the
+   old 45/60 soreness values until you re-set them per step 4.
+7. **Both looks** — Settings → Appearance → Dark and back; check the new ✕ button
+   and the Hidden chips in both.
+
+Unchanged and worth confirming nothing regressed: Energy / Mood / Stress sliders,
+the Quick log "+5 min" chips, the Add row, sleep, supplements, meals.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
@@ -497,6 +496,9 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
+**Waiting on Immanuel's phone report for the metric-scale fix** (checklist above) —
+then back to Phase F-2's own phone checklist (see git history for it) and Phase F-3.
+
 **Waiting on Immanuel's phone report for Phase F-2** (tap-to-build meal builder —
 checklist above). It's built, typechecked, and verified live in the Browser pane
 against the real Anthropic API (not just seeded data), but never on a real touchscreen

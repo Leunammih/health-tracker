@@ -9,8 +9,9 @@ import {
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
-  canonicalTrackName, chartPalette,
+  canonicalTrackName, chartPalette, scaleForTrack,
 } from '../lib/metrics'
+import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '../lib/hiddenMetrics'
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
@@ -365,18 +366,24 @@ export default function InsightsTab() {
 
   // Remaining tracks that none of the dedicated charts claimed.
   const trackGroups = useMemo(() => {
+    const hidden = loadHiddenMetrics()
+    const supplements = supplementMetricNames()
     const byName = new Map<string, Track[]>()
     for (const t of tracks) {
       const g = groupForTrack(t.name, t.category)
       if (g === 'movement' || g === 'practice' || g === 'symptom') continue
       if (t.name === 'release') continue
+      if (isSuppressedMetric(t.name, hidden, supplements)) continue
       const arr = byName.get(t.name) ?? []
       arr.push(t)
       byName.set(t.name, arr)
     }
     return [...byName.entries()].map(([name, rows]) => ({
       name,
-      unit: rows.find((r) => r.unit)?.unit ?? '',
+      // From the registry, not the stored `unit` column: a row written before a
+      // metric's scale was corrected still carries the old unit ("min" on what is
+      // now a 0-10 rating), and the chart heading would repeat that stale label.
+      unit: scaleForTrack(name, rows.find((r) => r.category)?.category ?? null).unit,
       count: rows.length,
       series: rows
         .filter((r) => r.value != null)
@@ -387,14 +394,20 @@ export default function InsightsTab() {
   // Chips for the tap-to-log sheet: the standard items plus anything already logged.
   // Keyed by canonical name, so a stored spelling variant ("breathwork") folds into
   // the registry entry it matches instead of listing twice under the same label.
+  // Supplements and hand-hidden names are excluded, same as in the Log tab's quick
+  // entry — a supplement is not something to rate on a slider in either place.
   const logItems = useMemo(() => {
+    const hidden = loadHiddenMetrics()
+    const supplements = supplementMetricNames()
     const seen = new Map<string, string | null>()
     for (const d of QUICK_LOG_ITEMS) seen.set(d.key, null)
     for (const k of known) {
       const key = canonicalTrackName(k.name)
       if (!seen.has(key)) seen.set(key, k.category)
     }
-    return [...seen.entries()].map(([name, category]) => ({ name, category }))
+    return [...seen.entries()]
+      .filter(([name]) => !isSuppressedMetric(name, hidden, supplements))
+      .map(([name, category]) => ({ name, category }))
   }, [known])
 
   const hasAny = wb.length || gut.length || inf.length || meals.length || tracks.length || acts.length

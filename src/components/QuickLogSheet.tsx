@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import DayStrip from './DayStrip'
-import { colorForTrack, labelForTrack, scaleForTrack } from '../lib/metrics'
+import { colorForTrack, labelForTrack, scaleForTrack, clampToScale } from '../lib/metrics'
 import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
 import { fmtDate } from '../lib/dates'
 import { IconNote } from './icons'
@@ -46,7 +46,9 @@ export default function QuickLogSheet({
   useEffect(() => {
     const saved = readMetric(date, name)
     const fallback = lastMetricValue(date, name)
-    setValue(saved.value ?? fallback ?? 0)
+    // Clamped into the metric's own range: `?? 0` is below the floor for weight or
+    // Bristol stool, and a stored minutes value overshoots a 0-10 scale.
+    setValue(clampToScale(saved.value ?? fallback ?? scale.min, scale))
     setNoteDraft(saved.note ?? '')
     setNoteTouched(false)
     setStatus(null)

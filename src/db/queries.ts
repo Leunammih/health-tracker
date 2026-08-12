@@ -796,6 +796,13 @@ export function stoppedSupplements(limit = 10): Supplement[] {
   )
 }
 
+// Every supplement name ever entered, stopped ones included — used to keep a
+// supplement that also landed in `tracks` (dictation: "took digestive enzymes")
+// out of the metric sliders, where it would pose as something to rate 0-10.
+export function allSupplementNames(): string[] {
+  return all<{ name: string }>('SELECT name FROM supplements').map((r) => r.name)
+}
+
 export async function saveSupplement(
   name: string,
   composition: string | null,

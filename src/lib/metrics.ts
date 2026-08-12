@@ -41,6 +41,10 @@ export interface TrackDef {
   // the day's rollup value. Defaults by unit — see rollupFor() — so this only needs
   // to be set explicitly where that default would be wrong.
   rollup?: Rollup
+  // The tracks.category value to store. Defaults from `group` (see categoryForDef);
+  // set it where the group doesn't determine the category — 'release' and the other
+  // wellbeing-group tracks share a group but are not the same category.
+  category?: string
 }
 
 export type Rollup = 'sum' | 'avg' | 'last'
@@ -72,6 +76,18 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'back pain', label: 'Back pain', match: /back/i, color: paletteColor('back pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   { key: 'shoulder pain', label: 'Shoulder pain', match: /shoulder/i, color: paletteColor('shoulder pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   { key: 'stomach pain', label: 'Stomach pain', match: /stomach|belly|gut|abdom/i, color: paletteColor('stomach pain', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  // Post-exertion soreness and stiffness are the app's central open question, so they
+  // are registered rather than left to the ad-hoc fallback — they arrive from dictation
+  // constantly and must never be scaled in minutes.
+  // The matches stay narrow on purpose: "neck stiffness" or "sore throat" should keep
+  // its own name rather than be relabelled "Muscle stiffness" — the ad-hoc fallback in
+  // scaleForTrack() already gives those a 0-10 slider.
+  { key: 'muscle soreness', label: 'Muscle soreness', match: /muscle sore|doms/i, color: paletteColor('muscle soreness', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'muscle stiffness', label: 'Muscle stiffness', match: /muscle stiff/i, color: paletteColor('muscle stiffness', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'headache', label: 'Headache', match: /headache|migraine/i, color: paletteColor('headache', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'nausea', label: 'Nausea', match: /nausea|queasy/i, color: paletteColor('nausea', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'fatigue', label: 'Fatigue', match: /fatigue|exhaustion/i, color: paletteColor('fatigue', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
+  { key: 'brain fog', label: 'Brain fog', match: /brain fog|foggy/i, color: paletteColor('brain fog', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
 
   // --- illness (manual tap-to-log; merged into the Illness & gut chart in
   // InsightsTab.tsx alongside the AI-diary-extracted infections/gut_events data) ---
@@ -92,8 +108,12 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'energy', label: 'Energy', match: /^energy$/i, color: paletteColor('energy', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
   { key: 'mood', label: 'Mood', match: /^mood$/i, color: paletteColor('mood', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, store: 'wellbeing' },
 
+  // --- subjective wellbeing ratings (0-10, high is good) ---
+  { key: 'brain clarity', label: 'Brain clarity', match: /brain clarity|mental clarity|clarity/i, color: paletteColor('brain clarity', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, category: 'wellbeing' },
+  { key: 'focus', label: 'Focus', match: /^focus$|concentration/i, color: paletteColor('focus', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, category: 'wellbeing' },
+
   // --- release (10% steps; 0% at top, 100% at bottom) ---
-  { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true },
+  { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true, category: 'release' },
 
   // --- stress (0-10, low is good). Stored on `day_context.stress_load`, which the
   // AI diary extraction also writes; the quick entry keeps its note in a dedicated
@@ -162,14 +182,46 @@ export function groupForTrack(name: string, category?: string | null): MetricGro
   return 'other'
 }
 
-// Slider bounds for a name, falling back to sensible defaults by category so an
-// ad-hoc track ("kite surfing") still gets a usable slider.
-export function scaleForTrack(name: string, category?: string | null): { unit: string; min: number; max: number; step: number } {
+export type Scale = { unit: string; min: number; max: number; step: number }
+
+const RATING_SCALE: Scale = { unit: '/10', min: 0, max: 10, step: 1 }
+const DURATION_SCALE: Scale = { unit: 'min', min: 0, max: 180, step: 5 }
+const MEASUREMENT_SCALE: Scale = { unit: '', min: 0, max: 200, step: 1 }
+
+// Names that describe how something FELT — always a 0-10 intensity, never minutes.
+// Checked before the category, because dictation regularly files "muscle soreness"
+// or "brain clarity" under a category that says nothing about the scale.
+const RATING_NAME =
+  /pain|ache|aching|sore|stiff|cramp|tension|tight|nausea|fatigue|exhaust|dizz|fog|clarity|focus|concentration|quality|mood|stress|anxiet|calm|craving|bloat|itch|congest|cough|libido/i
+
+// Names that genuinely measure a duration.
+const DURATION_NAME =
+  /surf|swim|danc|run|jog|walk|hike|bik|cycl|climb|row|skat|ski|paddle|sauna|plunge|medit|breath|yoga|stretch|mobility|workout|training|gym|massage|nap|reading/i
+
+// Slider bounds for a name. Registered metrics come straight from the registry;
+// anything dictation invents ("kite surfing", "brain clarity") is inferred.
+//
+// The default for an unrecognised name is a 0-10 INTENSITY, not minutes. Minutes
+// used to be the catch-all, which is why ad-hoc symptom-like tracks showed up in the
+// Log tab as "0 min" sliders running to 180 — a duration is the narrower case, so it
+// now has to be positively identified (by category or by name) rather than assumed.
+export function scaleForTrack(name: string, category?: string | null): Scale {
   const def = defForName(name)
   if (def) return { unit: def.unit, min: def.min, max: def.max, step: def.step }
-  if (category === 'symptom') return { unit: '/10', min: 0, max: 10, step: 1 }
-  if (category === 'measurement') return { unit: '', min: 0, max: 200, step: 1 }
-  return { unit: 'min', min: 0, max: 180, step: 5 }
+
+  const n = name.trim().toLowerCase()
+  if (category === 'measurement') return MEASUREMENT_SCALE
+  if (category === 'symptom' || RATING_NAME.test(n)) return RATING_SCALE
+  if (category === 'activity' || category === 'practice' || DURATION_NAME.test(n)) return DURATION_SCALE
+  return RATING_SCALE
+}
+
+// Keep a value inside its slider's range. Needed on read, not just on write: a track
+// saved under the old minutes fallback can hold 45 for something now scaled 0-10, and
+// an out-of-range `value` silently pins an <input type="range"> at its max while
+// displaying the stored number — a slider that disagrees with its own label.
+export function clampToScale(value: number, scale: Scale): number {
+  return Math.min(scale.max, Math.max(scale.min, value))
 }
 
 // How several same-day segment entries combine into the day's rollup. An explicit
@@ -201,11 +253,11 @@ export const QUICK_LOG_ITEMS: TrackDef[] = QUICK_LOG_KEYS
 
 // The tracks.category value to store for a given definition.
 export function categoryForDef(def: TrackDef): string {
+  if (def.category) return def.category
   if (storeForDef(def) !== 'tracks') return 'wellbeing' // never actually written to tracks
   if (def.group === 'symptom') return 'symptom'
   if (def.group === 'practice') return 'practice'
   if (def.group === 'movement') return 'activity'
-  if (def.group === 'wellbeing') return 'release'
   return 'other'
 }
 

@@ -1,10 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { trackNamesSince } from '../db/queries'
 import {
-  colorForTrack, labelForTrack, scaleForTrack, groupForTrack, categoryForDef, defForName,
+  colorForTrack, labelForTrack, scaleForTrack, clampToScale, groupForTrack, categoryForDef, defForName,
   QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS, TRACK_DEFS,
   type MetricGroup, type TrackDef,
 } from '../lib/metrics'
+import {
+  loadHiddenMetrics, supplementMetricNames, isSuppressedMetric, hideMetric, unhideMetric,
+} from '../lib/hiddenMetrics'
 import { readMetric, lastMetricValue, writeMetric, readSegments, writeSegment, rollupKindFor } from '../lib/metricStore'
 import { daysAgoISO } from '../lib/dates'
 import { IconNote } from './icons'
@@ -75,8 +78,11 @@ function readFallback(date: string, item: Item): number | null {
 
 function initRow(date: string, item: Item, saved: SavedState): RowState {
   const scale = scaleForTrack(item.name, item.category)
+  const raw = saved.value ?? readFallback(date, item) ?? scale.min
   return {
-    value: saved.value ?? readFallback(date, item) ?? scale.min,
+    // Clamped: rows written before a metric's scale was corrected can hold a value
+    // far outside it (45 "minutes" of muscle soreness on a 0-10 slider).
+    value: clampToScale(raw, scale),
     note: saved.note ?? '',
     noteTouched: false,
   }
@@ -99,6 +105,7 @@ export default function QuickEntryPanel({
   onChanged: () => void
 }) {
   const [extra, setExtra] = useState<string[]>([]) // items added via quick-add this session
+  const [hidden, setHidden] = useState<Set<string>>(() => loadHiddenMetrics())
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState<string | null>(null)
   const [qlBusy, setQlBusy] = useState<string | null>(null)
@@ -108,6 +115,10 @@ export default function QuickEntryPanel({
   // today), and the panel unmounts between log phases, so this never needs refreshing
   // mid-session — which is precisely what used to reset the sliders.
   const recent = useMemo(() => trackNamesSince(daysAgoISO(7)), [])
+
+  // Supplements live in their own card with a dose and a check-in rhythm; when one
+  // also lands in `tracks` it must not turn up here as a slider as well.
+  const supplements = useMemo(() => supplementMetricNames(), [])
 
   const items = useMemo<Item[]>(() => {
     const map = new Map<string, string | null>()
@@ -120,6 +131,7 @@ export default function QuickEntryPanel({
       }
     }
     return [...map.entries()]
+      .filter(([name]) => !isSuppressedMetric(name, hidden, supplements))
       .map(([name, category]) => ({ name, category, def: defForName(name) }))
       .sort((a, b) => {
         const ia = DEF_INDEX.get(a.def?.key ?? '') ?? Number.MAX_SAFE_INTEGER
@@ -127,7 +139,7 @@ export default function QuickEntryPanel({
         if (ia !== ib) return ia - ib
         return labelForTrack(a.name).localeCompare(labelForTrack(b.name))
       })
-  }, [recent, extra])
+  }, [recent, extra, hidden, supplements])
 
   const [saved, setSaved] = useState<Map<string, SavedState>>(() => initSavedMap(date, segment, items))
   const [drafts, setDrafts] = useState<Map<string, RowState>>(() => initDraftMap(date, segment, items))
@@ -262,6 +274,20 @@ export default function QuickEntryPanel({
     }
   }
 
+  // Hiding removes the row from this list only — the stored history stays, so a
+  // metric hidden by mistake loses nothing and comes back from the Hidden row below.
+  async function hideRow(name: string) {
+    await hideMetric(name)
+    setHidden(loadHiddenMetrics())
+    setExtra((e) => e.filter((n) => n !== name))
+  }
+
+  async function restoreRow(name: string) {
+    await unhideMetric(name)
+    setHidden(loadHiddenMetrics())
+    setExtra((e) => (e.includes(name) ? e : [...e, name]))
+  }
+
   const dirtyItems = items.filter((it) => isDirty(it))
 
   async function saveAll() {
@@ -287,6 +313,7 @@ export default function QuickEntryPanel({
   const addable = QUICK_LOG_ITEMS.filter(
     (d) =>
       !items.some((it) => it.name === d.key) &&
+      !hidden.has(d.key) &&
       !(PINNED_QUICK_ENTRY_KEYS as readonly string[]).includes(d.key),
   )
 
@@ -321,6 +348,7 @@ export default function QuickEntryPanel({
                 justSaved={justSaved === it.name}
                 onChange={(patch) => setDraft(it.name, patch)}
                 onSave={() => void saveOne(it)}
+                onHide={() => void hideRow(it.name)}
               />
             )
           })}
@@ -357,6 +385,28 @@ export default function QuickEntryPanel({
                 <span className="h-2 w-2 rounded-full" style={{ background: colorForTrack(d.key) }} />
                 {d.label}
                 <span className="text-brand-400">{qlFlash === d.key ? '✓' : '+5'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hidden.size > 0 && (
+        <div>
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-500">Hidden</div>
+          <p className="mb-1.5 text-xs text-ink-400">
+            Not shown as sliders. Their history is untouched — tap to bring one back.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {[...hidden].map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="flex items-center gap-1.5 rounded-full border border-ink-700 px-2.5 py-1.5 text-xs text-ink-400 hover:text-cream"
+                onClick={() => void restoreRow(name)}
+              >
+                {labelForTrack(name)}
+                <span aria-hidden>↩</span>
               </button>
             ))}
           </div>
@@ -402,6 +452,7 @@ const QuickRow = memo(function QuickRow({
   justSaved,
   onChange,
   onSave,
+  onHide,
 }: {
   name: string
   category: string | null
@@ -412,6 +463,7 @@ const QuickRow = memo(function QuickRow({
   justSaved: boolean
   onChange: (patch: Partial<RowState>) => void
   onSave: () => void
+  onHide: () => void
 }) {
   const [noteOpen, setNoteOpen] = useState(false)
   const scale = scaleForTrack(name, category)
@@ -477,6 +529,17 @@ const QuickRow = memo(function QuickRow({
           className="btn-primary h-9 shrink-0 !px-4 !py-0 text-xs"
         >
           {justSaved ? '✓ Saved' : 'Save'}
+        </button>
+
+        {/* Anything dictation files under `tracks` shows up here, including things
+            that aren't metrics at all. One tap removes the row; the data stays. */}
+        <button
+          type="button"
+          aria-label={`Hide ${labelForTrack(name)} from quick entry`}
+          onClick={onHide}
+          className="h-9 w-9 shrink-0 rounded-xl border border-ink-700 text-sm text-ink-400 hover:text-cream"
+        >
+          ✕
         </button>
       </div>
 
