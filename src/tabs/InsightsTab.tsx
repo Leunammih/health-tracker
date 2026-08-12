@@ -95,7 +95,16 @@ export default function InsightsTab() {
   // formatted date string the categorical XAxis uses — Recharts positions a
   // ReferenceLine by matching x against an axis tick, so this must be identical to
   // what each chart's dataKey="date" renders for that day.
-  const eventMarkers = events.map((e) => ({ id: e.id, x: fmtDate(e.date), label: e.label }))
+  //
+  // The label is drawn rotated inside the plot area, so it is truncated here: a real
+  // event label is a sentence ("July 5 start: Creatine monohydrate 3 g per day by …")
+  // and at full length it runs the height of the chart and over the data. The full
+  // text stays readable in the Log tab's event list.
+  const eventMarkers = events.map((e) => ({
+    id: e.id,
+    x: fmtDate(e.date),
+    label: e.label.length > 26 ? `${e.label.slice(0, 25).trimEnd()}…` : e.label,
+  }))
 
   // One shared X axis for every chart — a day with no entry still gets a column, so
   // the graphs stack into readable vertical columns for the same date.

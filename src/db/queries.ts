@@ -598,9 +598,16 @@ export const trackNamesSince = (dateISO: string) =>
 
 // Every track name ever logged, with its category — powers the tap-to-log picker
 // so previously used items (including ad-hoc ones) stay one tap away.
+//
+// ONE row per name. The same name can carry different categories across its history
+// (dictation filed "shaking" as a practice on some days and with no category on
+// others), and grouping by name+category returned it twice — the picker then took
+// whichever row happened to come first and could pick the category-less one, which
+// scales the slider as a 0-10 rating rather than minutes. MAX() ignores NULLs, so a
+// name that was ever categorised keeps that category. Matches trackNamesSince().
 export const allTrackNames = () =>
   all<{ name: string; category: string | null; n: number }>(
-    'SELECT name, category, COUNT(*) as n FROM tracks GROUP BY name, category ORDER BY n DESC',
+    'SELECT name, MAX(category) as category, COUNT(*) as n FROM tracks GROUP BY name ORDER BY n DESC',
   )
 
 // The actual write, shared by the public upsert below and by segment rollups
