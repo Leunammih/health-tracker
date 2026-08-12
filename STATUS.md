@@ -424,11 +424,10 @@ Supplements were showing up as sliders too — a supplement is not a 0–10 ques
    check-in — that's where it belongs. Same for any other supplement.
 3. **Kite Surfing should still be in minutes**, under Movement — it's a duration,
    not an intensity. If you'd rather rate it 0–10 instead, say so, it's one line.
-4. **Old values look clamped.** A day where you'd dragged the old minutes slider to
-   e.g. 45 for soreness now shows **10** with an amber "unsaved" dot. That's
-   deliberate: the stored number is still 45, the 0–10 slider can't show it, so it
-   pins at the top and asks you to re-set it. Drag to the real intensity and
-   **Save** on each — only the days you actually logged are affected.
+4. **No values were clamped after all.** Checked against the real synced database:
+   every value you'd entered on the old minutes sliders was already in the 0–10
+   range (soreness max 4, stiffness max 7, brain clarity max 5), so nothing was
+   truncated and nothing needs re-entering. The clamp stays in as a guard.
 5. **New ✕ button on every row.** Tap it on anything that shouldn't be a slider at
    all — the row disappears and a **Hidden** section appears at the bottom of Quick
    entry. Tap the name there (with the ↩) to bring it back. **Nothing is deleted**;
@@ -442,6 +441,38 @@ Supplements were showing up as sliders too — a supplement is not a 0–10 ques
 
 Unchanged and worth confirming nothing regressed: Energy / Mood / Stress sliders,
 the Quick log "+5 min" chips, the Add row, sleep, supplements, meals.
+
+## Verified against the real database (2026-08-12)
+Loaded the live Dropbox file (`~/Dropbox/Apps/Health Tracker private/health.db`,
+461 tracks / 64 meals / 32 wellbeing days) into the dev app and walked every tab.
+Read-only: worked on a copy, the original was never written to. Result: **no console
+errors or warnings on any tab**, and the segment→rollup machinery is provably correct
+on the one day segments were used (2026-07-30: minutes sum, ratings average, energy /
+mood / stress correctly routed to their own tables). No track value violates its scale.
+
+Fixed as a result: chart event labels truncated to 26 chars (his real labels are full
+sentences and ran the height of three charts); `allTrackNames()` now returns one row
+per name (mixed categories across a name's history returned it twice, and the
+tap-to-log picker could pick the category-less row and mis-scale the slider).
+
+Data issues found, **left for Immanuel to decide** (the app is not wrong, the rows are):
+- **6 legacy duplicate (name, date) track rows**, all before 2026-07-29 — from before
+  the diary path started replacing instead of stacking. 2026-07-14 knee pain 5 *and* 3;
+  07-15 dancing 10 *and* 20; 07-17 meditation 20 twice; 07-22 kite surfing 60 *and* a
+  value-less row; 07-23 walking 40 *and* a value-less row; 07-28 infection 6 twice.
+  Re-saving that day's slider collapses them (the write deletes by name+date first).
+- **2 duplicate meals**: 2026-08-05 "Organic chicken soup with pumpkin" saved twice,
+  identical time/macros (double-counts 520 kcal); 2026-07-19 "Quinoa Bowl" logged
+  twice 94 min apart at 650 and 560 kcal. Both inflate those days' calorie totals.
+- **6 value-less track rows carrying real notes** (e.g. 07-18 knee pain, 07-26
+  meditation) — the note is readable in the Log tab but the day is invisible in every
+  chart, which filters on `value != null`.
+- **An event that isn't an event**: "No supplements in the last four days. First of
+  August until fourth of August." is stored as a supplement event and draws a
+  reference line across three charts.
+- `meal_type` is null on 28 of 64 meals and `food_groups` on 30 of 64 — all pre-D4
+  meals, so the food-group chart only really covers the newer half.
+- Time-of-day segments have been used on exactly one day (2026-07-30) and never since.
 
 ## Open / needs the user (not code)
 - **Connect Dropbox (one-time):** register a Dropbox app — App Console → Create app →
