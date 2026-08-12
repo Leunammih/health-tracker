@@ -9,6 +9,12 @@
 // hidden by hand. The hand-hidden list lives in the DB's `meta` table (like goals in
 // lib/goals.ts, not localStorage) so it syncs to the phone via Dropbox and survives
 // an export/import — hiding a stray row on the laptop must not leave it on the phone.
+//
+// SCOPE, decided 2026-08-12: hiding suppresses ENTRY only — the quick-entry sliders,
+// the Insights tap-to-log chips, and a supplement's own stray chart. A hidden
+// metric's history keeps its normal chart. Hiding means "stop asking me for this
+// number", not "delete this from my trends", and the charts are the point of the
+// app. Do not extend this predicate to the movement/practice/pain chart series.
 
 import { allSupplementNames, getMeta, setMeta } from '../db/queries'
 import { canonicalTrackName } from './metrics'

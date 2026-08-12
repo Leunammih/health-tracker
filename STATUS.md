@@ -442,6 +442,18 @@ Supplements were showing up as sliders too — a supplement is not a 0–10 ques
 Unchanged and worth confirming nothing regressed: Energy / Mood / Stress sliders,
 the Quick log "+5 min" chips, the Add row, sleep, supplements, meals.
 
+## Open markers
+Codes still awaiting Immanuel. Remove each as it is answered.
+- 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
+  quinoa bowl (Meals tab), and the "No supplements in the last four days" event
+  (Log tab). Double-counted calories + a stray reference line on three charts.
+- 🟦 **phone1** — phone report on the metric-scale fix (checklist below). Evidently
+  in use already (his `hidden_metrics` arrived via sync), but nothing reported yet.
+
+Answered: 🔶 **hide2** → **a**, 2026-08-12. Hiding a metric suppresses ENTRY only
+(sliders + tap-to-log chips); a hidden metric keeps its Insights chart. Recorded at
+the top of `src/lib/hiddenMetrics.ts` — don't re-litigate it in a later session.
+
 ## Verified against the real database (2026-08-12)
 Loaded the live Dropbox file (`~/Dropbox/Apps/Health Tracker private/health.db`,
 461 tracks / 64 meals / 32 wellbeing days) into the dev app and walked every tab.
