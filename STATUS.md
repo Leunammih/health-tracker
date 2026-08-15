@@ -442,28 +442,41 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     database behind the app.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for the duplicate-food-merge fix. Open
+_Replaced each iteration — this is the list for F-3, multi-meal build session. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build. No schema change; existing data is only
-ever merged (never deleted outright — the loser's usage folds into the winner)._
+service worker picks up the new build. No schema change — this is new UI state in
+the tap-to-build meal builder only._
 
-**The bug:** your "usual ingredients" grid (Meals → tap-builder) had two separate
-chips both reading "carrot" (`Carrot` and `carrot`) — tapping both added the same
-ingredient twice with no warning, which is what inflated that lunch to 909 kcal.
+**What's new:** the tap-builder can now chain meals — build breakfast, tap "add
+another meal," it queues breakfast and moves you straight to lunch (same screen, no
+save round-trip), and so on through dinner and a snack. One "Save all" at the end
+writes everything.
 
-1. **Open Meals → tap-to-build** (pick any day/slot) and look at "Your usual for
-   this meal." You should now see only **one** carrot chip, not two — the app
-   silently merges duplicates like this every time this tab loads.
-2. **Rebuild that lunch** (4 boiled eggs, 150g feta, 150g broccoli, 100g carrot,
-   olive oil, balsamic) and confirm the total no longer double-counts the carrot.
-3. **Nothing else changes** — existing saved meals, their macros, and their
-   ingredient lists are untouched; only the `foods` reference table (the picker/
-   grid) was cleaned up.
-4. **Both looks** — Settings → Appearance → Dark and back, open the tap-builder in
-   each, confirm the grid still looks right.
+1. **Open Meals → Build from ingredients**, pick today. Tap a couple of "usual"
+   ingredients for Breakfast, then tap **"+ Add another meal (Lunch next)"** near
+   the bottom. Confirm: a "Staged this session" card appears showing "Breakfast:
+   <name> · N kcal", the ingredient list clears, and the Meal chips switch to
+   Lunch.
+2. **Repeat for Lunch → Dinner → Snack** — confirm the staged list grows (one card
+   per meal) and each "+ Add another meal" button names the *next* slot correctly,
+   wrapping back to Breakfast after Snack if you keep going.
+3. **Tap one of the staged cards** (not the active meal) — confirm it swaps back
+   into the editor with its ingredients/name, and whatever you'd been actively
+   building moves into the staged list in its place (nothing is lost).
+4. **Remove a staged card** via the ✕ — confirm it drops out of the list.
+5. **Tap "Save all (N)"** — confirm all N meals land in "Recent Meals" on the Meals
+   tab with the right meal-type label (Breakfast/Lunch/Dinner/Snack) and the right
+   ingredients each, and the app returns to the Meals menu screen.
+6. **Regression check — editing an existing meal:** tap "Edit" on any saved meal.
+   Confirm there's **no** staging UI at all (no "+ Add another meal," no staged
+   list) — editing stays single-meal, exactly as before.
+7. **Both looks** — Settings → Appearance → Dark and back, run through step 1–2
+   again in each to confirm the staged-meal cards render correctly (they reuse the
+   same styling as the existing "Total" card).
 
 Unchanged and worth confirming nothing regressed: photo and dictation meal entry,
-the Quick entry sliders, Insights charts, supplements.
+single-meal builds without ever tapping "Add another meal," the Quick entry
+sliders, Insights charts, supplements.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -531,16 +544,18 @@ Data issues found, **left for Immanuel to decide** (the app is not wrong, the ro
 - **Phase F — easier meal & ingredient entry** (plan approved 2026-08-05, full detail at
   `~/.claude/plans/lets-add-some-adaptations-clever-blum.md`):
   - ~~F-1: multi-day dictation + photo/text date-time accuracy fixes~~ ✅ (above).
-  - ~~F-2: ingredient database + tap-to-build meal builder~~ ✅ (above) — built and
-    verified live in this session; **not yet phone-verified**, see "Check on your
+  - ~~F-2: ingredient database + tap-to-build meal builder~~ ✅ (above) — built,
+    verified live, and since exercised in real use (the duplicate-`foods`-row bug
+    and the dictation-vs-photo backlog item above were both found through it).
+  - ~~F-3: multi-meal build session~~ ✅ (2026-08-15) — "+ Add another meal" in
+    `MealBuilder` stages the in-progress meal and advances breakfast → lunch →
+    dinner → snack without leaving the builder; staged cards are tap-to-edit or
+    removable; one "Save all" batch-writes everything via the existing
+    `saveBuiltMeal`. Create-mode only — editing an existing meal is unchanged. Built
+    and verified live in the Browser pane (staged/edit/remove/save-all/edit-mode-
+    regression all confirmed); **not yet phone-verified**, see "Check on your
     phone" above.
-  - **F-3 (queued next, after F-2 is phone-verified): multi-meal build session**
-    (breakfast → lunch → dinner without leaving the builder, then one combined
-    review). Schema already supports it — `meals` rows are independent — so this is
-    purely `MealBuilder` state: a "Save & start the next meal" button that keeps
-    the date and advances the slot. Deliberately deferred until single-meal
-    building is proven on a phone.
-  - F-4: barcode scanner + Open Food Facts lookup for packaged food. New camera-stream
+  - F-4 (next up): barcode scanner + Open Food Facts lookup for packaged food. New camera-stream
     dependency (first `getUserMedia` in the app) + a third-party network call.
     `foods.barcode`/`foods.brand` already exist from F-2, so this is a write path
     plus one component, not another schema change.
@@ -562,31 +577,26 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for the metric-scale fix** (checklist above) —
-then back to Phase F-2's own phone checklist (see git history for it) and Phase F-3.
-
-**Waiting on Immanuel's phone report for Phase F-2** (tap-to-build meal builder —
-checklist above). It's built, typechecked, and verified live in the Browser pane
-against the real Anthropic API (not just seeded data), but never on a real touchscreen
-against organically-entered data — that's the one gap only his phone can close, same
+**Waiting on Immanuel's phone report for Phase F-3** (multi-meal build session —
+checklist above). Built, typechecked, and verified live in the Browser pane
+(stage/edit/remove/save-all, plus the edit-mode-unchanged regression check), but
+never on a real touchscreen — that's the one gap only his phone can close, same
 pattern as every prior phase.
 
 Once that comes back and anything broken is fixed:
-1. **Start Phase F-3** — multi-meal build session. Small relative to F-2; see the
-   "Not started" entry above for the shape.
-2. ~~Investigate the dictation-vs-photo accuracy backlog item~~ ✅ (2026-08-15,
-   above) — root-caused against a real Cronometer meal. The tap-builder's part was
-   a genuine bug (duplicate `foods` rows, now auto-merged); photo/dictation's gap
-   vs. Cronometer is a generic-estimate-vs-branded-database ceiling, not a bug.
-3. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
+1. **Start Phase F-4** — barcode scanner + Open Food Facts lookup. See the "Not
+   started" entry above for the shape; this is materially bigger than F-3 (first
+   camera-stream code in the app), so treat it as its own multi-step iteration
+   rather than a quick follow-on.
+2. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
    not scheduled):
    - A supplement's label photo is stored but never read — wire a vision call
      (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
    - Adding a supplement doesn't create an `events` row, so it draws no reference
      line on Insights charts.
-4. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
+3. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
    log sliders, day-strip swipe, time-of-day segments, sleep, single events) — lower
-   priority than F-3/F-4 unless Immanuel specifically asks for it.
+   priority than F-4 unless Immanuel specifically asks for it.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
