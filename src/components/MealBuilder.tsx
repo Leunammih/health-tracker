@@ -12,6 +12,7 @@ import { foodUsageForSlot, saveBuiltMeal, updateBuiltMeal, updateFood, loggedDat
 import { analyseMealText, describeFoods } from '../ai/anthropic'
 import { todayISO, daysAgoISO, dateSpine, nowTime } from '../lib/dates'
 import { mealTypeForHour } from '../lib/mealPatterns'
+import { uid } from '../lib/id'
 import type { Food, MealAnalysis, MealType } from '../types'
 
 const MEAL_TYPES: { value: MealType; label: string }[] = [
@@ -20,6 +21,23 @@ const MEAL_TYPES: { value: MealType; label: string }[] = [
   { value: 'dinner', label: 'Dinner' },
   { value: 'snack', label: 'Snack' },
 ]
+
+const MEAL_ORDER: MealType[] = ['breakfast', 'lunch', 'dinner', 'snack']
+function nextSlot(current: MealType): MealType {
+  return MEAL_ORDER[(MEAL_ORDER.indexOf(current) + 1) % MEAL_ORDER.length]
+}
+
+// A meal staged mid-session by "+ Add another meal" — held in local state only,
+// written to the DB in one batch when the whole session is saved.
+interface StagedMeal {
+  key: string
+  date: string
+  mealType: MealType
+  time: string | null
+  items: BuildItem[]
+  name: string
+  analysis: MealAnalysis
+}
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -54,6 +72,7 @@ export default function MealBuilder({
   const [foodsVersion, setFoodsVersion] = useState(0)
   const [claudeRefined, setClaudeRefined] = useState<MealAnalysis | null>(null)
   const [useClaude, setUseClaude] = useState(false)
+  const [staged, setStaged] = useState<StagedMeal[]>([])
 
   const days = useMemo(() => dateSpine(daysAgoISO(13)), [])
   const marked = useMemo(() => loggedDates(daysAgoISO(13)), [])
@@ -176,21 +195,70 @@ export default function MealBuilder({
     return i.prep ? `${Math.round(grams)} g, ${i.prep}` : `${Math.round(grams)} g`
   }
 
-  async function save() {
+  function finalizeAnalysis(): MealAnalysis {
+    const finalName = name.trim() || autoName(items) || 'Meal'
+    return useClaude && claudeRefined
+      ? { ...claudeRefined, name: finalName, meal_type: slot }
+      : buildToAnalysis(items, finalName, slot)
+  }
+
+  // Queues the meal in progress and resets the card for the next one (same day,
+  // next slot in the breakfast->lunch->dinner->snack cycle). Create-mode only —
+  // edit mode never stages, it always saves the single meal being edited.
+  function stageAndContinue() {
     if (!items.length) return
+    setStaged((prev) => [...prev, { key: uid(), date, mealType: slot, time, items, name, analysis: finalizeAnalysis() }])
+    setItems([])
+    setName('')
+    setNameTouched(false)
+    setClaudeRefined(null)
+    setUseClaude(false)
+    setTime(null)
+    setSlot(nextSlot(slot))
+  }
+
+  // Pulls a staged meal back into the editor. Whatever's currently in progress
+  // (if anything) gets staged in its place, so nothing is silently lost.
+  function editStaged(key: string) {
+    const target = staged.find((s) => s.key === key)
+    if (!target) return
+    setStaged((prev) => {
+      const rest = prev.filter((s) => s.key !== key)
+      return items.length
+        ? [...rest, { key: uid(), date, mealType: slot, time, items, name, analysis: finalizeAnalysis() }]
+        : rest
+    })
+    setDate(target.date)
+    setSlot(target.mealType)
+    setTime(target.time)
+    setItems(target.items)
+    setName(target.name)
+    setNameTouched(!!target.name)
+    setClaudeRefined(null)
+    setUseClaude(false)
+  }
+
+  function removeStaged(key: string) {
+    setStaged((prev) => prev.filter((s) => s.key !== key))
+  }
+
+  async function save() {
+    if (!items.length && !staged.length) return
     setBusy('saving')
     setError(null)
     try {
-      const finalName = name.trim() || autoName(items) || 'Meal'
-      const analysis: MealAnalysis =
-        useClaude && claudeRefined ? { ...claudeRefined, name: finalName, meal_type: slot } : buildToAnalysis(items, finalName, slot)
       if (mealId) {
-        await updateBuiltMeal(mealId, analysis, items, date, time, photoPath, null)
+        await updateBuiltMeal(mealId, finalizeAnalysis(), items, date, time, photoPath, null)
         onSaved('Meal updated.')
-      } else {
-        await saveBuiltMeal(analysis, items, date, time ?? nowTime(), null)
-        onSaved('Meal saved.')
+        return
       }
+      const toSave: StagedMeal[] = items.length
+        ? [...staged, { key: '', date, mealType: slot, time, items, name, analysis: finalizeAnalysis() }]
+        : staged
+      for (const m of toSave) {
+        await saveBuiltMeal(m.analysis, m.items, m.date, m.time ?? nowTime(), null)
+      }
+      onSaved(toSave.length > 1 ? `${toSave.length} meals saved.` : 'Meal saved.')
     } catch (e) {
       setError(msg(e))
     } finally {
@@ -235,6 +303,30 @@ export default function MealBuilder({
           </button>
         )}
       </div>
+
+      {!mealId && staged.length > 0 && (
+        <div className="space-y-2">
+          <div className="label">Staged this session</div>
+          <div className="space-y-1.5">
+            {staged.map((m) => (
+              <div
+                key={m.key}
+                className="flex items-center justify-between rounded-xl border border-ink-700 bg-ink-800 px-3 py-2"
+              >
+                <button type="button" className="flex-1 text-left" onClick={() => editStaged(m.key)}>
+                  <span className="text-sm text-cream">
+                    {MEAL_TYPES.find((t) => t.value === m.mealType)?.label}: {m.name || autoName(m.items)}
+                  </span>
+                  <span className="ml-2 text-xs text-ink-400">{m.analysis.calories} kcal</span>
+                </button>
+                <button type="button" className="px-2 text-ink-400" onClick={() => removeStaged(m.key)}>
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {items.length > 0 && (
         <div className="space-y-2">
@@ -333,9 +425,25 @@ export default function MealBuilder({
         />
       </div>
 
+      {!mealId && items.length > 0 && (
+        <button type="button" className="btn-ghost w-full" disabled={busy !== null} onClick={stageAndContinue}>
+          + Add another meal ({MEAL_TYPES.find((t) => t.value === nextSlot(slot))?.label} next)
+        </button>
+      )}
+
       <div className="flex gap-2">
-        <button className="btn-primary flex-1" disabled={busy === 'saving' || items.length === 0} onClick={() => void save()}>
-          {busy === 'saving' ? 'Saving…' : mealId ? 'Save changes' : 'Save meal'}
+        <button
+          className="btn-primary flex-1"
+          disabled={busy === 'saving' || (items.length === 0 && staged.length === 0)}
+          onClick={() => void save()}
+        >
+          {busy === 'saving'
+            ? 'Saving…'
+            : mealId
+              ? 'Save changes'
+              : staged.length > 0
+                ? `Save all (${staged.length + (items.length ? 1 : 0)})`
+                : 'Save meal'}
         </button>
         <button className="btn-ghost" onClick={onCancel}>
           Cancel
