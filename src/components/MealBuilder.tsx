@@ -265,7 +265,13 @@ export default function MealBuilder({
       )}
 
       {items.length > 0 && (
-        <div className="sticky bottom-0 -mx-4 border-t border-ink-700 bg-ink-800 px-4 py-3">
+        // Deliberately NOT sticky: a sticky bar still occupies its normal-flow slot
+        // but paints at a different screen position once "stuck", so with only a
+        // couple of ingredients (barely any scroll room) it locks almost
+        // immediately and visually covers whatever's still scrolling up behind it —
+        // in practice, the "Fill in the missing" button and the new-ingredient
+        // field just above it, which then look like they've vanished.
+        <div className="rounded-xl border border-ink-700 bg-ink-800 px-4 py-3">
           <div className="flex items-baseline justify-between">
             <span className="text-sm text-ink-300">Total</span>
             <span className="font-serif text-xl text-cream">
