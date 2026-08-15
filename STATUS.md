@@ -405,42 +405,65 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   track at all. Plus a per-row **✕ hide** with a Hidden/restore section, persisted
   in the DB `meta` table so it syncs across devices.
 
+- **Meal-logging discrepancy vs. Cronometer, root-caused** (2026-08-15) — compared
+  a real Cronometer-logged lunch (4 eggs, FLIK carrots, broccoli raab, feta — 816.5
+  kcal / 61.1g protein, from four brand/NCCDB-verified products) against the same
+  meal entered all three ways in-app:
+  - **Photo** (790 kcal / P45): close on calories, protein 26% low — a single-image
+    vision estimate can't verify exact quantities or brand-specific density (generic
+    "broccoli" vs. the specific low-cal "broccoli raab"); inherent to photo estimation,
+    not a bug.
+  - **Dictation** (920 kcal / P50 / F68): overshoots mainly because the user
+    mentioned "olive oil and balsamic dressing" with no quantity, and the model
+    estimated 1.5 tbsp/1 tbsp for them (~137 kcal, ~20g fat) instead of asking —
+    `mealSystemPrompt` already says to raise a clarifying question when a hidden/
+    unquantified ingredient materially affects the estimate; it didn't here. Left
+    as-is for now (see decision below).
+  - **Tap-builder "usual ingredients"** (909 kcal, later corrected) — this one
+    *was* a bug, not an estimation gap: the ingredient grid had two separate `foods`
+    rows both named "carrot" (`Carrot` and `carrot`), so tapping both chips double-
+    counted the same real ingredient with no warning. Root cause: `name_key`
+    deliberately has no unique DB index (a Dropbox multi-device merge can produce
+    exactly this), and nothing ever re-swept existing duplicates — the app only
+    prevented *new* ones via `findFoodByKey`.
+  - **Fixed**: [`src/lib/foodDedupe.ts`](src/lib/foodDedupe.ts) — `dedupeFoods()`
+    groups all foods by `name_key`, keeps the best row (has real macros > higher
+    `seed_count` > older), and merges the rest into it via the existing
+    `mergeFoods()` (remaps any `meal_items.food_id`, sums usage). Runs on every
+    Nutrition-tab mount (not gated one-time, since sync can reintroduce a dup),
+    right after `ensureFoodSeed()`. Verified in the dev DB: seeded a duplicate pair
+    with a `meal_items` row pointing at the loser, reloaded, confirmed one row
+    survives with summed `seed_count` and the meal_item's `food_id` remapped.
+  - **Not fixed, and not a code bug**: the generic-nutrition-lookup vs. Cronometer's
+    verified branded database will never match exactly on any of the three entry
+    paths — `foodProfileSystemPrompt` deliberately gives generic USDA-style values,
+    Cronometer's 816.5 kcal came from four specific verified products. This is a
+    ceiling on accuracy, not something to chase further without a real food
+    database behind the app.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for the metric-scale fix. Open
+_Replaced each iteration — this is the list for the duplicate-food-merge fix. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build. No schema change, no data touched._
+service worker picks up the new build. No schema change; existing data is only
+ever merged (never deleted outright — the loser's usage folds into the winner)._
 
-**The bug:** ad-hoc metrics that dictation invented (muscle soreness, muscle
-stiffness, brain clarity) were falling through to a "minutes, 0–180" slider,
-because minutes used to be the catch-all for any name the registry didn't know.
-Supplements were showing up as sliders too — a supplement is not a 0–10 question.
+**The bug:** your "usual ingredients" grid (Meals → tap-builder) had two separate
+chips both reading "carrot" (`Carrot` and `carrot`) — tapping both added the same
+ingredient twice with no warning, which is what inflated that lunch to 909 kcal.
 
-1. **Log tab → Quick entry.** The rows that showed **"0 min"** in your screenshot —
-   Muscle Soreness, Muscle Stiffness, Brain Clarity — should now read **"/10"**
-   with a slider that runs 0–10, and sit under sensible headings: soreness and
-   stiffness under **Health & pain**, brain clarity under **Wellbeing**.
-2. **Digestive Enzymes should be gone from Quick entry entirely.** It should still
-   be there in the **Supplements** card further down the same tab, with its
-   check-in — that's where it belongs. Same for any other supplement.
-3. **Kite Surfing should still be in minutes**, under Movement — it's a duration,
-   not an intensity. If you'd rather rate it 0–10 instead, say so, it's one line.
-4. **No values were clamped after all.** Checked against the real synced database:
-   every value you'd entered on the old minutes sliders was already in the 0–10
-   range (soreness max 4, stiffness max 7, brain clarity max 5), so nothing was
-   truncated and nothing needs re-entering. The clamp stays in as a guard.
-5. **New ✕ button on every row.** Tap it on anything that shouldn't be a slider at
-   all — the row disappears and a **Hidden** section appears at the bottom of Quick
-   entry. Tap the name there (with the ↩) to bring it back. **Nothing is deleted**;
-   this only controls what's offered. It's stored in the database, not the browser,
-   so a row you hide on the phone stays hidden on the laptop after a sync.
-6. **Insights tab.** Under the charts: **"Brain clarity (/10)"**, not "(min)". No
-   "Digestive Enzymes" chart at all any more. The pain chart will still show the
-   old 45/60 soreness values until you re-set them per step 4.
-7. **Both looks** — Settings → Appearance → Dark and back; check the new ✕ button
-   and the Hidden chips in both.
+1. **Open Meals → tap-to-build** (pick any day/slot) and look at "Your usual for
+   this meal." You should now see only **one** carrot chip, not two — the app
+   silently merges duplicates like this every time this tab loads.
+2. **Rebuild that lunch** (4 boiled eggs, 150g feta, 150g broccoli, 100g carrot,
+   olive oil, balsamic) and confirm the total no longer double-counts the carrot.
+3. **Nothing else changes** — existing saved meals, their macros, and their
+   ingredient lists are untouched; only the `foods` reference table (the picker/
+   grid) was cleaned up.
+4. **Both looks** — Settings → Appearance → Dark and back, open the tap-builder in
+   each, confirm the grid still looks right.
 
-Unchanged and worth confirming nothing regressed: Energy / Mood / Stress sliders,
-the Quick log "+5 min" chips, the Add row, sleep, supplements, meals.
+Unchanged and worth confirming nothing regressed: photo and dictation meal entry,
+the Quick entry sliders, Insights charts, supplements.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -551,8 +574,10 @@ pattern as every prior phase.
 Once that comes back and anything broken is fixed:
 1. **Start Phase F-3** — multi-meal build session. Small relative to F-2; see the
    "Not started" entry above for the shape.
-2. Investigate the dictation-vs-photo accuracy backlog item, now that the builder
-   gives a third, non-AI-estimated way to log common meals for comparison.
+2. ~~Investigate the dictation-vs-photo accuracy backlog item~~ ✅ (2026-08-15,
+   above) — root-caused against a real Cronometer meal. The tap-builder's part was
+   a genuine bug (duplicate `foods` rows, now auto-merged); photo/dictation's gap
+   vs. Cronometer is a generic-estimate-vs-branded-database ceiling, not a bug.
 3. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
    not scheduled):
    - A supplement's label photo is stored but never read — wire a vision call
