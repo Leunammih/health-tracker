@@ -12,6 +12,7 @@ import MealBuilder from '../components/MealBuilder'
 import { loadGoals, hasAnyGoal, totalsFor } from '../lib/goals'
 import { mealToAnalysis } from '../lib/meals'
 import { ensureFoodSeed } from '../lib/foodSeed'
+import { dedupeFoods } from '../lib/foodDedupe'
 import { builderInitFromMeal, type BuilderInit } from '../lib/mealBuild'
 import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
 
@@ -68,8 +69,11 @@ export default function NutritionTab() {
   // the tap-to-build ingredient grid has something to rank on the first time it's
   // opened. Runs on mount here (not in App.tsx's boot effect) so it happens after
   // initDb + any Dropbox pull have already settled, not racing them.
+  // dedupeFoods() is NOT one-time — a Dropbox merge can reintroduce a same-food
+  // duplicate on any later mount, so this re-scans every time (cheap: one SELECT
+  // over a few dozen rows, writes only when it actually finds a group to merge).
   useEffect(() => {
-    void ensureFoodSeed()
+    void ensureFoodSeed().then(() => dedupeFoods())
   }, [])
 
   const meals = useMemo(() => recentMeals(10), [refreshKey, phase])
