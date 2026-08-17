@@ -442,7 +442,21 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     database behind the app.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for F-3, multi-meal build session. Open
+**Phone-verified 2026-08-17: all of F-3 confirmed working** (stage/edit/remove/
+save-all, edit-mode unchanged, both looks). One real issue was flagged and fixed
+in the same session: tapping an ingredient in the "More…" picker (Meals → Build
+from ingredients → Your usual for this meal → More…) gave no visible feedback,
+even though it was correctly added — the picker's rows had no active-tap state
+and no added/count indicator, unlike the main "usual ingredients" grid. Fixed by
+wiring the same `counts` map into `FoodPickerSheet` so picker rows now get
+identical treatment: `active:scale` tap animation, a persistent brand-tinted
+highlight once added, and a running ×N count (`src/components/FoodPickerSheet.tsx`,
+`src/components/MealBuilder.tsx`). Verified live in the Browser pane (Avocado
+×1 → ×2, highlight persists, grid behind the sheet stays in sync); not yet
+re-confirmed on the phone specifically for this fix, but it's the same pattern
+as the already-verified grid, low risk.
+
+_Older checklist below, replaced next iteration — kept for reference. Open
 https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
 service worker picks up the new build. No schema change — this is new UI state in
 the tap-to-build meal builder only._
@@ -547,18 +561,47 @@ Data issues found, **left for Immanuel to decide** (the app is not wrong, the ro
   - ~~F-2: ingredient database + tap-to-build meal builder~~ ✅ (above) — built,
     verified live, and since exercised in real use (the duplicate-`foods`-row bug
     and the dictation-vs-photo backlog item above were both found through it).
-  - ~~F-3: multi-meal build session~~ ✅ (2026-08-15) — "+ Add another meal" in
-    `MealBuilder` stages the in-progress meal and advances breakfast → lunch →
-    dinner → snack without leaving the builder; staged cards are tap-to-edit or
-    removable; one "Save all" batch-writes everything via the existing
-    `saveBuiltMeal`. Create-mode only — editing an existing meal is unchanged. Built
-    and verified live in the Browser pane (staged/edit/remove/save-all/edit-mode-
-    regression all confirmed); **not yet phone-verified**, see "Check on your
-    phone" above.
-  - F-4 (next up): barcode scanner + Open Food Facts lookup for packaged food. New camera-stream
-    dependency (first `getUserMedia` in the app) + a third-party network call.
-    `foods.barcode`/`foods.brand` already exist from F-2, so this is a write path
-    plus one component, not another schema change.
+  - ~~F-3: multi-meal build session~~ ✅ (2026-08-15, **phone-verified 2026-08-17**)
+    — "+ Add another meal" in `MealBuilder` stages the in-progress meal and
+    advances breakfast → lunch → dinner → snack without leaving the builder;
+    staged cards are tap-to-edit or removable; one "Save all" batch-writes
+    everything via the existing `saveBuiltMeal`. Create-mode only — editing an
+    existing meal is unchanged. Phone report also caught a small polish bug in
+    the same screen (fixed same session, see "Check on your phone" above): the
+    "More…" ingredient picker gave no tap feedback.
+  - **F-4 (up next, in a new chat per Immanuel — this session's context won't
+    carry over): barcode scanner + Open Food Facts lookup for packaged food.**
+    This is Phase F's last iteration — once it ships, Phase F is complete (same
+    as Phases A–E). Full spec already written at
+    `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 4"
+    — read that before starting. Summary of what's still missing (schema is
+    already done, from F-2):
+    - **No barcode-decoding capability yet.** Nothing in `package.json` reads a
+      barcode — no `BarcodeDetector` usage either, and that Web API isn't
+      reliably available on iOS Safari anyway (this is an iPhone-first PWA).
+      The plan calls for adding `zxing-wasm` as a new dependency — smallest WASM
+      lib that handles EAN-13 reliably.
+    - **No live camera stream in the app at all.** Every existing photo path
+      (`SupplementsCard.tsx`, `NutritionTab.tsx` ×2) uses
+      `<input type="file" capture="environment">`, which hands off to the OS
+      camera app for a single snapshot — genuinely different from a live
+      `getUserMedia` video feed with a real-time decode loop, which barcode
+      scanning needs. This means new permission-handling and UI (a scanning
+      overlay/viewfinder) with no existing component to copy from directly.
+    - **No Open Food Facts integration.** The app's only existing outbound
+      calls are to Anthropic and Dropbox. New: `fetch` to
+      `https://world.openfoodfacts.org/api/v2/product/<ean>` (free, no key,
+      CORS-enabled), mapping its `nutriments` object to the app's per-100g
+      shape, `upsertFood` with `source='off'` + `brand` + `barcode`.
+    - **Not-found fallback**, per the plan: when OFF has no match for a scanned
+      code, fall back to the *existing* photograph-the-label vision path rather
+      than a dead end — that part is already built and just needs wiring in.
+    - **One documentation item:** the plan flags that this is the first
+      third-party network call besides Anthropic/Dropbox (sends the barcode
+      number, not health data) — note that in the README's privacy line.
+    - Everything else (schema, `foods.barcode`/`brand` columns + index, the
+      write path in `queries.ts`) is already in place from F-2 — F-4 is UI +
+      one new dependency + one new fetch call, not a data-model change.
 - **Backlog (flagged 2026-08-05, not yet scoped):** dictation-path and photo-path
   macro estimates disagree noticeably for what should be comparable meals. Both call
   the same `mealSystemPrompt()` / `MEAL_TOOL`, so the divergence is presumably about
@@ -577,24 +620,29 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for Phase F-3** (multi-meal build session —
-checklist above). Built, typechecked, and verified live in the Browser pane
-(stage/edit/remove/save-all, plus the edit-mode-unchanged regression check), but
-never on a real touchscreen — that's the one gap only his phone can close, same
-pattern as every prior phase.
+**Phase F-3 is done and phone-verified (2026-08-17)**, including a same-session
+fix for the "More…" picker tap-feedback bug it surfaced. Immanuel is starting
+**Phase F-4 (barcode scanner) in a fresh chat**, so pick up there next:
 
-Once that comes back and anything broken is fixed:
-1. **Start Phase F-4** — barcode scanner + Open Food Facts lookup. See the "Not
-   started" entry above for the shape; this is materially bigger than F-3 (first
-   camera-stream code in the app), so treat it as its own multi-step iteration
-   rather than a quick follow-on.
-2. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
+1. **Start Phase F-4** — barcode scanner + Open Food Facts lookup, the last
+   iteration in Phase F. Full spec at
+   `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 4";
+   summary of what's missing (schema's already done) is in the Phase F bullet
+   above — new `zxing-wasm` dependency, first `getUserMedia` camera stream in the
+   app (no existing component to copy — every current photo path uses
+   `<input capture>`, a single OS-camera snapshot, not a live decode loop), a new
+   Open Food Facts `fetch` + nutriment mapping, fallback to the existing
+   photograph-the-label vision path when a barcode isn't found, and a README
+   privacy-line note (first third-party call besides Anthropic/Dropbox). Bigger
+   than F-1–F-3 — treat it as its own multi-step iteration.
+2. Once F-4 ships and is phone-verified, **Phase F is complete.**
+3. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
    not scheduled):
    - A supplement's label photo is stored but never read — wire a vision call
      (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
    - Adding a supplement doesn't create an `events` row, so it draws no reference
      line on Insights charts.
-3. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
+4. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
    log sliders, day-strip swipe, time-of-day segments, sleep, single events) — lower
    priority than F-4 unless Immanuel specifically asks for it.
 
