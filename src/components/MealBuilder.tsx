@@ -5,7 +5,7 @@ import BuildItemRow from './BuildItemRow'
 import NewIngredientField from './NewIngredientField'
 import FoodPickerSheet from './FoodPickerSheet'
 import {
-  buildTotals, buildToAnalysis, autoName, unknownCount, newBuildItem, type BuildItem, type BuilderInit,
+  buildTotals, buildToAnalysis, autoName, unknownCount, newBuildItem, newBuildItemGrams, type BuildItem, type BuilderInit,
 } from '../lib/mealBuild'
 import { rankFoodsForSlot, FOOD_LOOKBACK_DAYS, SLOT_GRID_SIZE } from '../lib/foodPatterns'
 import { foodUsageForSlot, saveBuiltMeal, updateBuiltMeal, updateFood, loggedDates } from '../db/queries'
@@ -116,6 +116,14 @@ export default function MealBuilder({
       if (prev.some((i) => i.foodId === food.id)) return prev // already added in grams mode
       return [...prev, newBuildItem(food)]
     })
+  }
+
+  // A scanned packaged product is weighed, not tapped-to-count, and each scan is
+  // its own row — deliberately not addFood's servings-increment dedup, which
+  // would be wrong for a weighed item (bumping "servings" on a gram amount makes
+  // no sense).
+  function addScannedFood(food: Food, grams: number) {
+    mutateItems((prev) => [...prev, newBuildItemGrams(food, grams)])
   }
 
   function patchItem(key: string, patch: Partial<BuildItem>) {
@@ -346,6 +354,7 @@ export default function MealBuilder({
 
       <NewIngredientField
         onAdd={addFood}
+        onAddScanned={addScannedFood}
         onCreated={() => setFoodsVersion((v) => v + 1)}
         showExamples={grid.length === 0 && items.length === 0}
       />

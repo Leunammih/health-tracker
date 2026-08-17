@@ -9,12 +9,13 @@ import { IconCamera, IconMic, IconMeal } from '../components/icons'
 import GoalProgress from '../components/GoalProgress'
 import QuickAddMeals from '../components/QuickAddMeals'
 import MealBuilder from '../components/MealBuilder'
+import BarcodeScanSheet from '../components/BarcodeScanSheet'
 import { loadGoals, hasAnyGoal, totalsFor } from '../lib/goals'
 import { mealToAnalysis } from '../lib/meals'
 import { ensureFoodSeed } from '../lib/foodSeed'
 import { dedupeFoods } from '../lib/foodDedupe'
 import { builderInitFromMeal, type BuilderInit } from '../lib/mealBuild'
-import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem } from '../types'
+import type { MealAnalysis, Ingredient, Meal, MealType, MultiMealItem, Food } from '../types'
 
 type Phase = 'input' | 'analysing' | 'review' | 'multiReview' | 'build'
 type CaptureMode = 'choose' | 'text'
@@ -32,6 +33,15 @@ const MEAL_TYPES: { value: MealType; label: string }[] = [
 ]
 function mealTypeLabel(t: string | null): string {
   return MEAL_TYPES.find((m) => m.value === t)?.label ?? ''
+}
+
+// A barcode-scanned ingredient carries exact label numbers (see
+// updateIngredient's neighbours, ingredientFromScan) — render those inline so
+// reEstimate's hint can tell Claude which lines to trust as-is.
+function describeIngredientForHint(i: Ingredient): string {
+  const base = `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`
+  if (!i.barcode || i.calories == null) return base
+  return `${base} — ${i.calories} kcal, P${i.protein_g ?? 0} F${i.fat_g ?? 0} C${i.carbs_g ?? 0} (from product label)`
 }
 
 export default function NutritionTab() {
@@ -57,6 +67,9 @@ export default function NutritionTab() {
   const [existingPhotoPath, setExistingPhotoPath] = useState<string | null>(null)
   const [entryTime, setEntryTime] = useState<string | null>(null)
   const [ingredientsDirty, setIngredientsDirty] = useState(false)
+  // Which ingredient row a barcode scan should apply to when it resolves —
+  // a row index to replace that ingredient, or 'new' to append one.
+  const [barcodeTarget, setBarcodeTarget] = useState<number | 'new' | null>(null)
 
   // Tap-to-build state. builderMealId set (non-null) means the builder is editing
   // an existing meal rather than creating a new one — separate from `editingId`,
@@ -206,7 +219,13 @@ export default function NutritionTab() {
       if (ings.length) {
         parts.push(
           'Corrected ingredient list (treat as authoritative): ' +
-            ings.map((i) => `${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join(', '),
+            ings.map(describeIngredientForHint).join(', '),
+        )
+      }
+      if (ings.some((i) => i.barcode)) {
+        parts.push(
+          "Lines marked '(from product label)' are measured, not estimated — use those numbers " +
+            'exactly, do not re-estimate them, and estimate only the remaining ingredients before summing.',
         )
       }
       if (extraItems.trim()) parts.push(`Also eaten, not previously mentioned: ${extraItems.trim()}`)
@@ -347,6 +366,39 @@ export default function NutritionTab() {
   }
   function removeIngredient(idx: number) {
     setAnalysis((a) => (a ? { ...a, ingredients: a.ingredients.filter((_, i) => i !== idx) } : a))
+    setIngredientsDirty(true)
+  }
+
+  // A scanned product carries exact label numbers, unlike every other ingredient
+  // here which is macro-less text — see reEstimate()'s hint, which reads these
+  // fields to tell Claude which lines are measured, not estimated.
+  function ingredientFromScan(food: Food, grams: number): Ingredient {
+    const factor = grams / 100
+    const round1 = (n: number) => Math.round(n * 10) / 10
+    return {
+      name: food.brand ? `${food.name} (${food.brand})` : food.name,
+      quantity: `${Math.round(grams)} g`,
+      barcode: food.barcode ?? undefined,
+      brand: food.brand ?? undefined,
+      grams,
+      calories: food.kcal_100g != null ? Math.round(food.kcal_100g * factor) : undefined,
+      protein_g: food.protein_100g != null ? round1(food.protein_100g * factor) : undefined,
+      fat_g: food.fat_100g != null ? round1(food.fat_100g * factor) : undefined,
+      carbs_g: food.carbs_100g != null ? round1(food.carbs_100g * factor) : undefined,
+      fiber_g: food.fiber_100g != null ? round1(food.fiber_100g * factor) : undefined,
+    }
+  }
+  function setIngredientFromScan(idx: number, food: Food, grams: number) {
+    const scanned = ingredientFromScan(food, grams)
+    setAnalysis((a) => {
+      if (!a) return a
+      const ingredients = a.ingredients.map((ing, i) => (i === idx ? scanned : ing))
+      return { ...a, ingredients }
+    })
+    setIngredientsDirty(true)
+  }
+  function addIngredientFromScan(food: Food, grams: number) {
+    setAnalysis((a) => (a ? { ...a, ingredients: [...a.ingredients, ingredientFromScan(food, grams)] } : a))
     setIngredientsDirty(true)
   }
 
@@ -589,7 +641,7 @@ export default function NutritionTab() {
               {analysis.ingredients.map((ing, i) => (
                 <div key={i} className="flex items-center gap-1.5">
                   <input
-                    className="field flex-1 !py-1.5"
+                    className={`field flex-1 !py-1.5 ${ing.barcode ? 'text-brand-300' : ''}`}
                     value={ing.name}
                     placeholder="ingredient"
                     onChange={(e) => updateIngredient(i, 'name', e.target.value)}
@@ -601,6 +653,14 @@ export default function NutritionTab() {
                     onChange={(e) => updateIngredient(i, 'quantity', e.target.value)}
                   />
                   <button
+                    className="shrink-0 rounded-lg px-2 py-1 text-ink-400 hover:bg-ink-700 hover:text-cream"
+                    onClick={() => setBarcodeTarget(i)}
+                    aria-label="Replace with a scanned barcode"
+                    title="Replace with a scanned barcode"
+                  >
+                    ⌗
+                  </button>
+                  <button
                     className="shrink-0 rounded-lg px-2 py-1 text-ink-400 hover:bg-ink-700 hover:text-red-400"
                     onClick={() => removeIngredient(i)}
                     aria-label="Remove ingredient"
@@ -610,13 +670,30 @@ export default function NutritionTab() {
                 </div>
               ))}
             </div>
-            <button className="btn-ghost mt-2 !py-1.5 text-sm" onClick={addIngredient}>
-              + Add ingredient
-            </button>
+            <div className="mt-2 flex gap-2">
+              <button className="btn-ghost !py-1.5 text-sm" onClick={addIngredient}>
+                + Add ingredient
+              </button>
+              <button className="btn-ghost !py-1.5 text-sm" onClick={() => setBarcodeTarget('new')}>
+                ⌗ Add via barcode
+              </button>
+            </div>
             <p className="mt-1 text-xs text-ink-400">
-              Tap any field to correct it. Edit the macros above directly, or re-estimate below.
+              Tap any field to correct it, or ⌗ to replace a line with a scanned product's exact
+              numbers. Re-estimate below to fold corrections into the totals.
             </p>
           </div>
+
+          {barcodeTarget !== null && (
+            <BarcodeScanSheet
+              onScanned={({ food, grams }) => {
+                if (barcodeTarget === 'new') addIngredientFromScan(food, grams)
+                else setIngredientFromScan(barcodeTarget, food, grams)
+                setBarcodeTarget(null)
+              }}
+              onClose={() => setBarcodeTarget(null)}
+            />
+          )}
 
           <div>
             <label className="label">Ate something not accounted for above?</label>

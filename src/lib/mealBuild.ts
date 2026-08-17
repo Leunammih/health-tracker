@@ -47,6 +47,26 @@ export function newBuildItem(food: Food): BuildItem {
   }
 }
 
+// A scanned packaged product is weighed, not counted in servings — a barcode
+// scan hands back a gram amount (from the label's serving size or a manual
+// entry), not a "how many" tap count, so this lands in grams mode directly
+// rather than going through newBuildItem's servings-of-1 default.
+export function newBuildItemGrams(food: Food, grams: number): BuildItem {
+  return {
+    key: uid(),
+    foodId: food.id,
+    name: food.name,
+    per100: foodPer100(food),
+    servingG: food.serving_g,
+    servingLabel: food.serving_label,
+    mode: 'grams',
+    servings: 1,
+    grams,
+    prep: null,
+    foodGroups: parseFoodGroups(food.food_groups) ?? null,
+  }
+}
+
 function foodPer100(food: Food): Macros | null {
   if (food.kcal_100g == null) return null
   return {

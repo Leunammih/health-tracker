@@ -373,6 +373,14 @@ export function findFoodByKey(name: string): Food | null {
 export const allFoods = (includeArchived = false) =>
   all<Food>(includeArchived ? 'SELECT * FROM foods ORDER BY name' : 'SELECT * FROM foods WHERE archived = 0 ORDER BY name')
 
+// Barcode-first lookup for the scanner — uses idx_foods_barcode, so a re-scan of
+// an already-known product costs a local read, not another Open Food Facts call.
+export function findFoodByBarcode(barcode: string): Food | null {
+  if (!barcode) return null
+  const rows = all<Food>('SELECT * FROM foods WHERE barcode = ? AND archived = 0 LIMIT 1', [barcode])
+  return rows[0] ?? null
+}
+
 export const foodsByIds = (ids: string[]): Map<string, Food> => {
   if (!ids.length) return new Map()
   const placeholders = ids.map(() => '?').join(',')
@@ -437,9 +445,15 @@ export async function mergeFoods(winnerId: string, loserId: string): Promise<voi
     !winner.seed_last_used || (loser.seed_last_used && loser.seed_last_used > winner.seed_last_used)
       ? loser.seed_last_used
       : winner.seed_last_used
+  // A scan-created loser carries a barcode/brand the winner (typically an older
+  // manual/backfill row) never had — without this, dedupeFoods (which runs on
+  // every Meals-tab mount) would silently delete the barcode on the very next
+  // load, and the next scan would miss the local hit and re-fetch Open Food Facts.
+  const mergedBrand = winner.brand ?? loser.brand
+  const mergedBarcode = winner.barcode ?? loser.barcode
   exec(
-    'UPDATE foods SET seed_count = ?, seed_slots = ?, seed_last_used = ? WHERE id = ?',
-    [winner.seed_count + loser.seed_count, JSON.stringify(mergedSlots), mergedLastUsed, winnerId],
+    'UPDATE foods SET seed_count = ?, seed_slots = ?, seed_last_used = ?, brand = ?, barcode = ? WHERE id = ?',
+    [winner.seed_count + loser.seed_count, JSON.stringify(mergedSlots), mergedLastUsed, mergedBrand, mergedBarcode, winnerId],
   )
   exec('DELETE FROM foods WHERE id = ?', [loserId])
   await persist()

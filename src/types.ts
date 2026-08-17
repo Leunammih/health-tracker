@@ -115,6 +115,17 @@ export interface DayContext {
 export interface Ingredient {
   name: string
   quantity: string
+  // Set only when this line came from a barcode scan (Open Food Facts) — exact
+  // label numbers, not an AI estimate. reEstimate() treats these as authoritative
+  // and asks Claude to estimate only the remaining, un-scanned ingredients.
+  barcode?: string
+  brand?: string
+  grams?: number
+  calories?: number
+  protein_g?: number
+  fat_g?: number
+  carbs_g?: number
+  fiber_g?: number
 }
 
 export interface Meal {

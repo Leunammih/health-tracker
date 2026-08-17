@@ -48,8 +48,9 @@ The app pulls the latest `health.db` on open and pushes changes back after you s
 
 ## Data & privacy
 
-- The Anthropic key and Nextcloud credentials are stored in the device’s `localStorage`.
-- Health data never leaves your device except: the text/photo sent to Anthropic for analysis, and the `health.db` synced to your own Nextcloud.
+- The Anthropic key and Dropbox tokens are stored in the device's `localStorage`.
+- Health data never leaves your device except: the text/photo sent to Anthropic for analysis, and the `health.db` synced to your own Dropbox App folder.
+- Scanning a barcode (Meals tab) sends the scanned barcode number — not health data — to [Open Food Facts](https://world.openfoodfacts.org), a free public product database, to look up label nutrition. This is the app's only other outbound network call besides Anthropic and Dropbox.
 - Export anytime from Settings; the `.db` file opens in any SQLite tool and can be handed to Claude directly.
 
 ## Roadmap

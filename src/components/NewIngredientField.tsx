@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { findFoodByKey, insertFood } from '../db/queries'
 import { describeFoods } from '../ai/anthropic'
+import BarcodeScanSheet from './BarcodeScanSheet'
 import type { Food } from '../types'
 
 const EXAMPLES = ['egg', 'rolled oats', 'banana', 'chicken breast', 'olive oil', 'rice', 'avocado', 'yoghurt']
@@ -11,16 +12,19 @@ const EXAMPLES = ['egg', 'rolled oats', 'banana', 'chicken breast', 'olive oil',
 // new name triggers describeFoods().
 export default function NewIngredientField({
   onAdd,
+  onAddScanned,
   onCreated,
   showExamples,
 }: {
   onAdd: (food: Food) => void
+  onAddScanned: (food: Food, grams: number) => void
   onCreated: () => void
   showExamples?: boolean
 }) {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   async function submit() {
     const trimmed = name.trim()
@@ -80,7 +84,20 @@ export default function NewIngredientField({
           {busy ? '…' : '+ Add'}
         </button>
       </div>
+      <button type="button" className="btn-ghost w-full !py-1.5 text-sm" onClick={() => setScannerOpen(true)}>
+        ⌗ Add via barcode
+      </button>
       {error && <p className="text-xs text-red-300">{error}</p>}
+      {scannerOpen && (
+        <BarcodeScanSheet
+          onScanned={({ food, grams }) => {
+            onAddScanned(food, grams)
+            onCreated()
+            setScannerOpen(false)
+          }}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
       {showExamples && (
         <div className="flex flex-wrap gap-1.5">
           {EXAMPLES.map((ex) => (
