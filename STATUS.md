@@ -442,55 +442,61 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     database behind the app.
 
 ## Check on your phone (current)
-**Phone-verified 2026-08-17: all of F-3 confirmed working** (stage/edit/remove/
-save-all, edit-mode unchanged, both looks). One real issue was flagged and fixed
-in the same session: tapping an ingredient in the "More…" picker (Meals → Build
-from ingredients → Your usual for this meal → More…) gave no visible feedback,
-even though it was correctly added — the picker's rows had no active-tap state
-and no added/count indicator, unlike the main "usual ingredients" grid. Fixed by
-wiring the same `counts` map into `FoodPickerSheet` so picker rows now get
-identical treatment: `active:scale` tap animation, a persistent brand-tinted
-highlight once added, and a running ×N count (`src/components/FoodPickerSheet.tsx`,
-`src/components/MealBuilder.tsx`). Verified live in the Browser pane (Avocado
-×1 → ×2, highlight persists, grid behind the sheet stays in sync); not yet
-re-confirmed on the phone specifically for this fix, but it's the same pattern
-as the already-verified grid, low risk.
+_Replaced each iteration — this is the list for F-4, barcode scanner + Open Food
+Facts. Open https://leunammih.github.io/health-tracker/ and pull down to refresh
+first. No schema change — `foods.barcode`/`brand`/`source='off'` have been ready
+since F-2._
 
-_Older checklist below, replaced next iteration — kept for reference. Open
-https://leunammih.github.io/health-tracker/ and pull down to refresh first, so the
-service worker picks up the new build. No schema change — this is new UI state in
-the tap-to-build meal builder only._
+**What's new:** scan a packaged product's barcode and get its label's exact
+numbers instead of an AI estimate. Three entry points: **Build from
+ingredients** (a new "⌗ Add via barcode" button under "Type an ingredient…"),
+and in the **photo/dictation review card** — a ⌗ button on each ingredient row
+to replace it with a scan, plus an "⌗ Add via barcode" button to append one.
 
-**What's new:** the tap-builder can now chain meals — build breakfast, tap "add
-another meal," it queues breakfast and moves you straight to lunch (same screen, no
-save round-trip), and so on through dinner and a snack. One "Save all" at the end
-writes everything.
+Everything except the **live camera** was already verified in the Browser pane
+(camera access isn't available there) against the real Open Food Facts API —
+manual barcode entry, the grams/kcal math, the local-barcode-index reuse on a
+re-scan, the not-found fallback, and the review-card wiring. **The camera path
+is the one thing only your phone can confirm**, so start there.
 
-1. **Open Meals → Build from ingredients**, pick today. Tap a couple of "usual"
-   ingredients for Breakfast, then tap **"+ Add another meal (Lunch next)"** near
-   the bottom. Confirm: a "Staged this session" card appears showing "Breakfast:
-   <name> · N kcal", the ingredient list clears, and the Meal chips switch to
-   Lunch.
-2. **Repeat for Lunch → Dinner → Snack** — confirm the staged list grows (one card
-   per meal) and each "+ Add another meal" button names the *next* slot correctly,
-   wrapping back to Breakfast after Snack if you keep going.
-3. **Tap one of the staged cards** (not the active meal) — confirm it swaps back
-   into the editor with its ingredients/name, and whatever you'd been actively
-   building moves into the staged list in its place (nothing is lost).
-4. **Remove a staged card** via the ✕ — confirm it drops out of the list.
-5. **Tap "Save all (N)"** — confirm all N meals land in "Recent Meals" on the Meals
-   tab with the right meal-type label (Breakfast/Lunch/Dinner/Snack) and the right
-   ingredients each, and the app returns to the Meals menu screen.
-6. **Regression check — editing an existing meal:** tap "Edit" on any saved meal.
-   Confirm there's **no** staging UI at all (no "+ Add another meal," no staged
-   list) — editing stays single-meal, exactly as before.
-7. **Both looks** — Settings → Appearance → Dark and back, run through step 1–2
-   again in each to confirm the staged-meal cards render correctly (they reuse the
-   same styling as the existing "Total" card).
+1. **Meals → Build from ingredients → "⌗ Add via barcode"** (right under "Type
+   an ingredient…"). The sheet should ask for camera permission and show a live
+   viewfinder. Point it at any packaged food's barcode (a cereal box, a jar, a
+   protein bar — anything with a normal EAN/UPC barcode). It should recognise it
+   within a second or two without you tapping anything, then show the product
+   name, brand, and kcal/100g pulled from Open Food Facts.
+2. Adjust the **grams** field — confirm the "= N kcal" readout updates live —
+   then tap **Add**. The item should land in the ingredient list already in
+   **grams mode** (a "g" / "Use servings" toggle, not a tap-count), with the
+   meal's Total updating to match.
+3. **Scan the same product again** (either via "⌗ Add via barcode" again, or the
+   picker) — it should resolve **instantly**, with no delay, since it's now
+   reading from the app's own list rather than asking Open Food Facts again.
+4. **Camera fallback:** tap "Scan from a photo instead" and photograph a
+   barcode with your camera roll/native camera — confirm it decodes the same
+   way. Then try **typing a barcode number** by hand (any digits on a real
+   package) to confirm that path still works too.
+5. **Photo/dictation path:** dictate or photograph a meal as usual, get to the
+   review card, and confirm each ingredient row now has a small **⌗** button
+   next to the ✕. Tap it on one row, scan a real product — the row should
+   rewrite itself with the product name/grams in an orange-tinted color, and a
+   **"Re-estimate from edits, extra items & answers"** button should appear
+   (it may not have been visible before). Tap **"⌗ Add via barcode"** below the
+   ingredient list too, to confirm it appends a new row the same way.
+6. **Tap Re-estimate** on that review card (needs your Anthropic key configured,
+   which it already is on the deployed app) — confirm the totals update to
+   reflect the scanned item's exact numbers rather than a rough guess.
+7. **Not-found case:** if you have any barcode Open Food Facts won't have
+   (something homemade-labeled, an unusual local product), scan it and confirm
+   you get "No match on Open Food Facts for …" with a fallback text field
+   instead of an error or a dead end.
+8. **Both looks** — Settings → Appearance → Dark and back, open the scan sheet
+   in each to confirm it renders correctly.
 
-Unchanged and worth confirming nothing regressed: photo and dictation meal entry,
-single-meal builds without ever tapping "Add another meal," the Quick entry
-sliders, Insights charts, supplements.
+Unchanged and worth confirming nothing regressed: the F-3 multi-meal staging
+flow, plain typed ingredients (no barcode), single-meal builder saves, photo/
+dictation meal entry without touching barcode features, Quick entry sliders,
+Insights charts, supplements.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -569,49 +575,39 @@ Data issues found, **left for Immanuel to decide** (the app is not wrong, the ro
     existing meal is unchanged. Phone report also caught a small polish bug in
     the same screen (fixed same session, see "Check on your phone" above): the
     "More…" ingredient picker gave no tap feedback.
-  - **F-4 (up next, in a new chat per Immanuel — this session's context won't
-    carry over): barcode scanner + Open Food Facts lookup for packaged food.**
-    This is Phase F's last iteration — once it ships, Phase F is complete (same
-    as Phases A–E). Full spec already written at
-    `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 4"
-    — read that before starting. Summary of what's still missing (schema is
-    already done, from F-2):
-    - **No barcode-decoding capability yet.** Nothing in `package.json` reads a
-      barcode — no `BarcodeDetector` usage either, and that Web API isn't
-      reliably available on iOS Safari anyway (this is an iPhone-first PWA).
-      The plan calls for adding `zxing-wasm` as a new dependency — smallest WASM
-      lib that handles EAN-13 reliably.
-    - **No live camera stream in the app at all.** Every existing photo path
-      (`SupplementsCard.tsx`, `NutritionTab.tsx` ×2) uses
-      `<input type="file" capture="environment">`, which hands off to the OS
-      camera app for a single snapshot — genuinely different from a live
-      `getUserMedia` video feed with a real-time decode loop, which barcode
-      scanning needs. This means new permission-handling and UI (a scanning
-      overlay/viewfinder) with no existing component to copy from directly.
-    - **No Open Food Facts integration.** The app's only existing outbound
-      calls are to Anthropic and Dropbox. New: `fetch` to
-      `https://world.openfoodfacts.org/api/v2/product/<ean>` (free, no key,
-      CORS-enabled), mapping its `nutriments` object to the app's per-100g
-      shape, `upsertFood` with `source='off'` + `brand` + `barcode`.
-    - **Not-found fallback**, per the plan: when OFF has no match for a scanned
-      code, fall back to the *existing* photograph-the-label vision path rather
-      than a dead end — that part is already built and just needs wiring in.
-    - **One documentation item:** the plan flags that this is the first
-      third-party network call besides Anthropic/Dropbox (sends the barcode
-      number, not health data) — note that in the README's privacy line.
-    - Everything else (schema, `foods.barcode`/`brand` columns + index, the
-      write path in `queries.ts`) is already in place from F-2 — F-4 is UI +
-      one new dependency + one new fetch call, not a data-model change.
-- **Backlog (flagged 2026-08-05, not yet scoped):** dictation-path and photo-path
-  macro estimates disagree noticeably for what should be comparable meals. Both call
-  the same `mealSystemPrompt()` / `MEAL_TOOL`, so the divergence is presumably about
-  what each input modality actually conveys (a photo shows portion size directly; a
-  dictated description relies on the user stating quantities, which may be vaguer
-  than intended) rather than a prompt bug. Needs a real side-by-side example
-  (same meal, once dictated, once photographed) before it can be diagnosed — ask
-  Immanuel for one, or capture one during F-2/F-3 testing. Note this may partly
-  resolve itself once the F-2 builder exists, since it lets him log common meals
-  precisely by grams without depending on either estimation path.
+  - ~~F-4: barcode scanner + Open Food Facts lookup~~ ✅ (2026-08-17) — the last
+    iteration in Phase F, which is now complete. Scan a packaged product's
+    barcode (live camera, a still photo, or typed by hand, via `zxing-wasm`) →
+    Open Food Facts lookup → exact label numbers instead of an AI estimate,
+    from three places: **Build from ingredients** (new "⌗ Add via barcode"
+    under the ingredient field, lands in grams mode), and the **photo/dictation
+    review card** — a per-row ⌗ to replace an ingredient with a scan, or an
+    "⌗ Add via barcode" to append one. Since AI-path ingredients are macro-less
+    text, a replace/add writes an authoritative line and lights up the existing
+    Re-estimate button, whose hint now marks scanned lines as measured so
+    Claude only estimates what's left. New: `src/lib/barcodeScan.ts` (zxing-wasm
+    wrapper, wasm bundled via Vite `?url` so it's Workbox-precached rather than
+    CDN-fetched — verified in the build: precache grew from 27→28 entries,
+    2255→3370 KiB), `src/lib/openFoodFacts.ts`, `src/lib/barcodeFood.ts`,
+    `src/components/BarcodeScanSheet.tsx`. Also fixed a real bug hit during
+    testing: `mergeFoods()` (called by `dedupeFoods()` on every Meals-tab
+    mount) was dropping a losing row's `barcode`/`brand` on merge — would have
+    silently lost the barcode and re-fetched OFF on the next scan of the same
+    product. No schema change — `foods.barcode`/`brand`/`source='off'` were
+    ready since F-2. Verified live against the real Open Food Facts API
+    (barcode `3017620422003` / Nutella: 539 kcal/100g, correctly landed at
+    162 kcal for 30g in the builder and matched macros P1.9/F9.3/C17.3),
+    local-barcode-index reuse on a re-scan (confirmed zero network calls),
+    the not-found fallback, and both review-card entry points. **Camera
+    permission isn't grantable in the Browser pane, so the live-scan decode
+    loop itself is phone-only** — see "Check on your phone" above, which leads
+    with that.
+- ~~Backlog: dictation-vs-photo accuracy discrepancy~~ ✅ resolved 2026-08-15 —
+  see "Meal-logging discrepancy vs. Cronometer, root-caused" above. Not a shared
+  bug: the tap-builder had a real duplicate-`foods` bug (now auto-merged); the
+  remaining photo/dictation gap vs. a branded-product reference is an inherent
+  generic-estimate ceiling, not something to fix in the prompt. F-4's barcode
+  scanner (this iteration) is the actual way past that ceiling for packaged food.
 
 ## How these sessions run
 One feature per iteration: build it → verify in-browser → typecheck + build → **commit
@@ -620,31 +616,26 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Phase F-3 is done and phone-verified (2026-08-17)**, including a same-session
-fix for the "More…" picker tap-feedback bug it surfaced. Immanuel is starting
-**Phase F-4 (barcode scanner) in a fresh chat**, so pick up there next:
+**Waiting on Immanuel's phone report for Phase F-4** (barcode scanner —
+checklist above, leads with the live camera since that's the one thing the
+Browser pane can't grant permission for). Built, typechecked, and verified live
+against the real Open Food Facts API and both entry points (builder + review
+card), plus a real bug fix (`mergeFoods` was dropping barcode/brand on merge).
+The one gap only his phone can close: the actual live-camera decode loop.
 
-1. **Start Phase F-4** — barcode scanner + Open Food Facts lookup, the last
-   iteration in Phase F. Full spec at
-   `~/.claude/plans/lets-add-some-adaptations-clever-blum.md` under "Iteration 4";
-   summary of what's missing (schema's already done) is in the Phase F bullet
-   above — new `zxing-wasm` dependency, first `getUserMedia` camera stream in the
-   app (no existing component to copy — every current photo path uses
-   `<input capture>`, a single OS-camera snapshot, not a live decode loop), a new
-   Open Food Facts `fetch` + nutriment mapping, fallback to the existing
-   photograph-the-label vision path when a barcode isn't found, and a README
-   privacy-line note (first third-party call besides Anthropic/Dropbox). Bigger
-   than F-1–F-3 — treat it as its own multi-step iteration.
-2. Once F-4 ships and is phone-verified, **Phase F is complete.**
-3. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
+Once that comes back and anything broken is fixed:
+1. **Phase F is complete** (F-1 through F-4, all phone-verified). No more
+   queued Phase F work.
+2. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
    not scheduled):
    - A supplement's label photo is stored but never read — wire a vision call
      (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
    - Adding a supplement doesn't create an `events` row, so it draws no reference
      line on Insights charts.
-4. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
+3. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
    log sliders, day-strip swipe, time-of-day segments, sleep, single events) — lower
-   priority than F-4 unless Immanuel specifically asks for it.
+   priority unless Immanuel specifically asks for it.
+4. No other phase is queued — next feature work needs a fresh ask from Immanuel.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,
