@@ -455,6 +455,7 @@ export default function MealBuilder({
           onAdd={(food) => addFood(food)}
           onClose={() => setPickerOpen(false)}
           onChanged={() => setFoodsVersion((v) => v + 1)}
+          counts={counts}
         />
       )}
     </div>

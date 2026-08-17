@@ -9,10 +9,12 @@ export default function FoodPickerSheet({
   onAdd,
   onClose,
   onChanged,
+  counts,
 }: {
   onAdd: (food: Food) => void
   onClose: () => void
   onChanged: () => void
+  counts: Map<string, number>
 }) {
   const [search, setSearch] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -58,6 +60,7 @@ export default function FoodPickerSheet({
             <FoodRow
               key={f.id}
               food={f}
+              count={counts.get(f.id) ?? 0}
               editing={editingId === f.id}
               onToggleEdit={() => setEditingId((id) => (id === f.id ? null : f.id))}
               onAdd={() => onAdd(f)}
@@ -77,6 +80,7 @@ export default function FoodPickerSheet({
 
 function FoodRow({
   food,
+  count,
   editing,
   onToggleEdit,
   onAdd,
@@ -84,6 +88,7 @@ function FoodRow({
   onError,
 }: {
   food: Food
+  count: number
   editing: boolean
   onToggleEdit: () => void
   onAdd: () => void
@@ -143,9 +148,18 @@ function FoodRow({
 
   if (!editing) {
     return (
-      <div className="flex items-center gap-2 rounded-lg bg-ink-800 px-3 py-2">
-        <button className="min-w-0 flex-1 text-left" onClick={onAdd}>
-          <div className="truncate text-sm text-cream">{food.name}</div>
+      <div
+        className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${count > 0 ? 'bg-brand-500/20' : 'bg-ink-800'}`}
+      >
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left transition active:scale-[0.97]"
+          onClick={onAdd}
+        >
+          <div className="flex items-center gap-1.5 truncate text-sm text-cream">
+            {food.name}
+            {count > 0 && <span className="shrink-0 text-xs text-brand-300">×{count}</span>}
+          </div>
           <div className="text-xs text-ink-400">
             {food.kcal_100g == null ? 'no numbers yet' : `${Math.round(food.kcal_100g)} kcal/100g`}
           </div>
