@@ -442,10 +442,32 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     database behind the app.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for F-4, barcode scanner + Open Food
-Facts. Open https://leunammih.github.io/health-tracker/ and pull down to refresh
-first. No schema change — `foods.barcode`/`brand`/`source='off'` have been ready
-since F-2._
+**Phone-verified 2026-08-19: all of F-4 confirmed working**, including the live
+camera decode loop (the one thing that could only be checked on-device). One
+follow-up question from Immanuel led to a same-session addition — **searching a
+previously-scanned product by name, no rescan needed**:
+
+- **Meals → Build from ingredients → "⌗ Add via barcode"** (or the review
+  card's ⌗ button): the sheet now opens with a **"Search a product you've
+  already scanned…"** field above the camera. Type a few letters of anything
+  you've scanned before (e.g. "nut" for Nutella) — it should show up instantly
+  from the app's own list (no network call), and tapping it jumps straight to
+  the same grams/confirm step a fresh scan lands on.
+- Confirm this same field works from **both** call sites — the builder's
+  barcode button and the photo/dictation review card's ⌗ buttons — since it's
+  one shared component.
+
+Verified in the Browser pane (manual-entry paths only, camera unavailable
+there): scanned Nutella once, removed it from the meal, reopened the sheet,
+typed "nut" → "Nutella (Nutella) — 539 kcal/100g" appeared immediately with
+zero network requests, tapping it landed on the confirm step unchanged.
+Not yet re-confirmed on the phone specifically for this addition, but it's a
+straightforward extension of the already-verified sheet — low risk.
+
+_Older checklist below, replaced next iteration — kept for reference. Open
+https://leunammih.github.io/health-tracker/ and pull down to refresh first, so
+the service worker picks up the new build. No schema change —
+`foods.barcode`/`brand`/`source='off'` have been ready since F-2._
 
 **What's new:** scan a packaged product's barcode and get its label's exact
 numbers instead of an AI estimate. Three entry points: **Build from
@@ -598,10 +620,18 @@ Data issues found, **left for Immanuel to decide** (the app is not wrong, the ro
     (barcode `3017620422003` / Nutella: 539 kcal/100g, correctly landed at
     162 kcal for 30g in the builder and matched macros P1.9/F9.3/C17.3),
     local-barcode-index reuse on a re-scan (confirmed zero network calls),
-    the not-found fallback, and both review-card entry points. **Camera
-    permission isn't grantable in the Browser pane, so the live-scan decode
-    loop itself is phone-only** — see "Check on your phone" above, which leads
-    with that.
+    the not-found fallback, and both review-card entry points. **Phone-verified
+    2026-08-19**, including the live-scan camera decode loop the Browser pane
+    can't grant permission for.
+    - **Follow-up (2026-08-19, same day):** Immanuel asked how to reuse an
+      already-scanned product without rescanning. Added a "search a product
+      you've already scanned" field at the top of `BarcodeScanSheet`'s scan
+      phase — matches by name against any `foods` row with a `barcode` set,
+      picking one skips straight to the existing grams/confirm step with no
+      network call. One shared component serves both the builder and the
+      review card, so this fixed it in both places at once. Verified live in
+      the Browser pane; not yet re-confirmed on the phone specifically for
+      this bit.
 - ~~Backlog: dictation-vs-photo accuracy discrepancy~~ ✅ resolved 2026-08-15 —
   see "Meal-logging discrepancy vs. Cronometer, root-caused" above. Not a shared
   bug: the tap-builder had a real duplicate-`foods` bug (now auto-merged); the
@@ -616,18 +646,18 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for Phase F-4** (barcode scanner —
-checklist above, leads with the live camera since that's the one thing the
-Browser pane can't grant permission for). Built, typechecked, and verified live
-against the real Open Food Facts API and both entry points (builder + review
-card), plus a real bug fix (`mergeFoods` was dropping barcode/brand on merge).
-The one gap only his phone can close: the actual live-camera decode loop.
+**Phase F is complete (F-1 through F-4), phone-verified 2026-08-19** —
+including the barcode scanner's live camera path. One small same-day follow-up
+is built and pushed but **not yet phone-verified**: searching a previously-
+scanned product by name in `BarcodeScanSheet` (see "Check on your phone"
+above) — low risk (verified in the Browser pane, reuses the sheet's existing
+confirm step), but worth a quick real-device check next time Immanuel is in
+the app.
 
-Once that comes back and anything broken is fixed:
-1. **Phase F is complete** (F-1 through F-4, all phone-verified). No more
-   queued Phase F work.
-2. Older, smaller, optional follow-ups noticed while building Phase C-3 (not blocking,
-   not scheduled):
+1. **Waiting on a phone check of the search-by-name addition** specifically —
+   everything else in F-4 is already confirmed.
+2. No Phase F work remains after that. Older, smaller, optional follow-ups
+   noticed while building Phase C-3 (not blocking, not scheduled):
    - A supplement's label photo is stored but never read — wire a vision call
      (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
    - Adding a supplement doesn't create an `events` row, so it draws no reference
