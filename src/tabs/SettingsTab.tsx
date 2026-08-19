@@ -7,6 +7,7 @@ import { counts } from '../db/queries'
 import { dbSizeBytes } from '../db/sqlite'
 import { downloadDbFile, downloadJson, downloadCsvBundle, copyAllJson, importDbFile } from '../lib/export'
 import { loadGoals, saveGoals, type Goals } from '../lib/goals'
+import { buildId, checkForUpdate, hasServiceWorker, applyUpdate, type CheckResult } from '../lib/appUpdate'
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -84,6 +85,20 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
     const r = await testConnection()
     setTest(r.message)
     setTesting(false)
+  }
+
+  // ---- App version / updates ----
+  const [checking, setChecking] = useState(false)
+  const [checkResult, setCheckResult] = useState<CheckResult | null>(null)
+
+  async function runUpdateCheck() {
+    setChecking(true)
+    setCheckResult(null)
+    try {
+      setCheckResult(await checkForUpdate())
+    } finally {
+      setChecking(false)
+    }
   }
 
   async function connectDropbox() {
@@ -310,6 +325,43 @@ export default function SettingsTab({ onSaved }: { onSaved: () => void }) {
           Import replaces the data in this app with the picked file — a manual alternative to Dropbox
           sync for moving a <code>health.db</code> between devices.
         </p>
+      </section>
+
+      <section className="card space-y-3">
+        <div className="label">App version</div>
+        <p className="text-sm text-ink-300">
+          This app updates itself in the background, but an installed PWA can sit on an old
+          copy for a long time without noticing. Press this after a change has been deployed
+          to pull the newest version straight away.
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs text-ink-300">
+          <span className="chip">Build: {buildId()}</span>
+        </div>
+        <button className="btn-ghost w-full" disabled={checking} onClick={() => void runUpdateCheck()}>
+          {checking ? 'Checking…' : 'Check for updates'}
+        </button>
+        {checkResult === 'ready' && (
+          <button className="btn-primary w-full" onClick={() => void applyUpdate()}>
+            New version ready — update now
+          </button>
+        )}
+        {checkResult === 'current' && (
+          <p className="text-xs text-ink-300">You're on the latest version.</p>
+        )}
+        {checkResult === 'failed' && (
+          <p className="warn-box">Couldn't reach the server — you may be offline. Nothing changed.</p>
+        )}
+        {checkResult === 'unsupported' && (
+          <p className="text-xs text-ink-400">
+            No service worker is running, so there's nothing to update — this is a development
+            build, or the app was opened somewhere that can't install one.
+          </p>
+        )}
+        {!hasServiceWorker() && checkResult == null && (
+          <p className="text-xs text-ink-400">
+            Offline support isn't active in this build, so update checks will report nothing to do.
+          </p>
+        )}
       </section>
 
       <p className="pb-4 text-center text-[11px] text-ink-600">Health Tracker · data stays on your device</p>

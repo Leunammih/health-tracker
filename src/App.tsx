@@ -4,6 +4,7 @@ import { startSync, pullIfNewer } from './sync/manager'
 import { completeAuthFromRedirect } from './sync/dropbox'
 import { loadSettings } from './lib/storage'
 import { installDevtools } from './lib/devtools'
+import { subscribeUpdate, applyUpdate } from './lib/appUpdate'
 import SyncBadge from './components/SyncBadge'
 import { IconHome, IconLog, IconMeal, IconChart, IconBrain, IconSettings } from './components/icons'
 import HomeTab from './tabs/HomeTab'
@@ -28,6 +29,12 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const [tab, setTab] = useState<Tab>('home')
   const [needsKey, setNeedsKey] = useState(false)
+  // A new build is downloaded and waiting. Never applied automatically — see
+  // lib/appUpdate.ts for why.
+  const [updateReady, setUpdateReady] = useState(false)
+  const [updating, setUpdating] = useState(false)
+
+  useEffect(() => subscribeUpdate((s) => setUpdateReady(s === 'ready')), [])
 
   useEffect(() => {
     void (async () => {
@@ -72,6 +79,20 @@ export default function App() {
             region, in the outer flex column — so it never scrolled and sat
             fixed over content on every tab. Living inside <main> now, it
             scrolls away like everything else. */}
+        {updateReady && (
+          <div className="mb-4 flex items-center gap-3 rounded-2xl border border-brand-600/30 bg-brand-500/10 px-4 py-3 text-sm text-cream">
+            <span className="shrink-0 text-brand-500">✦</span>
+            <span className="flex-1">A new version is ready.</span>
+            <button
+              className="btn-primary shrink-0 !px-3 !py-1.5 text-xs"
+              disabled={updating}
+              onClick={() => { setUpdating(true); void applyUpdate() }}
+            >
+              {updating ? 'Updating…' : 'Update'}
+            </button>
+          </div>
+        )}
+
         {needsKey && tab !== 'settings' && (
           <button
             onClick={() => setTab('settings')}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { extractDiary, refineDiary } from '../ai/anthropic'
 import {
-  saveDiaryExtraction, deleteEntry, recentEntries, entryDetail,
+  saveDiaryExtraction, saveRawEntry, deleteEntry, recentEntries, entryDetail,
   pendingCheckins, recordCheckin, dismissCheckin, loggedDates, type EntryDetail,
   pendingSupplementCheckins, recordSupplementCheckin, dismissSupplementCheckin,
 } from '../db/queries'
@@ -93,6 +93,22 @@ export default function LogTab() {
     } catch (e) {
       setError(msg(e))
       setPhase('questions')
+    }
+  }
+
+  // Keep the text, skip Claude entirely. Works offline and with no API key, and
+  // writes nothing into the tracking — see saveRawEntry() in db/queries.ts.
+  async function saveTextOnly() {
+    setError(null)
+    try {
+      if (editingId) await deleteEntry(editingId)
+      await saveRawEntry(raw, 'voice', entryDate)
+      setSavedNote('Saved as a note — nothing was added to your tracking.')
+      reset()
+      setRefreshKey((k) => k + 1)
+      setTimeout(() => setSavedNote(null), 3000)
+    } catch (e) {
+      setError(msg(e))
     }
   }
 
@@ -290,10 +306,18 @@ export default function LogTab() {
           <button className="btn-primary w-full" disabled={!raw.trim()} onClick={() => void process()}>
             {editingId ? 'Re-analyze' : 'Process with Claude'}
           </button>
+          <button className="btn-ghost w-full" disabled={!raw.trim()} onClick={() => void saveTextOnly()}>
+            {editingId ? 'Save text only' : 'Save without Claude'}
+          </button>
           <p className="text-xs text-ink-400">
             {multiDay
               ? `Claude will split this into separate dated records instead of filing it all under ${fmtDate(entryDate)}.`
               : 'Claude sorts it into activities, gut, infections, energy/mood and day context — and asks about anything important you left out.'}
+          </p>
+          <p className="text-xs text-ink-400">
+            <strong className="text-ink-300">Save without Claude</strong> keeps the text as a plain
+            note — no API key, works offline, and nothing from it reaches your charts or sliders.
+            You can process it later from Recent entries.
           </p>
         </div>
       )}
@@ -398,7 +422,14 @@ export default function LogTab() {
                 onClick={() => setExpandedId(expandedId === e.id ? null : e.id)}
               >
                 <div className="min-w-0">
-                  <div className="text-xs text-ink-400">{fmtDate(e.entry_date ?? e.created_at)}</div>
+                  <div className="flex items-center gap-2 text-xs text-ink-400">
+                    {fmtDate(e.entry_date ?? e.created_at)}
+                    {!e.processed && (
+                      <span className="rounded-full border border-ink-700 px-1.5 py-0.5 text-[10px] text-ink-500">
+                        note only
+                      </span>
+                    )}
+                  </div>
                   <div className={`text-sm text-ink-300 ${expandedId === e.id ? '' : 'line-clamp-2'}`}>
                     {e.raw_text}
                   </div>
@@ -411,7 +442,7 @@ export default function LogTab() {
                   <SavedDetail detail={entryDetail(e.id)} />
                   <div className="flex gap-2">
                     <button className="btn-ghost flex-1 !py-2 text-sm" onClick={() => startEdit(e)}>
-                      Edit &amp; re-analyze
+                      {e.processed ? 'Edit & re-analyze' : 'Process with Claude now'}
                     </button>
                     <button
                       className="rounded-xl bg-ink-700 px-3 py-2 text-sm text-red-400 hover:bg-ink-600"

@@ -183,6 +183,31 @@ export async function saveDiaryExtraction(
   return entryId
 }
 
+// Save a dictation as plain text, with nothing derived from it.
+//
+// `entries.processed` has existed since the first schema and has always been
+// written as 1, because the only save path ran through Claude. This is what the
+// column was for: a note kept verbatim, no API key, no network, and — the point —
+// NOTHING written to tracks / wellbeing / day_context, so capturing a thought
+// cannot move a number in the tracking. Process it later with "Edit & re-analyze"
+// if it turns out to be worth extracting.
+export async function saveRawEntry(
+  rawText: string,
+  source: 'voice' | 'text',
+  entryDate: string = todayISO(),
+): Promise<string> {
+  const entryId = uid()
+  exec('INSERT INTO entries(id, created_at, entry_date, raw_text, source, processed) VALUES (?,?,?,?,?,0)', [
+    entryId,
+    nowISO(),
+    entryDate,
+    rawText,
+    source,
+  ])
+  await persist()
+  return entryId
+}
+
 // Delete an entry and every category row it produced. Wellbeing/day_context
 // rows are only removed if they still belong to this entry (a later entry for
 // the same date would have replaced them, in which case they're left alone).

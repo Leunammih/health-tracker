@@ -183,4 +183,14 @@ select {
   .warn-dot {
     background: rgb(var(--warn-rgb));
   }
+  /* Scroll wheels (TimeWheelSheet) — the scrollbar is the mechanism, not part of
+     the design, and on a desktop trackpad it draws a line straight through the
+     numbers. */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }

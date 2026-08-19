@@ -498,68 +498,104 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     knee-pain record, the DB held energy **7**, mood 8, stress 6, meditation 25,
     stool **4.5**, no knee pain row, and sleep **23:00 / 07:00 / 8 fully intact**.
 
+- **Phase G-1.5 — the sleep picker back to a wheel, a working "get the new build"
+  control, and saving a dictation without Claude** (2026-08-19). Three items straight
+  off his G-1 phone report; two of them were blocking his ability to test anything.
+  - **Sleep picker is a two-column wheel again** (`src/components/TimeWheelSheet.tsx`).
+    G-1's two `<select>`s enforced the 5-minute step correctly but cost a separate
+    tap-and-dismiss for the hour and again for the minutes. `TimePicker5` is now just
+    the trigger — a field-shaped button showing `23:45` — and tapping it opens a sheet
+    with hours and minutes as two scroll wheels side by side. Scroll-snap rows,
+    two-row spacer padding so the first and last value can reach the centre, a
+    highlight band behind the middle row, and the selection read back off `scrollTop`
+    on a ~120 ms debounce (iOS has no `scrollend` before 17, so the debounce is the
+    mechanism, not a fallback). Verified that a flick landing mid-row (367 px) snaps to
+    360 and reads back as `45`. Same `'HH:MM'` API, so `SleepCard` never changed.
+  - **App updates, root-caused.** `vite.config.ts` had `registerType: 'autoUpdate'`
+    and **nothing in the app ever called `registerSW`** — registration was the script
+    vite-plugin-pwa injects into `index.html`. A new worker is therefore only fetched
+    on a real navigation, and an installed iOS PWA resumed from the background
+    essentially never performs one; that is why pull-to-refresh kept serving the old
+    build. Now: `src/lib/appUpdate.ts` registers explicitly and holds the
+    registration, checks on every return to the foreground (throttled to once a
+    minute — the one moment a standalone PWA reliably gets), and `registerType` is
+    **`'prompt'`** so a new build never reloads the page underneath a half-written
+    dictation or an unsaved slider. A banner in `App.tsx` and an **App version**
+    section in Settings (build stamp + short git SHA via a `__BUILD_ID__` define) put
+    it under his thumb. Confirmed in the built `dist/sw.js` that `self.skipWaiting()`
+    is now gated behind the `SKIP_WAITING` message handler and `clientsClaim` is gone
+    — i.e. prompt mode really took effect.
+    **Note for the first deploy after this:** the worker already installed on his
+    phone is the old `autoUpdate` one, so it will swap itself for the new one without
+    asking. The prompting behaviour starts from the version *after* this one.
+  - **"Save without Claude"** — `entries.processed` has existed since the first schema
+    and had always been hardcoded to `1`, because the only save path ran through
+    Claude. `saveRawEntry()` writes `processed = 0` with no derived rows, so a note
+    needs no API key, no network, and — the point — puts nothing into
+    `tracks`/`wellbeing`/`day_context`. Verified: a note reading "Energy 2, mood 3"
+    left the day's energy at 7 and mood at 8. Unprocessed entries carry a **note
+    only** chip and offer **Process with Claude now**, which reuses the existing
+    `startEdit` → `confirmSave` path, so capture-now-process-later cost no new code.
+    `loggedDates()` already unioned `entries.entry_date`, so a note still marks its
+    day on the strip.
+  - Verified in the Browser pane in both themes, no console errors, and the G-1
+    regression re-run clean after the `queries.ts` change (sleep survives a dictated
+    entry and survives deleting it).
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-1**. Open
-https://leunammih.github.io/health-tracker/ and pull down to refresh first. No
-schema change, so nothing to clear._
+_Replaced each iteration — this is the list for **G-1.5**._
 
-**Start with item 6 — it is the bug that was eating your sleep data.**
+**Item 1 first: it is how you get everything else.**
 
-1. **Log → Sleep card.** Bedtime and Wake are now two dropdowns each instead of one
-   time field. Tap a minutes dropdown: it must offer **only 00, 05, 10 … 55** (12
-   options). Set 23:15 → 07:30 and confirm the readout on the right says
-   **8h 15m asleep**. Tap **Save sleep**.
-   *Failure looks like:* a full 60-minute wheel, or a minute you can't select.
-2. **Log → Quick entry.** Each row is now **two lines**: name + value on top, then
-   slider + pen + Save all on one line. The ✕ is gone from the row — tap the **pen**
-   and "Hide … from quick entry" is at the bottom of the note box. Hide one, then
-   bring it back from the **Hidden** chips further down.
-3. **Group headings fold.** Movement / Practice / Health & pain / Wellbeing / Other
-   each have an icon, a count and a ▾. Tap one — its rows collapse and the arrow
-   becomes ▸. Switch to another tab and back: **it should still be folded.** (A
-   folded group with unsaved changes shows a small amber dot on the heading.) All
-   five headings show even at 0 — that's deliberate, it's where the "+ add your own
-   category" button lands in the next iteration.
-4. **Icons.** Every row, every quick-log chip, and **Insights → Tap to log** now
-   shows a glyph in the metric's own colour instead of a plain dot. Tell me if any
-   of them is unclear or reads as the wrong thing.
-5. **Insights → Tap to log → Stool consistency.** The slider must now stop at
-   **4.5, 5.5** and so on, not just whole numbers.
-6. **The dictation regression — do this in order:**
-   a. Log tab, today. Set a bedtime, a wake time and a **felt quality** you'll
-      remember. Tap **Save sleep**.
-   b. Quick entry → **Energy**: set a value you'll remember, tap **Save**. Same for
-      **Mood**.
-   c. Now dictate a normal entry that mentions your mood or energy in passing.
-   d. Tap Continue through the questions. On the review screen: every number now has
-      **− / +** buttons, every record has a **checkbox**, and anything that would
-      land on a value you already saved carries an amber **"was 7 · Keep"** pill,
-      with a banner at the top counting them.
-   e. Tap **Keep** on one, correct another with **− / +**, and **untick** any record
-      Claude invented. Then **Confirm & save**.
-   f. Scroll back to the **Sleep card**. Bedtime, wake and felt quality must be
-      **exactly what you set in (a)**. Check Energy too — the one you tapped Keep on
-      must still be your number, not Claude's.
-   *Failure looks like:* sleep back at 23:00 / 09:00 with quality blank, or your
-   energy replaced by Claude's. That is the bug; it should be gone.
-7. **Claude should stop guessing.** It should no longer volunteer an energy or mood
-   number you didn't actually say — if it wants one, it should now **ask** in the
-   follow-up questions instead.
-8. **Both themes.** Settings → Appearance → Dark, then back to Light. The amber
-   "was N · Keep" pill and the "Backfilling…" banner must be readable in **both** —
-   they were washed out on the light ground before.
+1. **Getting the new build.** Open the app → **Settings** → scroll to the bottom →
+   **App version**. The *Build* line should show today's date/time and a short code.
+   If it looks old, tap **Check for updates** — it must say something honest
+   (*"You're on the latest version"*, or a **New version ready — update now**
+   button), never nothing at all.
+   *One-off caveat:* the service worker currently on your phone is the old
+   self-updating one, so **this** deploy may just apply itself silently. From the
+   **next** one onwards you'll get a small banner at the top — *"A new version is
+   ready · Update"* — and nothing reloads until you press it. That's deliberate: a
+   reload mid-dictation would throw away unsaved sliders.
+2. **The sleep wheel — the thing I genuinely could not test.** Log → Sleep → tap the
+   bedtime button (it now shows `23:00` rather than two dropdowns). A sheet slides up
+   with **hours and minutes side by side**.
+   - Flick the minute wheel: only **00, 05 … 55**, and a flick should *land on* a
+     number, never stop halfway between two.
+   - Tap a number directly — it should glide to the centre.
+   - Set 23:45, tap **Done** → the button reads `23:45` and the "asleep" figure on
+     the right updates. Do the same for Wake, then **Save sleep**.
+   *Tell me if it feels sticky, overshoots, or settles on the wrong number* — that is
+   exactly what a browser on a laptop can't show me.
+3. **Save without Claude.** Log → type or dictate something that mentions a number
+   ("energy 2, mood 3") → tap **Save without Claude**, the outlined button under
+   *Process with Claude*. It should save instantly with no "Thinking…" step, and the
+   toast should read *"Saved as a note — nothing was added to your tracking."*
+   Then check your **Energy** and **Mood** sliders and the Insights charts: those
+   numbers must **not** have moved. That's the whole point of it.
+4. **Process it later.** In **Recent entries** that note carries a **note only** chip.
+   Expand it → **Process with Claude now** → the text loads back into the box; tap
+   *Process with Claude* and finish as usual. You should end up with **one** entry,
+   not two.
+5. **Airplane mode.** Turn it on, open the app, dictate, **Save without Claude** —
+   should work completely. *Process with Claude* should fail with a readable error
+   rather than hanging.
+6. **Both themes** for the wheel sheet: Settings → Appearance → Dark and Light. The
+   selected row's highlight band must be visible in both.
 
-Unchanged and worth confirming nothing regressed: the meal builder and barcode
-scanner, multi-meal sessions, morning/afternoon/evening segment entry, the Insights
-charts, and supplements.
+Unchanged and worth confirming nothing regressed: the G-1 fixes (sleep survives a
+dictated entry, the amber conflict pills, folded groups staying folded), the meal
+builder and barcode scanner, and the Insights charts.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone2** — phone report on **G-1** (checklist above). The sleep-erasure fix is
-  the one that matters; item 6 is the exact sequence to reproduce what was broken.
+- 🟦 **phone3** — phone report on **G-1.5** (checklist above). The one thing only his
+  phone can settle: how the sleep wheel's momentum-snapping feels under a thumb.
+- ✅ **phone2** (G-1) — answered 2026-08-19. Sleep fix and 5-minute steps confirmed
+  working; the two-dropdown picker and the stale-build problem came back as G-1.5.
 - 🟦 **phone1** — phone report on the metric-scale fix. Never answered, and two
   iterations have shipped over that code since; superseded by **phone2** unless he
   says otherwise.
@@ -682,12 +718,15 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-1** (checklist above). Built,
-typechecked, and verified in the Browser pane in both themes with no console
-errors, including the full sleep-survives-dictation regression test.
+**Waiting on Immanuel's phone report for G-1.5** (checklist above). Built,
+typechecked, and verified in the Browser pane in both themes with no console errors:
+the wheel snaps a mid-row flick to the right value, `__BUILD_ID__` renders, the
+built `sw.js` confirms prompt mode took effect, and a "Save without Claude" note
+containing "energy 2, mood 3" left the day's energy and mood untouched. The one gap
+only his phone can close is how the wheel's momentum-scrolling feels.
 
-When it comes back and anything broken is fixed, build **G-2** — the second and
-last half of the Phase G ask, already scoped and approved:
+When it comes back and anything broken is fixed, build **G-2** — the second half of
+the original Phase G ask, already scoped and approved:
 
 1. **A boolean ("checkmark") metric kind** — nothing in the registry can express
    yes/no today, and both of the next two items need it, so build it once:
@@ -705,7 +744,8 @@ last half of the Phase G ask, already scoped and approved:
    `scale.unit === 'min'` — his choice, and the one that costs no extra height.
 4. **Computer time** — a registered `min` metric, 0-720 (12 h, since the movement
    default of 180 clips a working day), plus an optional `quickStep?: number` on
-   `TrackDef` so its one-tap chip adds 30 min instead of 5.
+   `TrackDef` so its one-tap chip adds 30 min instead of 5. Its glyph already
+   exists in `metricIcons.tsx` under the key `computer time`.
 5. **User-defined categories** — `src/lib/customMetrics.ts`, a JSON array in the
    `meta` table modelled exactly on `hiddenMetrics.ts`, merged into the registry by
    a new `allTrackDefs()` in `metrics.ts`. Everything downstream (`scaleForTrack`,
@@ -713,7 +753,8 @@ last half of the Phase G ask, already scoped and approved:
    `defForName`, so it works for free. A **+** on each of the five group headings
    opens a sheet: name, type (Duration / Rating 0-10 / Checkmark / Number), and an
    icon from `metricIcons.tsx` (`GLYPH_NAMES` is already exported for this, and
-   `TrackDef.icon` already exists).
+   `TrackDef.icon` already exists). The headings already always render, including
+   empty ones, precisely so this button has somewhere to live.
 6. **Supplement editing** — `updateSupplement(id, patch)` in `queries.ts` plus an
    inline edit mode in `SupplementsCard`, covering name, composition, label photo,
    check-in interval, **start date** and (for a stopped one) end date. Today the
