@@ -172,9 +172,9 @@ export async function saveDiaryExtraction(
       // returned whichever one came back first.
       exec('DELETE FROM tracks WHERE date = ? AND name = ?', [date, name])
       exec(
-        `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        [uid(), entryId, date, name, t.category ?? null, t.value ?? null, t.unit ?? null, t.time ?? null, t.notes ?? null],
+        `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes, intensity)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [uid(), entryId, date, name, t.category ?? null, t.value ?? null, t.unit ?? null, t.time ?? null, t.notes ?? null, null],
       )
     }
   }
@@ -703,10 +703,10 @@ export const allTrackNames = () =>
 // for that name+date rather than stacking duplicates the charts would then have to
 // reconcile. A null value clears the day.
 //
-// `notes` is deliberately tri-state: omit it to KEEP whatever note is already on the
-// row, pass null to clear it, pass a string to set it. Callers that only touch the
-// value (the Insights tap-to-log sheet, the bulk apply-to-last-N-days helpers) must
-// omit it, or the DELETE+INSERT below would silently drop the note.
+// `notes` and `intensity` are deliberately tri-state: omit to KEEP whatever is
+// already on the row, pass null to clear, pass a value to set. Callers that only
+// touch the value (the Insights tap-to-log sheet, the bulk apply-to-last-N-days
+// helpers) must omit them, or the DELETE+INSERT below would silently drop them.
 async function writeTrackRollup(
   date: string,
   key: string,
@@ -714,20 +714,23 @@ async function writeTrackRollup(
   value: number | null,
   unit: string | null,
   notes?: string | null,
+  intensity?: number | null,
 ): Promise<void> {
-  const keptNotes =
-    notes === undefined
-      ? all<{ notes: string | null }>(
-          'SELECT notes FROM tracks WHERE date = ? AND name = ? LIMIT 1',
+  const prev =
+    notes === undefined || intensity === undefined
+      ? all<{ notes: string | null; intensity: number | null }>(
+          'SELECT notes, intensity FROM tracks WHERE date = ? AND name = ? LIMIT 1',
           [date, key],
-        )[0]?.notes ?? null
-      : notes
+        )[0]
+      : undefined
+  const keptNotes = notes === undefined ? prev?.notes ?? null : notes
+  const keptIntensity = intensity === undefined ? prev?.intensity ?? null : intensity
   exec('DELETE FROM tracks WHERE date = ? AND name = ?', [date, key])
   if (value != null) {
     exec(
-      `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [uid(), null, date, key, category, value, unit, null, keptNotes],
+      `INSERT INTO tracks(id, entry_id, date, name, category, value, unit, time, notes, intensity)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [uid(), null, date, key, category, value, unit, null, keptNotes, keptIntensity],
     )
   }
   await persist()
@@ -743,10 +746,11 @@ export async function upsertTrackValue(
   value: number | null,
   unit: string | null,
   notes?: string | null,
+  intensity?: number | null,
 ): Promise<void> {
   const key = canonicalTrackName(name)
   clearSegments(date, key)
-  await writeTrackRollup(date, key, category, value, unit, notes)
+  await writeTrackRollup(date, key, category, value, unit, notes, intensity)
 }
 
 // The value of `name` on `date`, or null if that day has no entry for it.
@@ -758,10 +762,13 @@ export function trackValueOn(date: string, name: string): number | null {
   return r[0]?.value ?? null
 }
 
-// Value + note in one read, for prefilling a quick-entry row.
-export function trackRowOn(date: string, name: string): { value: number | null; notes: string | null } | null {
-  const r = all<{ value: number | null; notes: string | null }>(
-    'SELECT value, notes FROM tracks WHERE date = ? AND name = ? LIMIT 1',
+// Value + note + intensity in one read, for prefilling a quick-entry row.
+export function trackRowOn(
+  date: string,
+  name: string,
+): { value: number | null; notes: string | null; intensity: number | null } | null {
+  const r = all<{ value: number | null; notes: string | null; intensity: number | null }>(
+    'SELECT value, notes, intensity FROM tracks WHERE date = ? AND name = ? LIMIT 1',
     [date, name.trim().toLowerCase()],
   )
   return r[0] ?? null
@@ -911,6 +918,26 @@ export async function saveSupplement(
   )
   await persist()
   return id
+}
+
+// Change a supplement in place. Until now the card only offered Stop and Delete, so
+// a typo in a name, a wrong start date, or a dose he only worked out later meant
+// deleting the row and losing its accumulated check-in notes with it.
+//
+// Only the keys present in `patch` are written — passing `end_date: null` restarts a
+// stopped supplement, whereas omitting it leaves the stop date alone. Column names
+// come from this whitelist and are never interpolated from caller input.
+const SUPPLEMENT_COLS = ['name', 'composition', 'photo_path', 'start_date', 'end_date', 'checkin_days'] as const
+export type SupplementPatch = Partial<Pick<Supplement, (typeof SUPPLEMENT_COLS)[number]>>
+
+export async function updateSupplement(id: string, patch: SupplementPatch): Promise<void> {
+  const cols = SUPPLEMENT_COLS.filter((c) => c in patch)
+  if (!cols.length) return
+  exec(
+    `UPDATE supplements SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,
+    [...cols.map((c) => patch[c] ?? null), id],
+  )
+  await persist()
 }
 
 export async function stopSupplement(id: string, endDate: string = todayISO()): Promise<void> {
@@ -1078,20 +1105,23 @@ export async function upsertSegmentValue(
   metric: string,
   value: number | null,
   notes?: string | null,
+  intensity?: number | null,
 ): Promise<void> {
   const key = canonicalTrackName(metric)
-  const keptNotes =
-    notes === undefined
-      ? all<{ notes: string | null }>(
-          'SELECT notes FROM segment_values WHERE date = ? AND segment = ? AND metric = ?',
+  const prev =
+    notes === undefined || intensity === undefined
+      ? all<{ notes: string | null; intensity: number | null }>(
+          'SELECT notes, intensity FROM segment_values WHERE date = ? AND segment = ? AND metric = ?',
           [date, segment, key],
-        )[0]?.notes ?? null
-      : notes
+        )[0]
+      : undefined
+  const keptNotes = notes === undefined ? prev?.notes ?? null : notes
+  const keptIntensity = intensity === undefined ? prev?.intensity ?? null : intensity
   exec('DELETE FROM segment_values WHERE date = ? AND segment = ? AND metric = ?', [date, segment, key])
   if (value != null) {
     exec(
-      'INSERT INTO segment_values(id, date, segment, metric, value, notes) VALUES (?,?,?,?,?,?)',
-      [uid(), date, segment, key, value, keptNotes],
+      'INSERT INTO segment_values(id, date, segment, metric, value, notes, intensity) VALUES (?,?,?,?,?,?,?)',
+      [uid(), date, segment, key, value, keptNotes, keptIntensity],
     )
   }
   await recomputeRollup(date, key)
@@ -1114,6 +1144,10 @@ async function recomputeRollup(date: string, key: string): Promise<void> {
           ? (rows[rows.length - 1].value as number)
           : Math.round((rows.reduce((sum, r) => sum + (r.value as number), 0) / rows.length) * 10) / 10
   const note = rows.length ? (rows[rows.length - 1].notes ?? null) : null
+  // Same rule as the note: the day inherits the most recent segment's intensity.
+  // Averaging "low morning, high evening" into "medium" would describe a session
+  // that never happened.
+  const intensity = rows.length ? (rows[rows.length - 1].intensity ?? null) : null
 
   const store = storeForName(key)
   if (store === 'wellbeing') {
@@ -1124,7 +1158,7 @@ async function recomputeRollup(date: string, key: string): Promise<void> {
     const def = defForName(key)
     const category = def ? categoryForDef(def) : null
     const scale = scaleForTrack(key, null)
-    await writeTrackRollup(date, key, category, value, value == null ? null : scale.unit, note)
+    await writeTrackRollup(date, key, category, value, value == null ? null : scale.unit, note, intensity)
   }
 }
 

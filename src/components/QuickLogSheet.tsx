@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import DayStrip from './DayStrip'
-import { colorForTrack, labelForTrack, scaleForTrack, clampToScale } from '../lib/metrics'
+import { colorForTrack, labelForTrack, scaleForTrack, clampToScale, kindForTrack } from '../lib/metrics'
 import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
 import { fmtDate } from '../lib/dates'
 import { IconNote } from './icons'
@@ -41,6 +41,7 @@ export default function QuickLogSheet({
   const scale = scaleForTrack(name, category)
   const color = colorForTrack(name)
   const label = labelForTrack(name)
+  const isBool = kindForTrack(name) === 'bool'
 
   // Which days already have this item — shown as dots on the strip. Dispatches to
   // whichever table the metric actually lives in (tracks / wellbeing / day_context).
@@ -112,27 +113,53 @@ export default function QuickLogSheet({
         <div className="label mb-1">Day</div>
         <DayStrip dates={dates} selected={date} onSelect={setDate} marked={logged} />
 
-        <div className="mt-4 flex items-baseline justify-between">
-          <div className="label !mb-0">{scale.unit === '/10' ? 'Level' : scale.unit === '%' ? 'Intensity' : 'Duration'}</div>
-          <div className="font-serif text-2xl leading-none text-cream">
-            {fmt(value)}
-            <span className="ml-1 font-sans text-sm text-ink-400">{scale.unit}</span>
-          </div>
-        </div>
-        <input
-          type="range"
-          min={scale.min}
-          max={scale.max}
-          step={scale.step}
-          value={value}
-          onChange={(e) => setValue(Number(e.target.value))}
-          className="mt-2 w-full accent-brand-500"
-          style={{ accentColor: color }}
-        />
-        <div className="flex justify-between text-[10px] text-ink-500">
-          <span>{scale.min}</span>
-          <span>{scale.max}{scale.unit}</span>
-        </div>
+        {isBool ? (
+          <>
+            <div className="label mt-4 !mb-0">Did it happen?</div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[
+                { v: 1, text: 'Yes' },
+                { v: 0, text: 'No' },
+              ].map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  aria-pressed={value === o.v}
+                  onClick={() => setValue(o.v)}
+                  className={`h-11 rounded-xl border text-sm ${
+                    value === o.v ? 'border-transparent bg-brand-500 text-ink-900' : 'border-ink-700 text-ink-300'
+                  }`}
+                >
+                  {o.text}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mt-4 flex items-baseline justify-between">
+              <div className="label !mb-0">{scale.unit === '/10' ? 'Level' : scale.unit === '%' ? 'Intensity' : 'Duration'}</div>
+              <div className="font-serif text-2xl leading-none text-cream">
+                {fmt(value)}
+                <span className="ml-1 font-sans text-sm text-ink-400">{scale.unit}</span>
+              </div>
+            </div>
+            <input
+              type="range"
+              min={scale.min}
+              max={scale.max}
+              step={scale.step}
+              value={value}
+              onChange={(e) => setValue(Number(e.target.value))}
+              className="mt-2 w-full accent-brand-500"
+              style={{ accentColor: color }}
+            />
+            <div className="flex justify-between text-[10px] text-ink-500">
+              <span>{scale.min}</span>
+              <span>{scale.max}{scale.unit}</span>
+            </div>
+          </>
+        )}
 
         <button
           type="button"
@@ -158,7 +185,7 @@ export default function QuickLogSheet({
           disabled={busy}
           onClick={() => void save(date, value, true)}
         >
-          Save {fmt(value)}{scale.unit} for {fmtDate(date)}
+          {isBool ? `Save ${value >= 1 ? 'yes' : 'no'}` : `Save ${fmt(value)}${scale.unit}`} for {fmtDate(date)}
         </button>
 
         <div className="mt-3 grid grid-cols-2 gap-2">

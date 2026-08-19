@@ -73,6 +73,7 @@ export interface SegmentValue {
   metric: string
   value: number | null
   notes: string | null
+  intensity: number | null
 }
 
 export type Segment = 'morning' | 'afternoon' | 'evening'
@@ -160,6 +161,7 @@ export interface Track {
   unit: string | null
   time: string | null // 'HH:MM' time of day, if mentioned
   notes: string | null
+  intensity: number | null // 1 low / 2 medium / 3 high — duration metrics only
 }
 
 export interface Interpretation {

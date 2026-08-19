@@ -4,6 +4,7 @@ import { startSync, pullIfNewer } from './sync/manager'
 import { completeAuthFromRedirect } from './sync/dropbox'
 import { loadSettings } from './lib/storage'
 import { installDevtools } from './lib/devtools'
+import { loadCustomMetrics } from './lib/customMetrics'
 import { subscribeUpdate, applyUpdate } from './lib/appUpdate'
 import SyncBadge from './components/SyncBadge'
 import { IconHome, IconLog, IconMeal, IconChart, IconBrain, IconSettings } from './components/icons'
@@ -39,6 +40,7 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       await initDb()
+      loadCustomMetrics() // merge his own categories into the metric registry
       installDevtools() // no-op in production builds
       // Complete a Dropbox OAuth redirect if we're returning from one, then strip
       // the ?code=…/state from the URL so a refresh doesn't retry the exchange.

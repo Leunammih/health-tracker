@@ -177,12 +177,15 @@ export default function InsightsTab() {
 
   // --- pain & discomfort: every symptom-category track, on a reversed axis.
   // Infection and stool are symptom-group too, but they render on the Illness & gut
-  // chart below instead — excluded here so they don't show up in both places.
+  // chart below instead — excluded here so they don't show up in both places. The
+  // warming bottle is excluded for a different reason: it is a yes/no, and a 0-or-1
+  // series pinned to the floor of a 0-10 axis is a flat line that says nothing. It
+  // has its own count in the Illness & gut stats.
   const painKeys = useMemo(() => {
     const s = new Set<string>()
     for (const t of tracks) {
       if (t.value == null || groupForTrack(t.name, t.category) !== 'symptom') continue
-      if (t.name === 'infection' || t.name === 'stool') continue
+      if (t.name === 'infection' || t.name === 'stool' || t.name === 'warming bottle') continue
       s.add(t.name)
     }
     return [...s].sort()
@@ -282,6 +285,17 @@ export default function InsightsTab() {
       }
     })
   }, [inf, gut, tracks, spine])
+
+  // Days needing a warming bottle, counted ONCE however they were recorded — the
+  // dictation path writes gut_events.warming_bottle_needed, the quick-entry
+  // checkmark writes a 'warming bottle' track, and a day logged both ways is still
+  // one night.
+  const warmingBottleDays = useMemo(() => {
+    const days = new Set<string>()
+    for (const g of gut) if (g.warming_bottle_needed) days.add(g.date)
+    for (const t of tracks) if (t.name === 'warming bottle' && (t.value ?? 0) >= 1) days.add(t.date)
+    return days.size
+  }, [gut, tracks])
 
   const hasIllness = illnessData.some((r) => r.infection != null || r.gutPain != null || r.stool != null)
   const illnessPalette = useMemo(
@@ -578,7 +592,7 @@ export default function InsightsTab() {
       <div className="grid grid-cols-3 gap-2">
         <Stat label="Gut episodes" value={gut.length} />
         <Stat label="Infections" value={inf.length} />
-        <Stat label="Warming bottle" value={gut.filter((g) => g.warming_bottle_needed).length} />
+        <Stat label="Warming bottle" value={warmingBottleDays} />
       </div>
 
       {hasIllness && (

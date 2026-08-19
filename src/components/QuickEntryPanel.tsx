@@ -2,9 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { trackNamesSince } from '../db/queries'
 import {
   colorForTrack, labelForTrack, scaleForTrack, clampToScale, groupForTrack, categoryForDef, defForName,
-  QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS, TRACK_DEFS,
+  allTrackDefs, kindForTrack, quickStepFor,
+  QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS,
   type MetricGroup, type TrackDef,
 } from '../lib/metrics'
+import {
+  addCustomMetric, loadCustomMetrics, removeCustomMetric, type CustomMetricSpec,
+} from '../lib/customMetrics'
 import {
   loadHiddenMetrics, supplementMetricNames, isSuppressedMetric, hideMetric, unhideMetric,
 } from '../lib/hiddenMetrics'
@@ -13,6 +17,7 @@ import { readMetric, lastMetricValue, writeMetric, readSegments, writeSegment, r
 import { daysAgoISO } from '../lib/dates'
 import { IconNote } from './icons'
 import { MetricIcon, GroupIcon } from './metricIcons'
+import AddMetricSheet from './AddMetricSheet'
 import type { Segment } from '../types'
 
 // Whether `name` should read/write a specific time-of-day segment right now, vs the
@@ -32,15 +37,18 @@ const GROUP_ORDER: { group: MetricGroup; title: string }[] = [
   { group: 'other', title: 'Other' },
 ]
 
-// Canonical display order. Sorting by position in the registry (never by how often
-// something has been logged) is what keeps rows from swapping places under your
-// thumb when a save changes a row count.
-const DEF_INDEX = new Map(TRACK_DEFS.map((d, i) => [d.key, i]))
-
 // Items a plain "+5 min, tap again to add more" chip makes sense for — duration-based
 // movement/practice metrics. Pain/symptom (/10) and release (%) don't fit a running
 // increment, so they stay in the categorized slider list above instead.
 const QUICK_LOG_STEP_ITEMS = QUICK_LOG_ITEMS.filter((d) => d.unit === 'min')
+
+// The three intensity steps, stored as 1/2/3 on tracks.intensity. Single letters
+// because they ride on the row's header line — see QuickRow.
+const INTENSITY: { v: number; short: string; label: string }[] = [
+  { v: 1, short: 'L', label: 'Low' },
+  { v: 2, short: 'M', label: 'Medium' },
+  { v: 3, short: 'H', label: 'High' },
+]
 
 interface Item {
   name: string
@@ -52,10 +60,13 @@ interface RowState {
   value: number
   note: string
   noteTouched: boolean
+  intensity: number | null
+  intensityTouched: boolean
 }
 interface SavedState {
   value: number | null
   note: string | null
+  intensity: number | null
 }
 
 // Read a row's persisted state. In whole-day mode this dispatches to whichever
@@ -65,7 +76,7 @@ interface SavedState {
 function readSaved(date: string, item: Item, segment: Segment | null): SavedState {
   if (usesSegment(segment, item.name)) {
     const row = readSegments(date, item.name).find((r) => r.segment === segment)
-    return { value: row?.value ?? null, note: row?.notes ?? null }
+    return { value: row?.value ?? null, note: row?.notes ?? null, intensity: row?.intensity ?? null }
   }
   return readMetric(date, item.name)
 }
@@ -87,6 +98,11 @@ function initRow(date: string, item: Item, saved: SavedState): RowState {
     value: clampToScale(raw, scale),
     note: saved.note ?? '',
     noteTouched: false,
+    // Intensity is NOT carried forward from an earlier day the way the value is:
+    // "how hard was it" is a fact about one session, and pre-filling last week's
+    // answer would put a number there he never gave.
+    intensity: saved.intensity,
+    intensityTouched: false,
   }
 }
 
@@ -115,6 +131,10 @@ export default function QuickEntryPanel({
   const [extra, setExtra] = useState<string[]>([]) // items added via quick-add this session
   const [hidden, setHidden] = useState<Set<string>>(() => loadHiddenMetrics())
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsedGroups())
+  // His own categories. Held in state (not read on every render) because adding one
+  // has to re-sort the rows, and the sort key comes from the merged registry.
+  const [customs, setCustoms] = useState<CustomMetricSpec[]>(() => loadCustomMetrics())
+  const [addingTo, setAddingTo] = useState<MetricGroup | null>(null)
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState<string | null>(null)
   const [qlBusy, setQlBusy] = useState<string | null>(null)
@@ -129,9 +149,19 @@ export default function QuickEntryPanel({
   // also lands in `tracks` it must not turn up here as a slider as well.
   const supplements = useMemo(() => supplementMetricNames(), [])
 
+  // Canonical display order. Sorting by position in the registry (never by how often
+  // something has been logged) is what keeps rows from swapping places under your
+  // thumb when a save changes a row count. Custom metrics sit after the built-ins,
+  // so adding one lands it at the bottom of its group rather than reshuffling
+  // everything above it.
+  const defIndex = useMemo(() => new Map(allTrackDefs().map((d, i) => [d.key, i])), [customs])
+
   const items = useMemo<Item[]>(() => {
     const map = new Map<string, string | null>()
     for (const d of PINNED_QUICK_ENTRY_ITEMS) map.set(d.key, null)
+    // Every category he defined himself is always offered, logged or not — he asked
+    // for it by name, so it must not vanish just because a week went by without it.
+    for (const c of customs) if (!map.has(c.key)) map.set(c.key, null)
     for (const r of recent) if (!map.has(r.name)) map.set(r.name, r.category)
     for (const name of extra) {
       if (!map.has(name)) {
@@ -143,12 +173,12 @@ export default function QuickEntryPanel({
       .filter(([name]) => !isSuppressedMetric(name, hidden, supplements))
       .map(([name, category]) => ({ name, category, def: defForName(name) }))
       .sort((a, b) => {
-        const ia = DEF_INDEX.get(a.def?.key ?? '') ?? Number.MAX_SAFE_INTEGER
-        const ib = DEF_INDEX.get(b.def?.key ?? '') ?? Number.MAX_SAFE_INTEGER
+        const ia = defIndex.get(a.def?.key ?? '') ?? Number.MAX_SAFE_INTEGER
+        const ib = defIndex.get(b.def?.key ?? '') ?? Number.MAX_SAFE_INTEGER
         if (ia !== ib) return ia - ib
         return labelForTrack(a.name).localeCompare(labelForTrack(b.name))
       })
-  }, [recent, extra, hidden, supplements])
+  }, [recent, extra, hidden, supplements, customs, defIndex])
 
   const [saved, setSaved] = useState<Map<string, SavedState>>(() => initSavedMap(date, segment, items))
   const [drafts, setDrafts] = useState<Map<string, RowState>>(() => initDraftMap(date, segment, items))
@@ -200,6 +230,7 @@ export default function QuickEntryPanel({
       const s = saved.get(it.name)
       if (!d || !s) return false
       if (d.value !== s.value) return true
+      if (d.intensityTouched && d.intensity !== s.intensity) return true
       return d.noteTouched && (d.note.trim() || null) !== s.note
     },
     [drafts, saved],
@@ -218,10 +249,11 @@ export default function QuickEntryPanel({
     // Only send a note when the field was actually edited; otherwise omit it so the
     // DB layer keeps whatever is already stored.
     const noteArg = d.noteTouched ? (d.note.trim() || null) : undefined
+    const intensityArg = d.intensityTouched ? d.intensity : undefined
     if (usesSegment(segment, it.name)) {
-      await writeSegment(date, segment as Segment, it.name, d.value, noteArg)
+      await writeSegment(date, segment as Segment, it.name, d.value, noteArg, intensityArg)
     } else {
-      await writeMetric(date, it.name, d.value, noteArg)
+      await writeMetric(date, it.name, d.value, noteArg, intensityArg)
     }
     setSaved((prev) => {
       const next = new Map(prev)
@@ -229,10 +261,11 @@ export default function QuickEntryPanel({
       next.set(it.name, {
         value: d.value,
         note: d.noteTouched ? (d.note.trim() || null) : (cur?.note ?? null),
+        intensity: d.intensityTouched ? d.intensity : (cur?.intensity ?? null),
       })
       return next
     })
-    setDraft(it.name, { noteTouched: false })
+    setDraft(it.name, { noteTouched: false, intensityTouched: false })
   }
 
   async function saveOne(it: Item) {
@@ -257,7 +290,7 @@ export default function QuickEntryPanel({
       const current = (segmented
         ? readSegments(date, def.key).find((r) => r.segment === segment)?.value
         : readMetric(date, def.key).value) ?? 0
-      const next = Math.min(current + def.step, def.max)
+      const next = Math.min(current + quickStepFor(def), def.max)
       if (segmented) {
         await writeSegment(date, segment as Segment, def.key, next)
       } else {
@@ -265,13 +298,16 @@ export default function QuickEntryPanel({
       }
       setSaved((prev) => {
         const next2 = new Map(prev)
-        next2.set(def.key, { value: next, note: prev.get(def.key)?.note ?? null })
+        const cur = prev.get(def.key)
+        next2.set(def.key, { value: next, note: cur?.note ?? null, intensity: cur?.intensity ?? null })
         return next2
       })
       setDrafts((prev) => {
         const next2 = new Map(prev)
         const cur = prev.get(def.key)
-        next2.set(def.key, cur ? { ...cur, value: next } : { value: next, note: '', noteTouched: false })
+        next2.set(def.key, cur
+          ? { ...cur, value: next }
+          : { value: next, note: '', noteTouched: false, intensity: null, intensityTouched: false })
         return next2
       })
       setExtra((e) => (e.includes(def.key) ? e : [...e, def.key]))
@@ -295,6 +331,21 @@ export default function QuickEntryPanel({
     await unhideMetric(name)
     setHidden(loadHiddenMetrics())
     setExtra((e) => (e.includes(name) ? e : [...e, name]))
+  }
+
+  async function addCategory(spec: Parameters<typeof addCustomMetric>[0]) {
+    const next = await addCustomMetric(spec)
+    setCustoms(next)
+    setAddingTo(null)
+    // Open the group it landed in, so the new row is actually on screen.
+    if (collapsed.has(spec.group)) setCollapsed(await setGroupCollapsed(spec.group, false))
+  }
+
+  // Forgets the definition; the history stays and keeps its Insights chart. Same
+  // scope decision as hiding — see the top of lib/hiddenMetrics.ts.
+  async function removeCategory(key: string) {
+    setCustoms(await removeCustomMetric(key))
+    setExtra((e) => e.filter((n) => n !== key))
   }
 
   async function toggleGroup(group: MetricGroup) {
@@ -350,20 +401,30 @@ export default function QuickEntryPanel({
         const dirtyHere = g.rows.filter((it) => isDirty(it)).length
         return (
           <div key={g.group}>
-            <button
-              type="button"
-              aria-expanded={isOpen}
-              onClick={() => void toggleGroup(g.group)}
-              className="flex w-full items-center gap-1.5 py-1 text-[11px] font-medium uppercase tracking-wide text-ink-500 hover:text-ink-300"
-            >
-              <GroupIcon group={g.group} size={13} className="shrink-0" />
-              <span>{g.title}</span>
-              <span className="text-ink-600">{g.rows.length}</span>
-              {!isOpen && dirtyHere > 0 && (
-                <span className="warn-dot h-1.5 w-1.5 rounded-full" aria-label={`${dirtyHere} unsaved`} />
-              )}
-              <span className="ml-auto text-ink-500">{isOpen ? '▾' : '▸'}</span>
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onClick={() => void toggleGroup(g.group)}
+                className="flex flex-1 items-center gap-1.5 py-1 text-[11px] font-medium uppercase tracking-wide text-ink-500 hover:text-ink-300"
+              >
+                <GroupIcon group={g.group} size={13} className="shrink-0" />
+                <span>{g.title}</span>
+                <span className="text-ink-600">{g.rows.length}</span>
+                {!isOpen && dirtyHere > 0 && (
+                  <span className="warn-dot h-1.5 w-1.5 rounded-full" aria-label={`${dirtyHere} unsaved`} />
+                )}
+                <span className="ml-auto text-ink-500">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              <button
+                type="button"
+                aria-label={`Track something else in ${g.title}`}
+                onClick={() => setAddingTo(g.group)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-ink-700 text-sm text-ink-400 hover:text-cream"
+              >
+                +
+              </button>
+            </div>
 
             {isOpen && g.rows.map((it) => {
               const d = drafts.get(it.name)
@@ -382,12 +443,13 @@ export default function QuickEntryPanel({
                   onChange={(patch) => setDraft(it.name, patch)}
                   onSave={() => void saveOne(it)}
                   onHide={() => void hideRow(it.name)}
+                  onRemove={customs.some((c) => c.key === it.name) ? () => void removeCategory(it.name) : undefined}
                 />
               )
             })}
 
             {isOpen && !g.rows.length && (
-              <p className="py-1 text-xs text-ink-500">Nothing here yet.</p>
+              <p className="py-1 text-xs text-ink-500">Nothing here yet — tap + to add something.</p>
             )}
           </div>
         )
@@ -403,7 +465,7 @@ export default function QuickEntryPanel({
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-500">Quick log</div>
           <p className="mb-1.5 text-xs text-ink-400">
-            Tap to add 5 minutes to {segment ? `${SEGMENT_LABEL[segment].toLowerCase()}'s` : "today's"} total for that item.
+            Tap to add to {segment ? `${SEGMENT_LABEL[segment].toLowerCase()}'s` : "today's"} total for that item.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {QUICK_LOG_STEP_ITEMS.map((d) => (
@@ -416,7 +478,7 @@ export default function QuickEntryPanel({
               >
                 <MetricIcon name={d.key} color={colorForTrack(d.key)} size={14} className="shrink-0" />
                 {d.label}
-                <span className="text-brand-400">{qlFlash === d.key ? '✓' : '+5'}</span>
+                <span className="text-brand-400">{qlFlash === d.key ? '✓' : `+${quickStepFor(d)}`}</span>
               </button>
             ))}
           </div>
@@ -444,6 +506,15 @@ export default function QuickEntryPanel({
             ))}
           </div>
         </div>
+      )}
+
+      {addingTo && (
+        <AddMetricSheet
+          group={addingTo}
+          existingKeys={new Set(customs.map((c) => c.key))}
+          onAdd={(spec) => void addCategory(spec)}
+          onClose={() => setAddingTo(null)}
+        />
       )}
 
       {addable.length > 0 && (
@@ -481,6 +552,10 @@ function initDraftMap(date: string, segment: Segment | null, items: Item[]): Map
 // a third of the panel's height across every metric and turned finding anything
 // into a scroll. Hiding a row moved into the note panel: it is rare, and it was
 // taking permanent space on every row to say so.
+//
+// A 'bool' metric swaps the slider for a tick. Duration metrics get Low/Med/High on
+// the HEADER line rather than a fourth control below — "how hard" belongs next to
+// "how long", and putting it there costs no extra height at all.
 const QuickRow = memo(function QuickRow({
   name,
   category,
@@ -492,6 +567,7 @@ const QuickRow = memo(function QuickRow({
   onChange,
   onSave,
   onHide,
+  onRemove,
 }: {
   name: string
   category: string | null
@@ -503,11 +579,17 @@ const QuickRow = memo(function QuickRow({
   onChange: (patch: Partial<RowState>) => void
   onSave: () => void
   onHide: () => void
+  // Present only for a category he defined himself — a built-in has nothing to
+  // remove, only to hide.
+  onRemove?: () => void
 }) {
   const [noteOpen, setNoteOpen] = useState(false)
   const scale = scaleForTrack(name, category)
   const color = colorForTrack(name)
   const hasNote = !!(draft.noteTouched ? draft.note.trim() : saved.note)
+  const isBool = kindForTrack(name) === 'bool'
+  const showIntensity = !isBool && scale.unit === 'min'
+  const on = draft.value >= 1
 
   return (
     <div className="py-1.5">
@@ -521,30 +603,77 @@ const QuickRow = memo(function QuickRow({
           {dirty && <span className="warn-dot h-1.5 w-1.5 shrink-0 rounded-full" aria-label="unsaved" />}
         </span>
 
-        <span className="flex shrink-0 items-baseline gap-1">
-          <span
-            className={`font-serif text-xl leading-none ${
-              dirty || saved.value != null ? 'text-cream' : 'text-ink-400'
-            }`}
-          >
-            {fmtValue(draft.value)}
+        {showIntensity && (
+          <span className="flex shrink-0 overflow-hidden rounded-lg border border-ink-700">
+            {INTENSITY.map((i) => (
+              <button
+                key={i.v}
+                type="button"
+                aria-label={`${i.label} intensity`}
+                aria-pressed={draft.intensity === i.v}
+                onClick={() =>
+                  onChange({
+                    // Tapping the current one clears it — there has to be a way back
+                    // to "I didn't say", which is not the same claim as "low".
+                    intensity: draft.intensity === i.v ? null : i.v,
+                    intensityTouched: true,
+                  })
+                }
+                className={`h-6 w-6 text-[11px] leading-none ${
+                  draft.intensity === i.v ? 'bg-brand-500 text-ink-900' : 'text-ink-500'
+                }`}
+              >
+                {i.short}
+              </button>
+            ))}
           </span>
-          <span className="text-[11px] text-ink-400">{scale.unit}</span>
-        </span>
+        )}
+
+        {!isBool && (
+          <span className="flex shrink-0 items-baseline gap-1">
+            <span
+              className={`font-serif text-xl leading-none ${
+                dirty || saved.value != null ? 'text-cream' : 'text-ink-400'
+              }`}
+            >
+              {fmtValue(draft.value)}
+            </span>
+            <span className="text-[11px] text-ink-400">{scale.unit}</span>
+          </span>
+        )}
       </div>
 
       <div className="mt-1 flex items-center gap-2">
-        <input
-          type="range"
-          min={scale.min}
-          max={scale.max}
-          step={scale.step}
-          value={draft.value}
-          onChange={(e) => onChange({ value: Number(e.target.value) })}
-          aria-label={labelForTrack(name)}
-          className="min-w-0 flex-1"
-          style={{ accentColor: color }}
-        />
+        {isBool ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={on}
+            onClick={() => onChange({ value: on ? 0 : 1 })}
+            // Deliberately the brand accent when on, not the metric's own colour:
+            // every other "this is selected" surface in the app is accent-filled
+            // (chip-on, btn-primary), and a full-width button in a hashed hue reads
+            // as a warning rather than a tick. The colour identity stays in the icon.
+            className={`flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border text-sm ${
+              on ? 'border-transparent bg-brand-500 text-ink-900' : 'border-ink-700 text-ink-400'
+            }`}
+          >
+            <span aria-hidden>{on ? '✓' : '—'}</span>
+            {on ? 'Yes' : 'No'}
+          </button>
+        ) : (
+          <input
+            type="range"
+            min={scale.min}
+            max={scale.max}
+            step={scale.step}
+            value={draft.value}
+            onChange={(e) => onChange({ value: Number(e.target.value) })}
+            aria-label={labelForTrack(name)}
+            className="min-w-0 flex-1"
+            style={{ accentColor: color }}
+          />
+        )}
 
         <button
           type="button"
@@ -579,15 +708,26 @@ const QuickRow = memo(function QuickRow({
             value={draft.note}
             onChange={(e) => onChange({ note: e.target.value, noteTouched: true })}
           />
-          {/* Anything dictation files under `tracks` shows up here, including things
-              that aren't metrics at all. One tap removes the row; the data stays. */}
-          <button
-            type="button"
-            onClick={onHide}
-            className="text-xs text-ink-500 underline hover:text-red-400"
-          >
-            Hide {labelForTrack(name)} from quick entry
-          </button>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {/* Anything dictation files under `tracks` shows up here, including things
+                that aren't metrics at all. One tap removes the row; the data stays. */}
+            <button
+              type="button"
+              onClick={onHide}
+              className="text-xs text-ink-500 underline hover:text-red-400"
+            >
+              Hide {labelForTrack(name)} from quick entry
+            </button>
+            {onRemove && (
+              <button
+                type="button"
+                onClick={onRemove}
+                className="text-xs text-ink-500 underline hover:text-red-400"
+              >
+                Delete this category (keeps its history)
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

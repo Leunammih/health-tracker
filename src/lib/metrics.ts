@@ -49,7 +49,17 @@ export interface TrackDef {
   // registered metric only needs this when it borrows another metric's icon —
   // which is the normal case for user-defined metrics (Phase G-2).
   icon?: string
+  // 'bool' renders a checkmark toggle instead of a slider and stores 0/1. Some
+  // things are a yes/no, not a quantity — a warming bottle at night either was
+  // needed or wasn't, and a 0-10 slider for it is not a question with an answer.
+  kind?: MetricKind
+  // How much one tap of the "Quick log" chip adds. Defaults to `step`; set it where
+  // the slider's step is too fine to tap up to a realistic total (a working day of
+  // computer time in 5-minute taps is 96 taps).
+  quickStep?: number
 }
+
+export type MetricKind = 'scale' | 'bool'
 
 export type Rollup = 'sum' | 'avg' | 'last'
 
@@ -69,6 +79,11 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'stretching', label: 'Stretching', match: /stretch|mobility/i, color: paletteColor('stretching', 'movement'), group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
   { key: 'swimming', label: 'Swimming', match: /swim/i, color: paletteColor('swimming', 'movement'), group: 'movement', unit: 'min', min: 0, max: 180, step: 5 },
   { key: 'yoga', label: 'Yoga', match: /yoga/i, color: paletteColor('yoga', 'movement'), group: 'movement', unit: 'min', min: 0, max: 120, step: 5 },
+
+  // Screen time. max 720 (12 h), not the 180 the movement metrics use — that would
+  // clip an ordinary working day at lunchtime. quickStep 30, because tapping a
+  // working day up in 5-minute increments is nearly a hundred taps.
+  { key: 'computer time', label: 'Computer time', match: /computer time|screen time|laptop time|at the (computer|desk)/i, color: paletteColor('computer time', 'movement'), group: 'other', unit: 'min', min: 0, max: 720, step: 5, quickStep: 30, rollup: 'sum' },
 
   // --- practices (minutes) ---
   { key: 'meditation', label: 'Meditation', match: /medit/i, color: paletteColor('meditation', 'practice'), group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
@@ -101,6 +116,11 @@ export const TRACK_DEFS: TrackDef[] = [
   // step 0.5: real stools land between two Bristol pictures more often than on one,
   // and rounding to the nearer whole type throws away the only distinction that
   // matters on a scale this short.
+  // A yes/no, not a rating — see MetricKind. It shares the day with the
+  // dictation-extracted gut_events.warming_bottle_needed flag; the Insights stat
+  // tile counts the union of both so the two entry paths can't disagree.
+  { key: 'warming bottle', label: 'Warming bottle', match: /warming bottle|hot water bottle|w(a|ä)rmflasche/i, color: paletteColor('warming bottle', 'symptom'), group: 'symptom', unit: '', min: 0, max: 1, step: 1, kind: 'bool', rollup: 'last', category: 'symptom' },
+
   { key: 'stool', label: 'Stool consistency', match: /stool|bristol/i, color: paletteColor('stool', 'symptom'), group: 'symptom', unit: '', min: 1, max: 7, step: 0.5, rollup: 'last' },
 
   // --- measurements ---
@@ -128,16 +148,45 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'stress', label: 'Stress', match: /^stress$/i, color: paletteColor('stress', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true, store: 'day_context' },
 ]
 
+// ---- User-defined metrics ----
+// Custom metrics are kept in the `meta` table (see lib/customMetrics.ts) and pushed
+// in here at boot rather than imported: metrics.ts is imported BY db/queries.ts, so
+// reaching back into queries from this file would close an import cycle. Inverting
+// it — the store registers itself with the registry — keeps the dependency one-way.
+let customDefs: TrackDef[] = []
+
+export function setCustomTrackDefs(defs: TrackDef[]): void {
+  customDefs = defs
+}
+
+// Built-ins first, then the user's own. Order matters: it is the display order in
+// the Log tab (see DEF_INDEX in QuickEntryPanel), so a new custom metric lands at
+// the bottom of its group rather than shuffling the familiar rows around.
+export function allTrackDefs(): TrackDef[] {
+  return customDefs.length ? [...TRACK_DEFS, ...customDefs] : TRACK_DEFS
+}
+
 // Resolve a free-form name to its definition. The fuzzy regex pass deliberately
 // SKIPS defs stored outside `tracks`: this runs against arbitrary names read out of
 // the `tracks` table, and a track happening to be called "energy" or "stress" must
 // not be routed to the wellbeing/day_context tables. Only an exact key match reaches those.
 export function defForName(name: string): TrackDef | undefined {
   const n = name.trim().toLowerCase()
+  const defs = allTrackDefs()
   return (
-    TRACK_DEFS.find((d) => d.key === n) ??
-    TRACK_DEFS.find((d) => storeForDef(d) === 'tracks' && d.match.test(n))
+    defs.find((d) => d.key === n) ??
+    defs.find((d) => storeForDef(d) === 'tracks' && d.match.test(n))
   )
+}
+
+// Whether this metric is a yes/no toggle rather than a slider.
+export function kindForTrack(name: string): MetricKind {
+  return defForName(name)?.kind ?? 'scale'
+}
+
+// How much one tap of a Quick log chip adds.
+export function quickStepFor(def: TrackDef): number {
+  return def.quickStep ?? def.step
 }
 
 export function storeForDef(def: TrackDef): MetricStore {
@@ -250,7 +299,8 @@ export const QUICK_LOG_KEYS = [
   'exercise', 'dancing', 'biking', 'walking', 'running', 'stretching', 'swimming', 'yoga',
   'meditation', 'breath work',
   'knee pain', 'wrist pain', 'back pain', 'shoulder pain', 'stomach pain',
-  'infection', 'stool',
+  'infection', 'stool', 'warming bottle',
+  'computer time',
   'release',
 ] as const
 

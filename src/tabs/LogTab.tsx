@@ -335,11 +335,14 @@ export default function LogTab() {
       )}
 
       {phase === 'input' && !editingId && (
-        <EventsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <SupplementsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
+      {/* Below Supplements, not above: it is the rarest thing on this screen, and
+          sitting between the sliders and the supplements it competed with both for
+          "add something" attention. */}
       {phase === 'input' && !editingId && (
-        <SupplementsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <EventsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'processing' && (

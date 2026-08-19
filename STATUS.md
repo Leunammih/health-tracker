@@ -562,35 +562,115 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     place, the minute column 50 · 55 · **00** · 05 · 10, a flick landing mid-row
     still commits a whole value, and 5 × 24 = 120 rows render per hour column.
 
+- **Phase G-2 — checkmark metrics, intensity, and categories he defines himself**
+  (2026-08-19). The second half of the original Phase G ask. **Schema v13** — the
+  first schema change since v12; `runMigrations()` adds the two new columns on open
+  and existing rows are untouched (verified against the live 57-row `tracks` table).
+  - **A boolean metric kind.** `TrackDef.kind: 'scale' | 'bool'` renders a Yes/No
+    toggle instead of a slider, in both `QuickRow` and `QuickLogSheet`. Nothing in
+    the registry could express a yes/no before, and the next two items both needed
+    it, so it exists once.
+  - **Warming bottle** is now a registered checkmark metric, in the Log panel and
+    the Insights tap-to-log grid. The Insights **"Warming bottle"** stat counts the
+    **union** of the dictation-extracted `gut_events.warming_bottle_needed` days and
+    the new track's days — verified that a day logged both ways counts once, not
+    twice. Kept out of the Pain chart on purpose: a 0-or-1 series pinned to the floor
+    of a 0-10 axis is a flat line that says nothing.
+  - **Intensity on duration metrics.** `tracks.intensity` and
+    `segment_values.intensity` (1 low / 2 medium / 3 high), threaded through
+    `upsertTrackValue` → `writeMetric` with the same tri-state carry-forward `notes`
+    already had — `writeTrackRollup` is a DELETE+INSERT, so an omitted intensity has
+    to be re-read and re-written or it is destroyed. Verified all three states: omit
+    keeps, explicit value sets, explicit null clears, both through the data layer and
+    end-to-end through the UI. Shown as **L / M / H pills on the row's header line**,
+    beside the value rather than below the slider, so "how hard" sits next to "how
+    long" and costs no extra height. Only for `min` metrics.
+    **Captured but not yet charted:** `PlateauChart` is hand-rolled SVG with no
+    tooltip, so there is nowhere honest to surface it in Insights yet. The data
+    starts accumulating now; a chart for it is a later iteration.
+  - **Computer time** — a `min` metric with a 720-minute ceiling (180, the movement
+    default, clips a working day at lunchtime) and a new optional
+    `TrackDef.quickStep` so its one-tap chip adds **30** min instead of 5.
+  - **Categories he defines himself** (`src/lib/customMetrics.ts`). A JSON array in
+    the `meta` table, modelled on `hiddenMetrics.ts`, merged into the registry by
+    `allTrackDefs()`. The registry is **pushed** into `metrics.ts` via
+    `setCustomTrackDefs`, not pulled — `db/queries.ts` imports `metrics.ts`, so a
+    metrics → customMetrics → queries edge would close an import cycle. Everything
+    downstream (`scaleForTrack`, `colorForTrack`, `rollupFor`, `canonicalTrackName`,
+    `storeForName`) already routes through `defForName`, so a custom metric behaves
+    like a built-in for free. A **+** on each of the five group headings opens a
+    sheet: name, shape (Duration / Rating 0-10 / Yes-no / Number), lower-is-better,
+    and an icon. Reloaded onto the registry after a Dropbox pull or a `.db` import,
+    since those replace the whole database. Deleting a category forgets the
+    definition only — the history stays and keeps its Insights chart, matching the
+    hide-scope decision at the top of `hiddenMetrics.ts`.
+    Proof it really resolves through the registry rather than the generic fallback:
+    a custom **checkmark** called "Flossing" still renders as a **switch** after a
+    full reload, where the fallback would have given it a 0-10 rating slider.
+  - **Supplement editing.** `updateSupplement(id, patch)` writes only the keys
+    present, through a column whitelist. The card gains an inline editor for name,
+    composition, check-in interval, **start date** and **end date** — on both the
+    active and the stopped list. Clearing "Until" puts a stopped supplement back on
+    the active list and restarts its check-ins. Before this the only options were
+    Stop and Delete, so fixing a typo meant losing the accumulated check-in notes.
+  - **"Log an event" → "Mark a change"**, moved below Supplements and re-described.
+    It is a dated reference line across the charts, not a number tracked over time,
+    and sitting between the sliders and the supplements it competed with both for
+    "add something" attention.
+  - Verified in both themes with no console errors after a clean reload and a walk
+    of every tab. The boolean toggle and the intensity pills use the brand accent
+    when set rather than the metric's own hashed hue — a full-width button in a
+    random colour reads as a warning, not a tick.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-1.6**, which is one screen._
+_Replaced each iteration — this is the list for **G-2**. **This build changes the
+database schema (v13)**: it adds two columns when the app opens. Your data is
+untouched, but if anything looks wrong after updating, tell me before logging more._
 
-1. **Settings → App version** → the *Build* line should be newer than last time. If
-   not, tap **Check for updates**. (From this build on you'll get the banner rather
-   than a silent reload.)
-2. **Log → Sleep → tap the bedtime button.** Scroll the hour wheel **down past 23**
-   — it should carry straight on to **00, 01, 02** without stopping, so a 23:55
-   bedtime is a couple of flicks from a 00:30 one. The minute wheel does the same
-   past 55.
-3. **Does it move better?** The number under the band should now brighten and grow
-   **as you scroll**, not only once you let go, and the numbers should fade out
-   towards the top and bottom edges instead of being cut off. That was the
-   "could be a little smoother".
-4. Set a time, **Done**, **Save sleep** — the button and the "asleep" figure should
-   both match what you picked.
-5. **Both themes** — the highlight band behind the selected row must be visible in
-   each.
-
-Nothing else changed in this build, so anything else that misbehaves is a
-regression worth telling me about.
+1. **Get the build.** Settings → **App version** → Build should be newer; otherwise
+   tap **Check for updates**, then **Update** on the banner.
+2. **Warming bottle.** Log → **Health & pain** → it should now be there as a
+   **Yes / No** button, not a slider. Tap Yes → Save. Then Insights → the
+   **Warming bottle** count at the top of *Illness & gut* should include today.
+   If you also dictate a gut episode mentioning a warming bottle for the same day,
+   the count must go up by **one**, not two.
+3. **Intensity.** Any minutes-based row (Dancing, Biking, Meditation…) now has
+   **L / M / H** next to its value. Tap **H** → Save. Then change only the minutes
+   and Save again — the **H must still be lit**. Tap **H** a second time to clear it.
+   *(It's being recorded but doesn't appear in Insights yet — the movement chart has
+   no tooltip to hang it on. That's a later iteration; the data starts collecting
+   now.)*
+4. **Computer time.** In **Other**, or as a **+30** chip under *Quick log*. Each tap
+   adds 30 minutes rather than 5, and the slider runs to 12 hours.
+5. **Your own categories — the big one.** Each group heading now has a **+**.
+   - Tap **+** on *Movement* → name it something you actually want (sauna, cold
+     plunge, whatever) → pick **Duration** → pick an icon → **Add**. It should appear
+     as a row in that group straight away.
+   - Log a value and Save. Then **fully close and reopen the app** — it must still be
+     there, with the right kind of control.
+   - Try a **Yes / no** one too, and check it comes back as a toggle, not a slider.
+   - Insights → **Tap to log** should list it, and once you've logged it, it gets its
+     own card in the *Other* section.
+   - To remove one: tap its **pen**, then "Delete this category". Everything you
+     already logged stays.
+6. **Supplements.** Each one now has **Edit** — name, dose, check-in interval, and
+   both dates. Change the start date and save. Then set an **Until** date: it should
+   move to *Show stopped*. Edit it there and **clear Until**: it should come back to
+   the active list.
+7. **"Mark a change"** — the old "Log an event" card, renamed and moved **below**
+   Supplements.
+8. **Both themes**, and confirm nothing regressed: the sleep wheel, the dictation
+   review with its conflict pills, Save without Claude, folded groups, meals and the
+   barcode scanner.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone4** — phone report on **G-1.6** (checklist above): does the hour wheel
-  really roll past 23 under a thumb, and does the live highlight read as smoother.
+- 🟦 **phone5** — phone report on **G-2** (checklist above). Carries a **schema
+  change (v13)**, so worth a look before he logs a lot on top of it.
+- ✅ **phone4** (G-1.6) — answered 2026-08-19, "working great".
 - ✅ **phone3** (G-1.5) — answered 2026-08-19, "all working". The two follow-ups
   (wrapping hours, smoother motion) became G-1.6.
 - ✅ **phone2** (G-1) — answered 2026-08-19. Sleep fix and 5-minute steps confirmed
@@ -717,58 +797,24 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-1.6** (checklist above). G-1 and G-1.5
-are both confirmed working on the phone. G-1.6 is built, typechecked and verified in
-both themes: the hour column rolls 23 → 00 → 01 in place, the minute column wraps
-past 55, a mid-row flick still commits a whole value, and the highlight now tracks
-the scroll per frame.
+**Waiting on Immanuel's phone report for G-2** (checklist above). **Phase G is now
+complete** — G-1, G-1.5, G-1.6 and G-2 between them cover all thirteen items he
+raised (ten in the original list, three from the G-1 report, two from G-1.5).
 
-**Environment note for the next session:** the Browser pane stopped dispatching
-scroll events (and stopped accepting `computer` clicks) partway through this
-session. Driving React handlers with `element.dispatchEvent(new Event('scroll'))`
-after setting `scrollTop` is the workaround; a fresh session probably clears it.
+Verified before pushing: schema v13 migrates the live 57-row `tracks` table with
+every row preserved and `intensity` null; intensity is tri-state correct through
+both the data layer and the UI; a custom checkmark metric survives a full reload as
+a switch rather than falling back to a rating slider; the warming-bottle stat counts
+a doubly-logged day once; supplement edit covers both dates in both directions.
+Both themes, no console errors, every tab walked after a clean reload.
 
-When it comes back and anything broken is fixed, build **G-2** — the second half of
-the original Phase G ask, already scoped and approved:
+Known gap, deliberately left: **intensity is captured but not charted.**
+`PlateauChart` is hand-rolled SVG with no tooltip, so there is nowhere honest to put
+it yet. Options for a later iteration, cheapest first: (a) tint each day's plateau
+by intensity, (b) add a tooltip to `PlateauChart`, (c) an "average intensity" line
+under the movement chart.
 
-1. **A boolean ("checkmark") metric kind** — nothing in the registry can express
-   yes/no today, and both of the next two items need it, so build it once:
-   `kind?: 'scale' | 'bool'` on `TrackDef`, rendered as a toggle instead of a
-   slider in `QuickRow` and `QuickLogSheet`.
-2. **Warming bottle** as a registered boolean metric, and make the Insights
-   "Warming bottle" stat tile count the union of the dictation-extracted
-   `gut_events.warming_bottle_needed` days and the new track's days, so the two
-   entry paths can't report two different numbers.
-3. **Intensity on duration metrics** — schema v13 (`tracks.intensity` and
-   `segment_values.intensity`, INTEGER 1/2/3, via `runMigrations()`), threaded
-   through `upsertTrackValue` → `writeMetric` with the same tri-state
-   carry-forward `notes` already has (`writeTrackRollup` is a DELETE+INSERT).
-   UI: **three small Low/Med/High pills on the slider row**, shown only when
-   `scale.unit === 'min'` — his choice, and the one that costs no extra height.
-4. **Computer time** — a registered `min` metric, 0-720 (12 h, since the movement
-   default of 180 clips a working day), plus an optional `quickStep?: number` on
-   `TrackDef` so its one-tap chip adds 30 min instead of 5. Its glyph already
-   exists in `metricIcons.tsx` under the key `computer time`.
-5. **User-defined categories** — `src/lib/customMetrics.ts`, a JSON array in the
-   `meta` table modelled exactly on `hiddenMetrics.ts`, merged into the registry by
-   a new `allTrackDefs()` in `metrics.ts`. Everything downstream (`scaleForTrack`,
-   `colorForTrack`, `rollupFor`, `canonicalTrackName`…) already routes through
-   `defForName`, so it works for free. A **+** on each of the five group headings
-   opens a sheet: name, type (Duration / Rating 0-10 / Checkmark / Number), and an
-   icon from `metricIcons.tsx` (`GLYPH_NAMES` is already exported for this, and
-   `TrackDef.icon` already exists). The headings already always render, including
-   empty ones, precisely so this button has somewhere to live.
-6. **Supplement editing** — `updateSupplement(id, patch)` in `queries.ts` plus an
-   inline edit mode in `SupplementsCard`, covering name, composition, label photo,
-   check-in interval, **start date** and (for a stopped one) end date. Today the
-   card only offers Stop and Delete.
-7. **"Log an event" kept, renamed, moved** — it is a genuinely different thing (a
-   dated reference line across the charts, not a number trended over time), so it
-   stays. Rename the heading to **"Mark a change"**, move it below
-   `SupplementsCard` in `LogTab`, and sharpen its one-line description so it stops
-   competing with the Add chips and the new + buttons.
-
-Full plan: `~/.claude/plans/implement-general-modifications-and-foamy-reef.md`.
+Nothing else is queued. Next feature work needs a fresh ask.
 
 Older, unscheduled follow-ups (unchanged, not blocking):
 - A supplement's label photo is stored but never read — wire a vision call
@@ -777,6 +823,12 @@ Older, unscheduled follow-ups (unchanged, not blocking):
   line on Insights charts.
 - Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
   segments) still unverified on a real phone.
+
+**Environment note:** the Browser pane stopped dispatching scroll events (and
+`computer` clicks time out) partway through the 2026-08-19 session. Workarounds:
+drive React handlers with `element.dispatchEvent(new Event('scroll'))` after setting
+`scrollTop`, and click via `element.click()` rather than the `computer` tool. A
+fresh session probably clears it.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

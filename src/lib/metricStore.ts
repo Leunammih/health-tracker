@@ -20,6 +20,11 @@ import type { Segment, SegmentValue } from '../types'
 export interface MetricValue {
   value: number | null
   note: string | null
+  // Duration metrics only, and therefore `tracks` only — energy and mood are 0-10
+  // ratings and stress lives on day_context, so those two stores report null and
+  // ignore what they are given. Kept on the shared shape rather than special-cased
+  // in the callers, which is the whole reason this dispatch table exists.
+  intensity: number | null
 }
 
 interface StoreOps {
@@ -27,9 +32,15 @@ interface StoreOps {
   read: (date: string, key: string) => MetricValue
   // Most recent value at or before this date — the "start at your last value" default.
   readLast: (date: string, key: string) => number | null
-  // `note` is tri-state, matching the underlying upserts: omit to keep whatever is
-  // stored, null to clear, string to set.
-  write: (date: string, key: string, value: number | null, note?: string | null) => Promise<void>
+  // `note` and `intensity` are tri-state, matching the underlying upserts: omit to
+  // keep whatever is stored, null to clear, a value to set.
+  write: (
+    date: string,
+    key: string,
+    value: number | null,
+    note?: string | null,
+    intensity?: number | null,
+  ) => Promise<void>
   // Every date since `sinceISO` that already has a non-null value for this metric —
   // used to dot the day-picker strip in QuickLogSheet.
   datesWithValue: (sinceISO: string, key: string) => Set<string>
@@ -39,13 +50,13 @@ const STORES: Record<MetricStore, StoreOps> = {
   tracks: {
     read: (date, key) => {
       const row = trackRowOn(date, key)
-      return { value: row?.value ?? null, note: row?.notes ?? null }
+      return { value: row?.value ?? null, note: row?.notes ?? null, intensity: row?.intensity ?? null }
     },
     readLast: (date, key) => lastTrackValueOnOrBefore(date, key),
-    write: (date, key, value, note) => {
+    write: (date, key, value, note, intensity) => {
       const def = defForName(key)
       const scale = scaleForTrack(key, null)
-      return upsertTrackValue(date, key, def ? categoryForDef(def) : null, value, value == null ? null : scale.unit, note)
+      return upsertTrackValue(date, key, def ? categoryForDef(def) : null, value, value == null ? null : scale.unit, note, intensity)
     },
     datesWithValue: (since, key) =>
       new Set(tracksSince(since).filter((t) => t.name === key && t.value != null).map((t) => t.date)),
@@ -58,6 +69,7 @@ const STORES: Record<MetricStore, StoreOps> = {
       return {
         value: (isEnergy ? wb?.energy : wb?.mood) ?? null,
         note: (isEnergy ? wb?.energy_notes : wb?.mood_notes) ?? null,
+        intensity: null, // a 0-10 rating has no separate intensity
       }
     },
     readLast: (date, key) => lastWellbeingOnOrBefore(date, key as WellbeingField),
@@ -75,7 +87,7 @@ const STORES: Record<MetricStore, StoreOps> = {
   day_context: {
     read: (date) => {
       const dc = dayContextOn(date)
-      return { value: dc?.stress_load ?? null, note: dc?.stress_notes ?? null }
+      return { value: dc?.stress_load ?? null, note: dc?.stress_notes ?? null, intensity: null }
     },
     readLast: (date, key) => lastDayContextOnOrBefore(date, key as DayContextField),
     write: (date, key, value, note) => upsertDayContextField(date, key as DayContextField, value, note),
@@ -107,9 +119,10 @@ export async function writeMetric(
   name: string,
   value: number | null,
   note?: string | null,
+  intensity?: number | null,
 ): Promise<void> {
   const key = keyFor(name)
-  await STORES[storeForName(key)].write(date, key, value, note)
+  await STORES[storeForName(key)].write(date, key, value, note, intensity)
 }
 
 export function datesWithMetric(sinceISO: string, name: string): Set<string> {
@@ -141,6 +154,7 @@ export async function writeSegment(
   name: string,
   value: number | null,
   note?: string | null,
+  intensity?: number | null,
 ): Promise<void> {
-  await upsertSegmentValue(date, segment, keyFor(name), value, note)
+  await upsertSegmentValue(date, segment, keyFor(name), value, note, intensity)
 }

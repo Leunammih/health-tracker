@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import {
   activeSupplements, stoppedSupplements, saveSupplement, stopSupplement, deleteSupplement,
+  updateSupplement,
 } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
@@ -27,6 +28,7 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   const [showStopped, setShowStopped] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const [justAddedId, setJustAddedId] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Supplement | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const active = useMemo(() => activeSupplements(), [refresh])
@@ -77,6 +79,13 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   async function remove(id: string) {
     if (!confirm('Delete this supplement entirely? This cannot be undone.')) return
     await deleteSupplement(id)
+    setRefresh((k) => k + 1)
+    onChanged()
+  }
+
+  async function saveEdit(id: string, patch: Parameters<typeof updateSupplement>[1]) {
+    await updateSupplement(id, patch)
+    setEditing(null)
     setRefresh((k) => k + 1)
     onChanged()
   }
@@ -163,22 +172,35 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
               className="rounded-lg bg-ink-900 px-3 py-2 text-xs transition-colors duration-500"
               style={s.id === justAddedId ? { background: 'var(--accent-dim)' } : undefined}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-sm text-cream">{s.name}</span>
-                <div className="flex shrink-0 gap-2">
-                  <button className="text-ink-500 hover:text-cream" onClick={() => void stop(s)}>
-                    Stop
-                  </button>
-                  <button className="text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
-                    ✕
-                  </button>
-                </div>
-              </div>
-              {s.composition && <div className="mt-0.5 text-ink-300">{s.composition}</div>}
-              <div className="mt-0.5 text-ink-400">
-                since {fmtDate(s.start_date)} · check-in every {s.checkin_days}d
-                {s.photo_path ? ' · 📷' : ''}
-              </div>
+              {editing?.id === s.id ? (
+                <SupplementEditor
+                  supplement={s}
+                  onCancel={() => setEditing(null)}
+                  onSave={(patch) => void saveEdit(s.id, patch)}
+                />
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm text-cream">{s.name}</span>
+                    <div className="flex shrink-0 gap-2">
+                      <button className="text-ink-500 hover:text-cream" onClick={() => setEditing(s)}>
+                        Edit
+                      </button>
+                      <button className="text-ink-500 hover:text-cream" onClick={() => void stop(s)}>
+                        Stop
+                      </button>
+                      <button className="text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  {s.composition && <div className="mt-0.5 text-ink-300">{s.composition}</div>}
+                  <div className="mt-0.5 text-ink-400">
+                    since {fmtDate(s.start_date)} · check-in every {s.checkin_days}d
+                    {s.photo_path ? ' · 📷' : ''}
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -192,19 +214,110 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
           {showStopped && (
             <div className="mt-1.5 space-y-1.5">
               {stopped.map((s) => (
-                <div key={s.id} className="flex items-center justify-between rounded-lg bg-ink-900 px-3 py-2 text-xs">
-                  <span className="min-w-0 truncate text-ink-300">
-                    {s.name} · {fmtDate(s.start_date)}–{fmtDate(s.end_date!)}
-                  </span>
-                  <button className="shrink-0 text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
-                    ✕
-                  </button>
+                <div key={s.id} className="rounded-lg bg-ink-900 px-3 py-2 text-xs">
+                  {editing?.id === s.id ? (
+                    <SupplementEditor
+                      supplement={s}
+                      onCancel={() => setEditing(null)}
+                      onSave={(patch) => void saveEdit(s.id, patch)}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-ink-300">
+                        {s.name} · {fmtDate(s.start_date)}–{fmtDate(s.end_date!)}
+                      </span>
+                      <div className="flex shrink-0 gap-2">
+                        <button className="text-ink-500 hover:text-cream" onClick={() => setEditing(s)}>
+                          Edit
+                        </button>
+                        <button className="text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Inline editor for one supplement. Same fields as the add form plus the dates —
+// a start date typed wrong, or a stop date that should have been last Tuesday, used
+// to mean deleting the row and losing its accumulated check-in notes with it.
+function SupplementEditor({
+  supplement,
+  onSave,
+  onCancel,
+}: {
+  supplement: Supplement
+  onSave: (patch: {
+    name: string; composition: string | null; start_date: string
+    end_date: string | null; checkin_days: number
+  }) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(supplement.name)
+  const [composition, setComposition] = useState(supplement.composition ?? '')
+  const [startDate, setStartDate] = useState(supplement.start_date)
+  const [endDate, setEndDate] = useState(supplement.end_date ?? '')
+  const [checkinDays, setCheckinDays] = useState(supplement.checkin_days)
+
+  return (
+    <div className="space-y-2">
+      <input className="field !py-1.5 text-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+      <textarea
+        className="field min-h-[2.5rem] !py-1.5 text-sm"
+        value={composition}
+        onChange={(e) => setComposition(e.target.value)}
+        placeholder="Dose / composition"
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-ink-400">From</label>
+        <input type="date" className="field !w-auto !py-1 text-xs" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <label className="text-ink-400">Until</label>
+        <input type="date" className="field !w-auto !py-1 text-xs" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+      </div>
+      {/* Clearing the end date puts it back on the active list and restarts its
+          check-ins — the way to say "actually, I'm still taking this". */}
+      <p className="text-ink-500">Leave “Until” empty if you're still taking it.</p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-ink-400">Check in every</span>
+        {CHECKIN_CHOICES.map((d) => (
+          <button
+            key={d}
+            type="button"
+            className={checkinDays === d ? 'chip-on !py-0.5 !text-xs' : 'chip !py-0.5 !text-xs'}
+            onClick={() => setCheckinDays(d)}
+          >
+            {d}d
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button className="btn-ghost flex-1 !py-1.5 text-xs" onClick={onCancel}>
+          Cancel
+        </button>
+        <button
+          className="btn-primary flex-1 !py-1.5 text-xs"
+          disabled={!name.trim() || !startDate}
+          onClick={() =>
+            onSave({
+              name: name.trim(),
+              composition: composition.trim() || null,
+              start_date: startDate,
+              end_date: endDate || null,
+              checkin_days: checkinDays,
+            })
+          }
+        >
+          Save changes
+        </button>
+      </div>
     </div>
   )
 }

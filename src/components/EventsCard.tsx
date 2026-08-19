@@ -40,9 +40,10 @@ export default function EventsCard({ date, onChanged }: { date: string; onChange
 
   return (
     <div className="card space-y-3">
-      <div className="label">Log an event</div>
+      <div className="label">Mark a change</div>
       <p className="text-xs text-ink-400">
-        A one-off marker — starting a new diet or supplement — shown as a line across your Insights charts.
+        Not a number tracked over time — a single dated line drawn across your Insights charts, so you
+        can see what your trends did before and after. "Started magnesium", "began low-FODMAP".
       </p>
       <div className="flex flex-wrap gap-1.5">
         {KINDS.map((k) => (

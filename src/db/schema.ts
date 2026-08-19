@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 12
+export const SCHEMA_VERSION = 13
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -108,7 +108,10 @@ CREATE TABLE IF NOT EXISTS tracks (
   value REAL,              -- numeric value if any (minutes, severity 0-10, kg, …)
   unit TEXT,               -- 'min', '/10', 'kg', 'lb', …
   time TEXT,                -- 'HH:MM' time of day, if mentioned
-  notes TEXT
+  notes TEXT,
+  intensity INTEGER         -- 1 low / 2 medium / 3 high, for duration metrics only.
+                            -- Minutes say how long, not how hard, and 40 min of easy
+                            -- cycling is not the same input as 40 min of intervals.
 );
 
 -- Sub-day entries (morning/afternoon/evening) for a metric that otherwise lives on
@@ -121,7 +124,8 @@ CREATE TABLE IF NOT EXISTS segment_values (
   segment TEXT NOT NULL,   -- 'morning' | 'afternoon' | 'evening'
   metric TEXT NOT NULL,    -- canonical track/wellbeing/day_context key, e.g. 'energy'
   value REAL,
-  notes TEXT
+  notes TEXT,
+  intensity INTEGER        -- as on the tracks table above; a segment carries its own
 );
 
 -- Single point-in-time markers ("started magnesium", "started keto") shown as

@@ -91,6 +91,13 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'meals', 'food_groups')) {
     target.run('ALTER TABLE meals ADD COLUMN food_groups TEXT')
   }
+  // v13: how hard, alongside how long, for duration metrics.
+  if (!hasColumn(target, 'tracks', 'intensity')) {
+    target.run('ALTER TABLE tracks ADD COLUMN intensity INTEGER')
+  }
+  if (!hasColumn(target, 'segment_values', 'intensity')) {
+    target.run('ALTER TABLE segment_values ADD COLUMN intensity INTEGER')
+  }
 }
 
 export async function initDb(): Promise<Database> {

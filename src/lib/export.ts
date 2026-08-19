@@ -1,4 +1,5 @@
 import { exportBytes, replaceDb } from '../db/sqlite'
+import { loadCustomMetrics } from './customMetrics'
 import { all } from '../db/queries'
 import { TABLES } from '../db/schema'
 
@@ -25,6 +26,10 @@ export function downloadDbFile(): void {
 export async function importDbFile(file: File): Promise<void> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   await replaceDb(bytes)
+  // The whole database just changed underneath us, including the imported file's
+  // own custom metric definitions. Unlike hidden_metrics (re-read on every render)
+  // the registry overlay is a module-level cache, so it has to be told.
+  loadCustomMetrics()
 }
 
 export function dumpAll(): Record<string, unknown[]> {
