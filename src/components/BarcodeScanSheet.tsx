@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { resolveBarcodeFood } from '../lib/barcodeFood'
 import { scanBarcode } from '../lib/barcodeScan'
 import { describeFoods } from '../ai/anthropic'
-import { insertFood } from '../db/queries'
+import { allFoods, insertFood } from '../db/queries'
 import type { Food } from '../types'
 
 function msg(e: unknown): string {
@@ -12,11 +12,13 @@ function msg(e: unknown): string {
 type Phase = 'scan' | 'looking-up' | 'result' | 'not-found' | 'describing'
 
 // Bottom sheet for the barcode feature — copies FoodPickerSheet's wrapper so it
-// reads as the same UI family. Three ways to get a barcode in (per the plan):
-// a live camera decode loop, a still photo through the same <input capture>
-// pattern the rest of the app already uses, or typing the number by hand.
-// Returns { food, grams } — grams is collected here so every caller gets a
-// fully-specified item, not just a Food row.
+// reads as the same UI family. Four ways to get here: a live camera decode
+// loop, a still photo through the same <input capture> pattern the rest of the
+// app already uses, typing the number by hand, or — since every scanned
+// product is just a normal `foods` row with a barcode set — searching by name
+// for one you've already scanned, no rescan needed. Returns { food, grams } —
+// grams is collected here so every caller gets a fully-specified item, not
+// just a Food row.
 export default function BarcodeScanSheet({
   onScanned,
   onClose,
@@ -28,12 +30,24 @@ export default function BarcodeScanSheet({
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [manualCode, setManualCode] = useState('')
+  const [savedSearch, setSavedSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notFoundCode, setNotFoundCode] = useState<string | null>(null)
   const [describeName, setDescribeName] = useState('')
   const [food, setFood] = useState<Food | null>(null)
   const [grams, setGrams] = useState(100)
   const videoRef = useRef<HTMLVideoElement>(null)
+
+  // Any food with a barcode has been through this flow before (Open Food Facts
+  // or the "describe it instead" fallback both set one) — searching here means
+  // never re-scanning something you've already added once.
+  const savedMatches = useMemo(() => {
+    const q = savedSearch.trim().toLowerCase()
+    if (!q) return []
+    return allFoods()
+      .filter((f) => f.barcode && f.name.toLowerCase().includes(q))
+      .slice(0, 8)
+  }, [savedSearch])
 
   // Camera lifecycle: request on mount, stop every track on unmount or on a
   // successful decode — an orphaned track keeps the OS camera indicator lit.
@@ -147,8 +161,17 @@ export default function BarcodeScanSheet({
   // attempt appends onto it instead of starting fresh.
   function resetToScan() {
     setManualCode('')
+    setSavedSearch('')
     setError(null)
     setPhase('scan')
+  }
+
+  // Picking a name-search match skips the lookup entirely — it's the exact
+  // same confirm step a fresh scan lands on, just without the network call.
+  function pickSaved(f: Food) {
+    setFood(f)
+    setGrams(f.serving_g ?? 100)
+    setPhase('result')
   }
 
   // Not-found fallback: the same AI-description path NewIngredientField already
@@ -218,6 +241,36 @@ export default function BarcodeScanSheet({
 
         {phase === 'scan' && (
           <div className="space-y-3">
+            <div>
+              <input
+                className="field"
+                placeholder="Search a product you've already scanned…"
+                value={savedSearch}
+                onChange={(e) => setSavedSearch(e.target.value)}
+              />
+              {savedMatches.length > 0 && (
+                <div className="mt-1.5 space-y-1">
+                  {savedMatches.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 rounded-lg bg-ink-800 px-3 py-2 text-left"
+                      onClick={() => pickSaved(f)}
+                    >
+                      <span className="truncate text-sm text-cream">
+                        {f.name}
+                        {f.brand ? ` (${f.brand})` : ''}
+                      </span>
+                      <span className="shrink-0 text-xs text-ink-400">
+                        {f.kcal_100g != null ? `${Math.round(f.kcal_100g)} kcal/100g` : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <p className="text-center text-xs text-ink-400">or scan a new one —</p>
+
             {cameraError ? (
               <p className="rounded-lg bg-ink-800 px-3 py-2 text-xs text-ink-400">
                 Camera unavailable ({cameraError}). Use a photo or type the number below instead.
