@@ -32,6 +32,11 @@ export interface CustomMetricSpec {
   group: MetricGroup
   shape: MetricShape
   lowerIsBetter?: boolean
+  // Whether to also ask Low / Med / High. Asked for explicitly when adding, because
+  // "how hard" is a real question for a workout and a meaningless one for a weight.
+  // Undefined means "never chose" — for a duration that still defaults to true.
+  hasIntensity?: boolean
+  // A catalogue name from metricIcons.tsx, or an 'emoji:🪁' string.
   icon?: string
 }
 
@@ -89,6 +94,7 @@ function toDef(spec: CustomMetricSpec): TrackDef {
     kind: scale.kind,
     quickStep: scale.quickStep,
     lowerIsBetter: spec.lowerIsBetter,
+    hasIntensity: spec.hasIntensity ?? (spec.shape === 'duration'),
     icon: spec.icon,
     // Checkmarks and one-off numbers are point-in-time readings: two entries on a
     // day don't add up and don't average. Durations sum, ratings average — the

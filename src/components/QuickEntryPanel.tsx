@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { trackNamesSince } from '../db/queries'
 import {
   colorForTrack, labelForTrack, scaleForTrack, clampToScale, groupForTrack, categoryForDef, defForName,
-  allTrackDefs, kindForTrack, quickStepFor,
+  allTrackDefs, kindForTrack, quickStepFor, hasIntensity, displayScale, toDisplay, fromDisplay, formatValue,
   QUICK_LOG_ITEMS, PINNED_QUICK_ENTRY_ITEMS, PINNED_QUICK_ENTRY_KEYS,
   type MetricGroup, type TrackDef,
 } from '../lib/metrics'
@@ -104,12 +104,6 @@ function initRow(date: string, item: Item, saved: SavedState): RowState {
     intensity: saved.intensity,
     intensityTouched: false,
   }
-}
-
-// Values can now carry half steps (Bristol stool is 0.5), so a raw {draft.value}
-// would render 4.5 correctly but also 6.700000000000001 after a segment rollup.
-function fmtValue(v: number): string {
-  return String(Math.round(v * 10) / 10)
 }
 
 // Everything tracked in the last week (plus energy and mood, always), grouped by
@@ -478,7 +472,11 @@ export default function QuickEntryPanel({
               >
                 <MetricIcon name={d.key} color={colorForTrack(d.key)} size={14} className="shrink-0" />
                 {d.label}
-                <span className="text-brand-400">{qlFlash === d.key ? '✓' : `+${quickStepFor(d)}`}</span>
+                <span className="text-brand-400">
+                  {qlFlash === d.key
+                    ? '✓'
+                    : `+${toDisplay(quickStepFor(d), d)}${d.display ? d.display.unit : ''}`}
+                </span>
               </button>
             ))}
           </div>
@@ -588,8 +586,11 @@ const QuickRow = memo(function QuickRow({
   const color = colorForTrack(name)
   const hasNote = !!(draft.noteTouched ? draft.note.trim() : saved.note)
   const isBool = kindForTrack(name) === 'bool'
-  const showIntensity = !isBool && scale.unit === 'min'
+  const showIntensity = !isBool && hasIntensity(name)
   const on = draft.value >= 1
+  // The control works in DISPLAY units (hours for computer time); everything either
+  // side of these two conversions is the stored value.
+  const shown = displayScale(scale)
 
   return (
     <div className="py-1.5">
@@ -636,9 +637,9 @@ const QuickRow = memo(function QuickRow({
                 dirty || saved.value != null ? 'text-cream' : 'text-ink-400'
               }`}
             >
-              {fmtValue(draft.value)}
+              {formatValue(draft.value, scale)}
             </span>
-            <span className="text-[11px] text-ink-400">{scale.unit}</span>
+            <span className="text-[11px] text-ink-400">{shown.unit}</span>
           </span>
         )}
       </div>
@@ -664,11 +665,11 @@ const QuickRow = memo(function QuickRow({
         ) : (
           <input
             type="range"
-            min={scale.min}
-            max={scale.max}
-            step={scale.step}
-            value={draft.value}
-            onChange={(e) => onChange({ value: Number(e.target.value) })}
+            min={shown.min}
+            max={shown.max}
+            step={shown.step}
+            value={toDisplay(draft.value, scale)}
+            onChange={(e) => onChange({ value: fromDisplay(Number(e.target.value), scale) })}
             aria-label={labelForTrack(name)}
             className="min-w-0 flex-1"
             style={{ accentColor: color }}

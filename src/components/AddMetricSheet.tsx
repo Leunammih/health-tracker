@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { SHAPE_LABEL, canonicalKey, isBuiltinKey, type MetricShape } from '../lib/customMetrics'
 import { labelForTrack, type MetricGroup } from '../lib/metrics'
-import { GLYPH_NAMES, MetricIcon, GroupIcon } from './metricIcons'
+import { EMOJI_PREFIX, GlyphIcon, GroupIcon, searchGlyphs } from './metricIcons'
 
 const SHAPES: MetricShape[] = ['duration', 'rating', 'checkmark', 'number']
 
@@ -26,14 +26,24 @@ export default function AddMetricSheet({
 }: {
   group: MetricGroup
   existingKeys: Set<string>
-  onAdd: (spec: { label: string; group: MetricGroup; shape: MetricShape; lowerIsBetter?: boolean; icon?: string }) => void
+  onAdd: (spec: {
+    label: string; group: MetricGroup; shape: MetricShape
+    lowerIsBetter?: boolean; hasIntensity?: boolean; icon?: string
+  }) => void
   onClose: () => void
 }) {
   const [label, setLabel] = useState('')
   const [shape, setShape] = useState<MetricShape>('rating')
   const [lowerIsBetter, setLowerIsBetter] = useState(group === 'symptom')
+  // Default follows the shape: a duration almost always wants it, a weight never
+  // does. Touching the toggle pins the answer so changing shape stops overriding it.
+  const [intensity, setIntensity] = useState<boolean | null>(null)
   const [icon, setIcon] = useState<string | undefined>(undefined)
+  const [iconQuery, setIconQuery] = useState('')
+  const [emoji, setEmoji] = useState('')
 
+  const wantsIntensity = intensity ?? shape === 'duration'
+  const matches = useMemo(() => searchGlyphs(iconQuery), [iconQuery])
   const key = canonicalKey(label)
   const taken = !!key && (isBuiltinKey(key) || existingKeys.has(key))
   const canAdd = !!key && !taken
@@ -97,39 +107,91 @@ export default function AddMetricSheet({
           </label>
         )}
 
+        {/* A yes/no has nothing to be intense about; everything else might. */}
+        {shape !== 'checkmark' && (
+          <label className="mt-2 flex items-center gap-2 text-sm text-ink-300">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-brand-500"
+              checked={wantsIntensity}
+              onChange={(e) => setIntensity(e.target.checked)}
+            />
+            Also ask how hard it was (Low / Med / High)
+          </label>
+        )}
+
         <div className="mt-3">
           <div className="label">Icon</div>
-          <div className="flex flex-wrap gap-1.5">
+          <input
+            className="field !py-1.5 text-sm"
+            placeholder="Search — 'ball', 'water', 'outdoors', 'sleep'…"
+            value={iconQuery}
+            onChange={(e) => setIconQuery(e.target.value)}
+          />
+          <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
             <button
               type="button"
               aria-label="Use the group's own icon"
-              onClick={() => setIcon(undefined)}
+              onClick={() => { setIcon(undefined); setEmoji('') }}
               className={`flex h-9 w-9 items-center justify-center rounded-xl border ${
                 icon == null ? 'border-brand-500 text-cream' : 'border-ink-700 text-ink-400'
               }`}
             >
               <GroupIcon group={group} size={18} />
             </button>
-            {GLYPH_NAMES.map((name) => (
+            {matches.map((name) => (
               <button
                 key={name}
                 type="button"
                 aria-label={name}
-                onClick={() => setIcon(name)}
+                title={name}
+                onClick={() => { setIcon(name); setEmoji('') }}
                 className={`flex h-9 w-9 items-center justify-center rounded-xl border ${
                   icon === name ? 'border-brand-500 text-cream' : 'border-ink-700 text-ink-400'
                 }`}
               >
-                <MetricIcon name={name} size={18} />
+                <GlyphIcon name={name} size={18} />
               </button>
             ))}
+          </div>
+          {iconQuery && !matches.length && (
+            <p className="mt-1 text-xs text-ink-400">
+              Nothing drawn for that — use an emoji below instead.
+            </p>
+          )}
+          {/* The escape hatch: the phone's own emoji keyboard has thousands of
+              pictures, so anything this catalogue lacks is still one tap away. */}
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="field !w-20 !py-1.5 text-center text-lg"
+              placeholder="🙂"
+              maxLength={4}
+              value={emoji}
+              onChange={(e) => {
+                const v = [...e.target.value.trim()].slice(0, 2).join('')
+                setEmoji(v)
+                setIcon(v ? EMOJI_PREFIX + v : undefined)
+              }}
+            />
+            <span className="text-xs text-ink-400">
+              …or type an emoji here — tap the 🙂 key on your keyboard.
+            </span>
           </div>
         </div>
 
         <button
           className="btn-primary mt-4 w-full"
           disabled={!canAdd}
-          onClick={() => onAdd({ label: label.trim(), group, shape, lowerIsBetter: shape === 'rating' ? lowerIsBetter : undefined, icon })}
+          onClick={() =>
+            onAdd({
+              label: label.trim(),
+              group,
+              shape,
+              lowerIsBetter: shape === 'rating' ? lowerIsBetter : undefined,
+              hasIntensity: shape === 'checkmark' ? false : wantsIntensity,
+              icon,
+            })
+          }
         >
           Add to {GROUP_TITLE[group]}
         </button>

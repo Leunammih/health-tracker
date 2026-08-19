@@ -57,6 +57,23 @@ export interface TrackDef {
   // the slider's step is too fine to tap up to a realistic total (a working day of
   // computer time in 5-minute taps is 96 taps).
   quickStep?: number
+  // Show and edit this metric in a different unit from the one it is STORED in.
+  // Computer time is stored in minutes like every other duration — so it sums,
+  // charts and compares with them — but eight hours at a desk is a number you think
+  // in hours, and a 0-720 slider in 5-minute steps is 144 notches of nothing.
+  display?: DisplayUnit
+  // Whether this metric also asks Low / Med / High. Defaults to true for durations
+  // (minutes say how long, not how hard). Set it explicitly where that default is
+  // wrong in either direction — release is not measured in minutes but the question
+  // still applies.
+  hasIntensity?: boolean
+}
+
+// `per` is how many STORED units make one displayed unit: minutes -> hours is 60.
+export interface DisplayUnit {
+  unit: string
+  per: number
+  step: number
 }
 
 export type MetricKind = 'scale' | 'bool'
@@ -83,7 +100,9 @@ export const TRACK_DEFS: TrackDef[] = [
   // Screen time. max 720 (12 h), not the 180 the movement metrics use — that would
   // clip an ordinary working day at lunchtime. quickStep 30, because tapping a
   // working day up in 5-minute increments is nearly a hundred taps.
-  { key: 'computer time', label: 'Computer time', match: /computer time|screen time|laptop time|at the (computer|desk)/i, color: paletteColor('computer time', 'movement'), group: 'other', unit: 'min', min: 0, max: 720, step: 5, quickStep: 30, rollup: 'sum' },
+  // Stored in minutes like every other duration (so the rollup and the charts work
+  // the same way), shown and edited in hours to the half hour.
+  { key: 'computer time', label: 'Computer time', match: /computer time|screen time|laptop time|at the (computer|desk)/i, color: paletteColor('computer time', 'movement'), group: 'other', unit: 'min', min: 0, max: 720, step: 30, quickStep: 30, rollup: 'sum', display: { unit: 'h', per: 60, step: 0.5 }, hasIntensity: false },
 
   // --- practices (minutes) ---
   { key: 'meditation', label: 'Meditation', match: /medit/i, color: paletteColor('meditation', 'practice'), group: 'practice', unit: 'min', min: 0, max: 120, step: 5 },
@@ -140,7 +159,9 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'focus', label: 'Focus', match: /^focus$|concentration/i, color: paletteColor('focus', 'wellbeing'), group: 'wellbeing', unit: '/10', min: 0, max: 10, step: 1, category: 'wellbeing' },
 
   // --- release (10% steps; 0% at top, 100% at bottom) ---
-  { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true, category: 'release' },
+  // hasIntensity alongside the percentage, not instead of it: they are two different
+  // questions, and the stored % history stays comparable.
+  { key: 'release', label: 'Release 💦', match: /release/i, color: paletteColor('release', 'wellbeing'), group: 'wellbeing', unit: '%', min: 0, max: 100, step: 10, lowerIsBetter: true, category: 'release', hasIntensity: true },
 
   // --- stress (0-10, low is good). Stored on `day_context.stress_load`, which the
   // AI diary extraction also writes; the quick entry keeps its note in a dedicated
@@ -238,7 +259,40 @@ export function groupForTrack(name: string, category?: string | null): MetricGro
   return 'other'
 }
 
-export type Scale = { unit: string; min: number; max: number; step: number }
+export type Scale = { unit: string; min: number; max: number; step: number; display?: DisplayUnit }
+
+// ---- Display units ----
+// Everything below the UI works in STORED units. These three are the only places a
+// conversion happens, so a metric shown in hours is still summed, charted, rolled up
+// and exported in minutes like its neighbours.
+
+// The scale as a control should present it. Identity for metrics with no display unit.
+export function displayScale(scale: Scale): Scale {
+  const d = scale.display
+  if (!d) return scale
+  return { unit: d.unit, min: scale.min / d.per, max: scale.max / d.per, step: d.step }
+}
+
+export function toDisplay(stored: number, scale: Scale): number {
+  return scale.display ? stored / scale.display.per : stored
+}
+
+export function fromDisplay(shown: number, scale: Scale): number {
+  return scale.display ? Math.round(shown * scale.display.per) : shown
+}
+
+// One number, rendered the way this metric should read. Half-steps (Bristol 4.5,
+// 7.5 hours) and segment-rollup floats both land here.
+export function formatValue(stored: number, scale: Scale): string {
+  return String(Math.round(toDisplay(stored, scale) * 10) / 10)
+}
+
+// Whether the Low / Med / High control belongs on this metric.
+export function hasIntensity(name: string): boolean {
+  const def = defForName(name)
+  if (def?.hasIntensity != null) return def.hasIntensity
+  return (def ? def.unit : scaleForTrack(name, null).unit) === 'min'
+}
 
 const RATING_SCALE: Scale = { unit: '/10', min: 0, max: 10, step: 1 }
 const DURATION_SCALE: Scale = { unit: 'min', min: 0, max: 180, step: 5 }
@@ -263,7 +317,7 @@ const DURATION_NAME =
 // now has to be positively identified (by category or by name) rather than assumed.
 export function scaleForTrack(name: string, category?: string | null): Scale {
   const def = defForName(name)
-  if (def) return { unit: def.unit, min: def.min, max: def.max, step: def.step }
+  if (def) return { unit: def.unit, min: def.min, max: def.max, step: def.step, display: def.display }
 
   const n = name.trim().toLowerCase()
   if (category === 'measurement') return MEASUREMENT_SCALE

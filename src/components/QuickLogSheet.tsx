@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import DayStrip from './DayStrip'
-import { colorForTrack, labelForTrack, scaleForTrack, clampToScale, kindForTrack } from '../lib/metrics'
+import {
+  colorForTrack, labelForTrack, scaleForTrack, clampToScale, kindForTrack,
+  displayScale, toDisplay, fromDisplay, formatValue,
+} from '../lib/metrics'
 import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
 import { fmtDate } from '../lib/dates'
 import { IconNote } from './icons'
 import { MetricIcon } from './metricIcons'
-
-// Half-step metrics (Bristol stool) and segment rollups both produce values a bare
-// {value} would render as 6.700000000000001.
-const fmt = (v: number): string => String(Math.round(v * 10) / 10)
 
 // Tap a tracked item (knee pain, dancing, breath work…) → pick a day → drag the
 // slider → confirm. The sheet stays open after confirming so several days can be
@@ -42,6 +41,10 @@ export default function QuickLogSheet({
   const color = colorForTrack(name)
   const label = labelForTrack(name)
   const isBool = kindForTrack(name) === 'bool'
+  // Controls work in display units (hours for computer time); the stored value stays
+  // in minutes either side of the two conversions below.
+  const shown = displayScale(scale)
+  const fmt = (v: number) => formatValue(v, scale)
 
   // Which days already have this item — shown as dots on the strip. Dispatches to
   // whichever table the metric actually lives in (tracks / wellbeing / day_context).
@@ -69,7 +72,7 @@ export default function QuickLogSheet({
       await writeMetric(forDate, name, v, noteArg)
       setVersion((k) => k + 1)
       onChanged()
-      setStatus(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${fmt(v)}${scale.unit} for ${fmtDate(forDate)}`)
+      setStatus(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${fmt(v)}${shown.unit} for ${fmtDate(forDate)}`)
       setTimeout(() => setStatus(null), 2000)
     } finally {
       setBusy(false)
@@ -87,7 +90,7 @@ export default function QuickLogSheet({
       }
       setVersion((k) => k + 1)
       onChanged()
-      setStatus(`Saved ${fmt(value)}${scale.unit} for the last ${n} days`)
+      setStatus(`Saved ${fmt(value)}${shown.unit} for the last ${n} days`)
       setTimeout(() => setStatus(null), 2200)
     } finally {
       setBusy(false)
@@ -141,22 +144,22 @@ export default function QuickLogSheet({
               <div className="label !mb-0">{scale.unit === '/10' ? 'Level' : scale.unit === '%' ? 'Intensity' : 'Duration'}</div>
               <div className="font-serif text-2xl leading-none text-cream">
                 {fmt(value)}
-                <span className="ml-1 font-sans text-sm text-ink-400">{scale.unit}</span>
+                <span className="ml-1 font-sans text-sm text-ink-400">{shown.unit}</span>
               </div>
             </div>
             <input
               type="range"
-              min={scale.min}
-              max={scale.max}
-              step={scale.step}
-              value={value}
-              onChange={(e) => setValue(Number(e.target.value))}
+              min={shown.min}
+              max={shown.max}
+              step={shown.step}
+              value={toDisplay(value, scale)}
+              onChange={(e) => setValue(fromDisplay(Number(e.target.value), scale))}
               className="mt-2 w-full accent-brand-500"
               style={{ accentColor: color }}
             />
             <div className="flex justify-between text-[10px] text-ink-500">
-              <span>{scale.min}</span>
-              <span>{scale.max}{scale.unit}</span>
+              <span>{shown.min}</span>
+              <span>{shown.max}{shown.unit}</span>
             </div>
           </>
         )}
@@ -185,7 +188,7 @@ export default function QuickLogSheet({
           disabled={busy}
           onClick={() => void save(date, value, true)}
         >
-          {isBool ? `Save ${value >= 1 ? 'yes' : 'no'}` : `Save ${fmt(value)}${scale.unit}`} for {fmtDate(date)}
+          {isBool ? `Save ${value >= 1 ? 'yes' : 'no'}` : `Save ${fmt(value)}${shown.unit}`} for {fmtDate(date)}
         </button>
 
         <div className="mt-3 grid grid-cols-2 gap-2">

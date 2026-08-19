@@ -622,54 +622,97 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     when set rather than the metric's own hashed hue — a full-width button in a
     random colour reads as a warning, not a tick.
 
-## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-2**. **This build changes the
-database schema (v13)**: it adds two columns when the app opens. Your data is
-untouched, but if anything looks wrong after updating, tell me before logging more._
+- **Phase G-3 — hours, intensity everywhere it belongs, a real icon library, and
+  the supplements/markers overlap resolved** (2026-08-20). No schema change.
+  - **Computer time in hours, half-hour steps.** Added a general
+    `TrackDef.display` ({ unit, per, step }) plus `displayScale` / `toDisplay` /
+    `fromDisplay` / `formatValue` in `metrics.ts`. The value is still **stored in
+    minutes** like every other duration, so it sums, charts, rolls up and exports
+    with them; only the three conversion points know about hours. Verified the
+    round trip: 7.5 on the slider → **450 min, unit 'min'** in the database, and the
+    Insights card reads "Computer time (h) · latest 7.5" rather than 450.
+  - **Intensity is now an explicit property** (`TrackDef.hasIntensity`) instead of
+    being inferred from `unit === 'min'`. **Release** gets Low/Med/High alongside its
+    percentage — two different questions, and the stored % history stays comparable.
+    Computer time explicitly opts out.
+  - **Icon library: 33 → 72 glyphs**, all hand-drawn in the same style. The new ones
+    are the general catalogue for categories he invents: nature, fire, sailing, kite
+    surfing, kayaking, surfing, climbing, skiing, ball/basketball/racket/volleyball/
+    golf, hiking, mountain, sun, water, coffee, food, pill, heart, people, phone,
+    book, music, create, work, travel, car, bed, shower, massage, tooth, paw, clock,
+    star, boxing, rowing, horse.
+    - **Search with synonym tags** — "ball" finds ball/basketball/volleyball,
+      "outdoors" finds nature/hiking/mountain, "wind water" finds kite surfing
+      (every typed word must match, so more words narrow).
+    - **Emoji fallback.** Anything the catalogue lacks: type an emoji from the
+      phone's own keyboard. Stored as `emoji:🪁`, rendered inline at glyph size so
+      it lines up with the drawn icons beside it.
+    - **A bug found while testing this:** the picker was drawing the group's three
+      dots for half the catalogue, and footprints for "hiking". `MetricIcon`
+      resolves through `defForName`, which is right for a row in the Log tab and
+      wrong for an icon picker — "hiking" matched the *walking* definition's regex,
+      and "nature" matched nothing and fell through to the group glyph. Added
+      `GlyphIcon`, which draws a catalogue entry by its own name with no metric
+      resolution in between. Verified afterwards that all 72 entries draw distinct
+      markup (which also caught Music and Dancing sharing the musical-note shape —
+      Music is now headphones).
+  - **Adding a category now asks about intensity** ("Also ask how hard it was"),
+    defaulting on for a duration and off for a weight, and hidden entirely for a
+    yes/no. Stored as `CustomMetricSpec.hasIntensity`.
+  - **Supplements vs "Mark a change" — the overlap, resolved.** They were never the
+    same thing (a regimen with a dose, an end date and a check-in rhythm, versus a
+    dated line across the charts), but the design hid that: "Mark a change" offered
+    **Supplement** as its default kind, and adding a real supplement drew no line at
+    all. Now Insights **derives** each supplement's start and stop markers straight
+    from the supplements table. Derived, not written as `events` rows, so renaming a
+    supplement, correcting its start date or deleting it updates the markers with no
+    bookkeeping, no extra column and nothing to migrate. Verified: a supplement with
+    no `events` rows at all draws "Started …" and, once given an end date, "Stopped
+    …". "Mark a change" loses the Supplement kind (now Diet / Medication / Life /
+    Other), says what it is for, and says explicitly that supplements don't belong
+    there.
+  - Verified in both themes, no console errors after a clean reload and a walk of
+    every tab.
 
-1. **Get the build.** Settings → **App version** → Build should be newer; otherwise
-   tap **Check for updates**, then **Update** on the banner.
-2. **Warming bottle.** Log → **Health & pain** → it should now be there as a
-   **Yes / No** button, not a slider. Tap Yes → Save. Then Insights → the
-   **Warming bottle** count at the top of *Illness & gut* should include today.
-   If you also dictate a gut episode mentioning a warming bottle for the same day,
-   the count must go up by **one**, not two.
-3. **Intensity.** Any minutes-based row (Dancing, Biking, Meditation…) now has
-   **L / M / H** next to its value. Tap **H** → Save. Then change only the minutes
-   and Save again — the **H must still be lit**. Tap **H** a second time to clear it.
-   *(It's being recorded but doesn't appear in Insights yet — the movement chart has
-   no tooltip to hang it on. That's a later iteration; the data starts collecting
-   now.)*
-4. **Computer time.** In **Other**, or as a **+30** chip under *Quick log*. Each tap
-   adds 30 minutes rather than 5, and the slider runs to 12 hours.
-5. **Your own categories — the big one.** Each group heading now has a **+**.
-   - Tap **+** on *Movement* → name it something you actually want (sauna, cold
-     plunge, whatever) → pick **Duration** → pick an icon → **Add**. It should appear
-     as a row in that group straight away.
-   - Log a value and Save. Then **fully close and reopen the app** — it must still be
-     there, with the right kind of control.
-   - Try a **Yes / no** one too, and check it comes back as a toggle, not a slider.
-   - Insights → **Tap to log** should list it, and once you've logged it, it gets its
-     own card in the *Other* section.
-   - To remove one: tap its **pen**, then "Delete this category". Everything you
-     already logged stays.
-6. **Supplements.** Each one now has **Edit** — name, dose, check-in interval, and
-   both dates. Change the start date and save. Then set an **Until** date: it should
-   move to *Show stopped*. Edit it there and **clear Until**: it should come back to
-   the active list.
-7. **"Mark a change"** — the old "Log an event" card, renamed and moved **below**
-   Supplements.
-8. **Both themes**, and confirm nothing regressed: the sleep wheel, the dictation
-   review with its conflict pills, Save without Claude, folded groups, meals and the
-   barcode scanner.
+## Check on your phone (current)
+_Replaced each iteration — this is the list for **G-3**. No schema change this time._
+
+1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
+2. **Computer time is in hours.** Log → *Other* → the slider now runs **0–12 h in
+   half-hour steps** and the readout says e.g. **7.5 h**, not 450. The Quick log chip
+   says **+0.5h**. Insights → the *Computer time* card should also read **(h)** —
+   the two must agree. (Under the hood it's still stored in minutes so it stacks up
+   with your other durations; you shouldn't be able to tell.)
+3. **Release has L / M / H** next to its percentage now — both, not one instead of
+   the other. Set a % and an intensity, Save, reopen the day: both should come back.
+4. **Adding a category asks more.** Tap **+** on any heading:
+   - There's a new **"Also ask how hard it was (Low / Med / High)"** tick — on by
+     default for Duration, off for Number, hidden for Yes/no.
+   - The icon list has a **search box**. Try "ball", "outdoors", "water", "sleep",
+     "wind". Sports are in there now — sailing, kite surfing, kayaking, climbing,
+     surfing, skiing, ball games, golf, hiking, plus nature, fire, coffee, travel,
+     work, bed and so on.
+   - Type something with no icon (try "zzz") — it should tell you to use an emoji,
+     and there's an **emoji box**: tap the 🙂 key on your keyboard and pick anything.
+     The emoji becomes the row's icon.
+5. **Supplements and "Mark a change" no longer overlap.**
+   - Insights: your supplements should now draw their **own** dated lines across the
+     charts — "Started …" at the start date, "Stopped …" if you've stopped one. You
+     don't log them twice any more.
+   - Rename a supplement in its Edit form → the line on the charts should follow.
+   - **"Mark a change"** no longer offers *Supplement* (it's Diet / Medication /
+     Life / Other) and says what it's actually for.
+6. **Both themes**, and confirm nothing regressed: sleep wheel, dictation review,
+   Save without Claude, warming bottle, intensity on the movement rows, your existing
+   custom categories, meals and the barcode scanner.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone5** — phone report on **G-2** (checklist above). Carries a **schema
-  change (v13)**, so worth a look before he logs a lot on top of it.
+- 🟦 **phone6** — phone report on **G-3** (checklist above). No schema change.
+- ✅ **phone5** (G-2) — answered 2026-08-20, "everything works great".
 - ✅ **phone4** (G-1.6) — answered 2026-08-19, "working great".
 - ✅ **phone3** (G-1.5) — answered 2026-08-19, "all working". The two follow-ups
   (wrapping hours, smoother motion) became G-1.6.
@@ -797,38 +840,35 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-2** (checklist above). **Phase G is now
-complete** — G-1, G-1.5, G-1.6 and G-2 between them cover all thirteen items he
-raised (ten in the original list, three from the G-1 report, two from G-1.5).
+**Waiting on Immanuel's phone report for G-3** (checklist above). Phase G now covers
+everything he has raised across four rounds.
 
-Verified before pushing: schema v13 migrates the live 57-row `tracks` table with
-every row preserved and `intensity` null; intensity is tri-state correct through
-both the data layer and the UI; a custom checkmark metric survives a full reload as
-a switch rather than falling back to a rating slider; the warming-bottle stat counts
-a doubly-logged day once; supplement edit covers both dates in both directions.
-Both themes, no console errors, every tab walked after a clean reload.
+Verified before pushing: the hours conversion round-trips (7.5 on the slider → 450
+minutes stored, and the Insights card agrees); release carries a % and an intensity
+independently; icon search narrows correctly and all 72 glyphs draw distinct markup;
+an emoji icon stores as `emoji:🪁` and renders inline; a supplement with no `events`
+rows draws both its start and stop markers. Both themes, no console errors after a
+clean reload and a walk of every tab.
 
-Known gap, deliberately left: **intensity is captured but not charted.**
-`PlateauChart` is hand-rolled SVG with no tooltip, so there is nowhere honest to put
-it yet. Options for a later iteration, cheapest first: (a) tint each day's plateau
-by intensity, (b) add a tooltip to `PlateauChart`, (c) an "average intensity" line
-under the movement chart.
+Known gap, unchanged from G-2: **intensity is captured but not charted.**
+`PlateauChart` is hand-rolled SVG with no tooltip. Options for a later iteration,
+cheapest first: (a) tint each day's plateau by intensity, (b) add a tooltip to
+`PlateauChart`, (c) an "average intensity" line under the movement chart. Now that
+release also carries intensity, (a) would want thinking about for line charts too.
 
 Nothing else is queued. Next feature work needs a fresh ask.
 
 Older, unscheduled follow-ups (unchanged, not blocking):
 - A supplement's label photo is stored but never read — wire a vision call
   (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
-- Adding a supplement doesn't create an `events` row, so it draws no reference
-  line on Insights charts.
 - Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
   segments) still unverified on a real phone.
 
 **Environment note:** the Browser pane stopped dispatching scroll events (and
-`computer` clicks time out) partway through the 2026-08-19 session. Workarounds:
-drive React handlers with `element.dispatchEvent(new Event('scroll'))` after setting
-`scrollTop`, and click via `element.click()` rather than the `computer` tool. A
-fresh session probably clears it.
+`computer` clicks time out) partway through the 2026-08-19 session and stayed that
+way. Workarounds: drive React handlers with
+`element.dispatchEvent(new Event('scroll'))` after setting `scrollTop`, and click via
+`element.click()` rather than the `computer` tool. A fresh session probably clears it.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

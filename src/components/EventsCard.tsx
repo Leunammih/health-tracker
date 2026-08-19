@@ -2,15 +2,20 @@ import { useMemo, useState } from 'react'
 import { eventsSince, saveEvent, deleteEvent } from '../db/queries'
 import { fmtDate, daysAgoISO } from '../lib/dates'
 
+// No "Supplement" any more: supplements have their own card, and Insights now draws
+// their start and stop lines automatically from that table (see eventMarkers in
+// InsightsTab). Offering it here as well was the overlap — it invited logging the
+// same thing twice to get both the check-in rhythm and the chart line.
 const KINDS: { value: string; label: string }[] = [
-  { value: 'supplement', label: 'Supplement' },
   { value: 'diet', label: 'Diet' },
+  { value: 'medication', label: 'Medication' },
+  { value: 'life', label: 'Life' },
   { value: 'other', label: 'Other' },
 ]
 
-// One-off markers ("started magnesium", "began low-FODMAP") — not a metric trended
-// over time, just a point in time shown as a reference line across Insights charts
-// so a regimen change is visible against the trends.
+// One-off markers ("began low-FODMAP", "moved house") — not a metric trended over
+// time, just a point in time shown as a reference line across Insights charts so a
+// change of circumstances is visible against the trends.
 export default function EventsCard({ date, onChanged }: { date: string; onChanged: () => void }) {
   const [label, setLabel] = useState('')
   const [kind, setKind] = useState(KINDS[0].value)
@@ -42,8 +47,13 @@ export default function EventsCard({ date, onChanged }: { date: string; onChange
     <div className="card space-y-3">
       <div className="label">Mark a change</div>
       <p className="text-xs text-ink-400">
-        Not a number tracked over time — a single dated line drawn across your Insights charts, so you
-        can see what your trends did before and after. "Started magnesium", "began low-FODMAP".
+        Anything that changed and might explain a shift in your trends — a diet, a medication, a move,
+        a stretch of travel. It isn't tracked over time; it draws one dated line across your Insights
+        charts so you can see what happened either side of it.
+        <span className="block mt-1 text-ink-500">
+          Supplements don't belong here — add them above and their start and stop lines appear on the
+          charts on their own.
+        </span>
       </p>
       <div className="flex flex-wrap gap-1.5">
         {KINDS.map((k) => (
@@ -60,7 +70,7 @@ export default function EventsCard({ date, onChanged }: { date: string; onChange
       <div className="flex gap-2">
         <input
           className="field flex-1"
-          placeholder="e.g. 'started magnesium', 'began low-FODMAP'"
+          placeholder="e.g. 'began low-FODMAP', 'started antibiotics', 'moved flat'"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
         />

@@ -5,11 +5,11 @@ import {
 import { daysAgoISO, dateSpine, fmtDate, sleepDurationMin } from '../lib/dates'
 import {
   wellbeingSince, gutSince, infectionsSince, mealsSince, dayContextSince, tracksSince,
-  activitiesSince, allTrackNames, eventsSince,
+  activitiesSince, allTrackNames, eventsSince, activeSupplements, stoppedSupplements,
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
-  canonicalTrackName, chartPalette, scaleForTrack,
+  canonicalTrackName, chartPalette, scaleForTrack, displayScale, toDisplay,
 } from '../lib/metrics'
 import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '../lib/hiddenMetrics'
 import { useTheme } from '../lib/theme'
@@ -74,7 +74,7 @@ export default function InsightsTab() {
 
   const since = daysAgoISO(days)
 
-  const { wb, gut, inf, meals, ctx, tracks, acts, known, events } = useMemo(
+  const { wb, gut, inf, meals, ctx, tracks, acts, known, events, supplements } = useMemo(
     () => ({
       wb: wellbeingSince(since),
       gut: gutSince(since),
@@ -85,6 +85,7 @@ export default function InsightsTab() {
       acts: activitiesSince(since),
       known: allTrackNames(),
       events: eventsSince(since),
+      supplements: [...activeSupplements(), ...stoppedSupplements(50)],
     }),
     [since, refresh],
   )
@@ -102,11 +103,22 @@ export default function InsightsTab() {
   // event label is a sentence ("July 5 start: Creatine monohydrate 3 g per day by …")
   // and at full length it runs the height of the chart and over the data. The full
   // text stays readable in the Log tab's event list.
-  const eventMarkers = events.map((e) => ({
-    id: e.id,
-    x: fmtDate(e.date),
-    label: e.label.length > 26 ? `${e.label.slice(0, 25).trimEnd()}…` : e.label,
-  }))
+  //
+  // Supplements draw their own start and stop lines, DERIVED here rather than
+  // written as `events` rows when one is added. Deriving means they can never drift:
+  // rename a supplement, correct its start date, or delete it, and the markers
+  // follow with no bookkeeping, no extra column and nothing to migrate. It also
+  // closes the gap where starting a supplement drew no line at all unless he
+  // remembered to log the same thing twice.
+  const eventMarkers = useMemo(() => {
+    const trim = (t: string) => (t.length > 26 ? `${t.slice(0, 25).trimEnd()}…` : t)
+    const rows = events.map((e) => ({ id: e.id, date: e.date, label: e.label }))
+    for (const s of supplements) {
+      if (s.start_date >= since) rows.push({ id: `sup-start-${s.id}`, date: s.start_date, label: `Started ${s.name}` })
+      if (s.end_date && s.end_date >= since) rows.push({ id: `sup-stop-${s.id}`, date: s.end_date, label: `Stopped ${s.name}` })
+    }
+    return rows.map((r) => ({ id: r.id, x: fmtDate(r.date), label: trim(r.label) }))
+  }, [events, supplements, since])
 
   // One shared X axis for every chart — a day with no entry still gets a column, so
   // the graphs stack into readable vertical columns for the same date.
@@ -403,17 +415,21 @@ export default function InsightsTab() {
       arr.push(t)
       byName.set(t.name, arr)
     }
-    return [...byName.entries()].map(([name, rows]) => ({
-      name,
-      // From the registry, not the stored `unit` column: a row written before a
-      // metric's scale was corrected still carries the old unit ("min" on what is
-      // now a 0-10 rating), and the chart heading would repeat that stale label.
-      unit: scaleForTrack(name, rows.find((r) => r.category)?.category ?? null).unit,
-      count: rows.length,
-      series: rows
-        .filter((r) => r.value != null)
-        .map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: r.value as number })),
-    }))
+    return [...byName.entries()].map(([name, rows]) => {
+      const scale = scaleForTrack(name, rows.find((r) => r.category)?.category ?? null)
+      return {
+        name,
+        // From the registry, not the stored `unit` column: a row written before a
+        // metric's scale was corrected still carries the old unit ("min" on what is
+        // now a 0-10 rating), and the chart heading would repeat that stale label.
+        // Display unit, so a slider reading 8h and a chart reading 480 can't disagree.
+        unit: displayScale(scale).unit,
+        count: rows.length,
+        series: rows
+          .filter((r) => r.value != null)
+          .map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: toDisplay(r.value as number, scale) })),
+      }
+    })
   }, [tracks])
 
   // Chips for the tap-to-log sheet: the standard items plus anything already logged.
