@@ -542,58 +542,57 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     regression re-run clean after the `queries.ts` change (sleep survives a dictated
     entry and survives deleting it).
 
+- **Phase G-1.6 — the sleep wheel rolls past midnight, and moves like a wheel**
+  (2026-08-19). Two touches off his G-1.5 report ("all working", plus these).
+  - **Hours and minutes wrap.** Each column now renders its values five times over
+    and opens in the middle copy, so 23 rolls straight on to 00, 01 — a 23:55 bedtime
+    no longer means scrolling the whole way back up — with two full cycles of
+    headroom in each direction. Deliberately NOT an infinitely recentring wheel: that
+    needs a silent `scrollTop` jump the moment a flick settles, and the Browser pane
+    stopped emitting scroll events partway through this session, so there was no
+    honest way to verify it. Five copies cost 120 rows of nothing and cannot misfire.
+  - **Motion.** The highlight used to change only after the 140 ms settle, so the
+    wheel looked frozen while it was moving — that was the "could be smoother". The
+    active row is now tracked every animation frame during the scroll (local state;
+    the parent is still only told once it stops, so a flick past twenty values
+    doesn't re-render the sheet twenty times). Rows also shrink and fade with
+    distance from the centre, and a mask dissolves the values at the top and bottom
+    edges, so the column reads as a curved surface rather than a list in a box.
+  - Verified in both themes: the hour column shows 21 · 22 · **23** · 00 · 01 in
+    place, the minute column 50 · 55 · **00** · 05 · 10, a flick landing mid-row
+    still commits a whole value, and 5 × 24 = 120 rows render per hour column.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-1.5**._
+_Replaced each iteration — this is the list for **G-1.6**, which is one screen._
 
-**Item 1 first: it is how you get everything else.**
+1. **Settings → App version** → the *Build* line should be newer than last time. If
+   not, tap **Check for updates**. (From this build on you'll get the banner rather
+   than a silent reload.)
+2. **Log → Sleep → tap the bedtime button.** Scroll the hour wheel **down past 23**
+   — it should carry straight on to **00, 01, 02** without stopping, so a 23:55
+   bedtime is a couple of flicks from a 00:30 one. The minute wheel does the same
+   past 55.
+3. **Does it move better?** The number under the band should now brighten and grow
+   **as you scroll**, not only once you let go, and the numbers should fade out
+   towards the top and bottom edges instead of being cut off. That was the
+   "could be a little smoother".
+4. Set a time, **Done**, **Save sleep** — the button and the "asleep" figure should
+   both match what you picked.
+5. **Both themes** — the highlight band behind the selected row must be visible in
+   each.
 
-1. **Getting the new build.** Open the app → **Settings** → scroll to the bottom →
-   **App version**. The *Build* line should show today's date/time and a short code.
-   If it looks old, tap **Check for updates** — it must say something honest
-   (*"You're on the latest version"*, or a **New version ready — update now**
-   button), never nothing at all.
-   *One-off caveat:* the service worker currently on your phone is the old
-   self-updating one, so **this** deploy may just apply itself silently. From the
-   **next** one onwards you'll get a small banner at the top — *"A new version is
-   ready · Update"* — and nothing reloads until you press it. That's deliberate: a
-   reload mid-dictation would throw away unsaved sliders.
-2. **The sleep wheel — the thing I genuinely could not test.** Log → Sleep → tap the
-   bedtime button (it now shows `23:00` rather than two dropdowns). A sheet slides up
-   with **hours and minutes side by side**.
-   - Flick the minute wheel: only **00, 05 … 55**, and a flick should *land on* a
-     number, never stop halfway between two.
-   - Tap a number directly — it should glide to the centre.
-   - Set 23:45, tap **Done** → the button reads `23:45` and the "asleep" figure on
-     the right updates. Do the same for Wake, then **Save sleep**.
-   *Tell me if it feels sticky, overshoots, or settles on the wrong number* — that is
-   exactly what a browser on a laptop can't show me.
-3. **Save without Claude.** Log → type or dictate something that mentions a number
-   ("energy 2, mood 3") → tap **Save without Claude**, the outlined button under
-   *Process with Claude*. It should save instantly with no "Thinking…" step, and the
-   toast should read *"Saved as a note — nothing was added to your tracking."*
-   Then check your **Energy** and **Mood** sliders and the Insights charts: those
-   numbers must **not** have moved. That's the whole point of it.
-4. **Process it later.** In **Recent entries** that note carries a **note only** chip.
-   Expand it → **Process with Claude now** → the text loads back into the box; tap
-   *Process with Claude* and finish as usual. You should end up with **one** entry,
-   not two.
-5. **Airplane mode.** Turn it on, open the app, dictate, **Save without Claude** —
-   should work completely. *Process with Claude* should fail with a readable error
-   rather than hanging.
-6. **Both themes** for the wheel sheet: Settings → Appearance → Dark and Light. The
-   selected row's highlight band must be visible in both.
-
-Unchanged and worth confirming nothing regressed: the G-1 fixes (sleep survives a
-dictated entry, the amber conflict pills, folded groups staying folded), the meal
-builder and barcode scanner, and the Insights charts.
+Nothing else changed in this build, so anything else that misbehaves is a
+regression worth telling me about.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone3** — phone report on **G-1.5** (checklist above). The one thing only his
-  phone can settle: how the sleep wheel's momentum-snapping feels under a thumb.
+- 🟦 **phone4** — phone report on **G-1.6** (checklist above): does the hour wheel
+  really roll past 23 under a thumb, and does the live highlight read as smoother.
+- ✅ **phone3** (G-1.5) — answered 2026-08-19, "all working". The two follow-ups
+  (wrapping hours, smoother motion) became G-1.6.
 - ✅ **phone2** (G-1) — answered 2026-08-19. Sleep fix and 5-minute steps confirmed
   working; the two-dropdown picker and the stale-build problem came back as G-1.5.
 - 🟦 **phone1** — phone report on the metric-scale fix. Never answered, and two
@@ -718,12 +717,16 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-1.5** (checklist above). Built,
-typechecked, and verified in the Browser pane in both themes with no console errors:
-the wheel snaps a mid-row flick to the right value, `__BUILD_ID__` renders, the
-built `sw.js` confirms prompt mode took effect, and a "Save without Claude" note
-containing "energy 2, mood 3" left the day's energy and mood untouched. The one gap
-only his phone can close is how the wheel's momentum-scrolling feels.
+**Waiting on Immanuel's phone report for G-1.6** (checklist above). G-1 and G-1.5
+are both confirmed working on the phone. G-1.6 is built, typechecked and verified in
+both themes: the hour column rolls 23 → 00 → 01 in place, the minute column wraps
+past 55, a mid-row flick still commits a whole value, and the highlight now tracks
+the scroll per frame.
+
+**Environment note for the next session:** the Browser pane stopped dispatching
+scroll events (and stopped accepting `computer` clicks) partway through this
+session. Driving React handlers with `element.dispatchEvent(new Event('scroll'))`
+after setting `scrollTop` is the workaround; a fresh session probably clears it.
 
 When it comes back and anything broken is fixed, build **G-2** — the second half of
 the original Phase G ask, already scoped and approved:
