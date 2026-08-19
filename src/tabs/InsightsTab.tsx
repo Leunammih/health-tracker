@@ -15,6 +15,8 @@ import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '..
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
+import { MetricIcon, GroupIcon } from '../components/metricIcons'
+import { IconMeal } from '../components/icons'
 import heroResources from '../assets/hero-resources.jpg'
 import { classifyMeal, FOOD_GROUP_KEYS, type FoodGroupBreakdown } from '../lib/foodGroups'
 import { loadGoals } from '../lib/goals'
@@ -473,7 +475,7 @@ export default function InsightsTab() {
                 className="flex min-h-[58px] flex-col items-center justify-center gap-1.5 rounded-2xl bg-ink-900/60 px-1 py-2.5 text-center hover:bg-ink-700"
                 onClick={() => setSheet({ name: it.name, category: it.category ?? categoryOf(it.name) })}
               >
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorForTrack(it.name) }} />
+                <MetricIcon name={it.name} category={it.category} color={colorForTrack(it.name)} size={20} />
                 <span className="text-[11px] leading-tight text-ink-300">{labelForTrack(it.name)}</span>
               </button>
             ))}
@@ -487,7 +489,7 @@ export default function InsightsTab() {
         </div>
       )}
 
-      {hasWellbeingSection && <SectionLabel title="Wellbeing & sleep" />}
+      {hasWellbeingSection && <SectionLabel title="Wellbeing & sleep" icon={<GroupIcon group="wellbeing" />} />}
 
       {(wb.length > 0 || hasRelease) && (
         <ChartCard title="Energy & mood">
@@ -571,7 +573,7 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
-      <SectionLabel title="Illness & gut" />
+      <SectionLabel title="Illness & gut" icon={<GroupIcon group="symptom" />} />
 
       <div className="grid grid-cols-3 gap-2">
         <Stat label="Gut episodes" value={gut.length} />
@@ -609,7 +611,7 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
-      {hasMovementSection && <SectionLabel title="Movement & practice" />}
+      {hasMovementSection && <SectionLabel title="Movement & practice" icon={<GroupIcon group="movement" />} />}
 
       {movementSeries.length > 0 && (
         <ChartCard title="Movement & exercise (min)" hint="tap a day, or a name below, to log it">
@@ -633,7 +635,7 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
-      {painKeys.length > 0 && <SectionLabel title="Pain" />}
+      {painKeys.length > 0 && <SectionLabel title="Pain" icon={<GroupIcon group="symptom" />} />}
 
       {painKeys.length > 0 && (
         <ChartCard title="Pain & discomfort (0-10)" hint="low is good — worse pain sits at the bottom">
@@ -663,7 +665,7 @@ export default function InsightsTab() {
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
             {painKeys.map((k) => (
               <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: 'symptom' })}>
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: painPalette[k] }} />
+                <MetricIcon name={k} category="symptom" color={painPalette[k]} size={14} />
                 {labelForTrack(k)}
               </button>
             ))}
@@ -671,7 +673,7 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
-      {kcalByDate.size > 0 && <SectionLabel title="Nutrition" />}
+      {kcalByDate.size > 0 && <SectionLabel title="Nutrition" icon={<IconMeal width={14} height={14} />} />}
 
       {kcalByDate.size > 0 && (
         <ChartCard title="Daily calories">
@@ -747,7 +749,7 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
-      {trackGroups.length > 0 && <SectionLabel title="Other" />}
+      {trackGroups.length > 0 && <SectionLabel title="Other" icon={<GroupIcon group="other" />} />}
 
       {trackGroups.map((g) => (
         <TrackCard key={g.name} group={g} spine={spine} onLog={() => setSheet({ name: g.name, category: null })} />
@@ -916,9 +918,12 @@ function MealBarsTooltip({ active, payload, label }: { active?: boolean; payload
 // sleep → Illness & gut → Movement & practice → Pain → Nutrition → Other) instead
 // of one undifferentiated stack. Callers only render this when the section has at
 // least one visible chart under it, so a header is never left floating over nothing.
-function SectionLabel({ title }: { title: string }) {
+function SectionLabel({ title, icon }: { title: string; icon?: React.ReactNode }) {
   return (
-    <div className="pt-1 text-[11px] font-semibold uppercase tracking-widest text-ink-500">{title}</div>
+    <div className="flex items-center gap-1.5 pt-1 text-[11px] font-semibold uppercase tracking-widest text-ink-500">
+      {icon}
+      {title}
+    </div>
   )
 }
 
@@ -965,7 +970,7 @@ function Legend({
       {items.map((it) =>
         onPick && it.key ? (
           <button key={it.label} className="flex items-center gap-1.5 hover:text-cream" onClick={() => onPick(it.key!)}>
-            <span className="h-2.5 w-2.5 rounded-full" style={{ background: it.color }} /> {it.label}
+            <MetricIcon name={it.key} color={it.color} size={14} /> {it.label}
           </button>
         ) : (
           <span key={it.label} className="flex items-center gap-1.5">

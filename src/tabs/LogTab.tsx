@@ -13,6 +13,7 @@ import SleepCard from '../components/SleepCard'
 import EventsCard from '../components/EventsCard'
 import SupplementsCard from '../components/SupplementsCard'
 import { colorForTrack } from '../lib/metrics'
+import { buildReview, applyReview, conflictCount, type ReviewItem, type ReviewField } from '../lib/diaryReview'
 import type { DiaryExtraction, Activity, Entry, Segment, Supplement } from '../types'
 
 // How far back the date strip lets you swipe.
@@ -36,6 +37,10 @@ export default function LogTab() {
   const [raw, setRaw] = useState('')
   const [entryDate, setEntryDate] = useState(todayISO())
   const [extraction, setExtraction] = useState<DiaryExtraction | null>(null)
+  // The reviewed, editable form of `extraction` — built on entering the preview
+  // phase and applied on save, so nothing Claude returned reaches the database
+  // without passing through the user's own hands first.
+  const [review, setReview] = useState<ReviewItem[] | null>(null)
   const [answers, setAnswers] = useState<string[]>([])
   const [extraNote, setExtraNote] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -83,6 +88,7 @@ export default function LogTab() {
       }
       const merged = qa.length ? await refineDiary(raw, qa, entryDate) : extraction
       setExtraction(merged)
+      setReview(buildReview(merged, entryDate))
       setPhase('preview')
     } catch (e) {
       setError(msg(e))
@@ -95,7 +101,8 @@ export default function LogTab() {
     try {
       // Editing an existing entry: replace it (delete old + its rows, re-save).
       if (editingId) await deleteEntry(editingId)
-      await saveDiaryExtraction(raw, 'voice', extraction, entryDate)
+      const final = review ? applyReview(extraction, review) : extraction
+      await saveDiaryExtraction(raw, 'voice', final, entryDate)
       setSavedNote(editingId ? 'Entry updated.' : 'Saved to your log.')
       reset()
       setRefreshKey((k) => k + 1)
@@ -111,6 +118,7 @@ export default function LogTab() {
     setRaw(entry.raw_text)
     setEntryDate(entry.entry_date ?? todayISO())
     setExtraction(null)
+    setReview(null)
     setAnswers([])
     setExtraNote('')
     setPhase('input')
@@ -131,6 +139,7 @@ export default function LogTab() {
     setRaw('')
     setEntryDate(todayISO())
     setExtraction(null)
+    setReview(null)
     setAnswers([])
     setExtraNote('')
     setEditingId(null)
@@ -207,9 +216,9 @@ export default function LogTab() {
       )}
 
       {phase === 'input' && editingId && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+        <div className="warn-box flex items-center justify-between">
           <span>Editing an existing entry — re-analyzing will replace it.</span>
-          <button className="text-amber-300 underline" onClick={reset}>
+          <button className="underline" onClick={reset}>
             Cancel
           </button>
         </div>
@@ -235,7 +244,7 @@ export default function LogTab() {
               <span className="text-xs text-ink-500">or swipe the strip above</span>
             </div>
             {entryDate !== todayISO() && !multiDay && (
-              <p className="mt-1 text-xs text-amber-300">
+              <p className="warn-box mt-1">
                 Backfilling {fmtDate(entryDate)} — dates you don't mention will default here, not today.
               </p>
             )}
@@ -367,7 +376,7 @@ export default function LogTab() {
             <div className="label">Summary · {fmtDate(entryDate)}</div>
             <p className="text-sm text-cream">{extraction.summary || 'Log entry'}</p>
           </div>
-          <ExtractionPreview data={extraction} />
+          <ExtractionReview items={review ?? []} onChange={setReview} />
           <div className="flex gap-2">
             <button className="btn-primary flex-1" onClick={() => void confirmSave()}>
               Confirm & save
@@ -447,32 +456,133 @@ function SavedDetail({ detail }: { detail: EntryDetail }) {
   )
 }
 
-function ExtractionPreview({ data }: { data: DiaryExtraction }) {
-  const rows: { label: string; items: string[] }[] = [
-    { label: 'Activities', items: data.activities.map((a) => [a.type, a.duration_min && `${a.duration_min}m`, a.intensity, a.symptoms && `→ ${a.symptoms}`, a.recovery_time && `recovery ${a.recovery_time}`, a.gentle_movement_effect && a.gentle_movement_effect !== 'unknown' && `gentle: ${a.gentle_movement_effect}`].filter(Boolean).join(' · ')) },
-    { label: 'Gut', items: data.gut_events.map((g) => [g.pain != null && `pain ${g.pain}`, g.bloating != null && `bloat ${g.bloating}`, g.stool_consistency != null && `Bristol ${g.stool_consistency}`, g.warming_bottle_needed && 'warming bottle', g.preceded_by?.length && `before: ${g.preceded_by.join(', ')}`].filter(Boolean).join(' · ')) },
-    { label: 'Infections', items: data.infections.map((i) => [i.kind, i.severity, i.preceded_by?.length && `before: ${i.preceded_by.join(', ')}`].filter(Boolean).join(' · ')) },
-    { label: 'Energy / Mood', items: data.wellbeing.map((w) => [w.energy != null && `energy ${w.energy}`, w.mood != null && `mood ${w.mood}`].filter(Boolean).join(' · ')) },
-    { label: 'Day context', items: data.day_context.map((d) => [d.stress_load != null && `stress ${d.stress_load}`, d.work, d.travel, d.retreat, d.relaxation, d.tasks].filter(Boolean).join(' · ')) },
-    { label: 'Tracked', items: (data.tracks ?? []).map((t) => [t.name, t.value != null && `${t.value}${t.unit ? ` ${t.unit}` : ''}`, t.time && `at ${t.time}`, t.notes].filter(Boolean).join(' · ')) },
-  ].filter((r) => r.items.filter(Boolean).length)
+// The editable review step. Every number Claude produced gets a stepper, every
+// record gets an include toggle, and anything that would overwrite a value already
+// stored for that day is flagged with that value and a one-tap "Keep".
+//
+// The default on a conflict is HIS value, not Claude's: the extraction has to be
+// accepted to win. That is the whole point — the previous version wrote silently,
+// and a guessed energy of 9 landed on a 7 he had entered by hand.
+function ExtractionReview({
+  items,
+  onChange,
+}: {
+  items: ReviewItem[]
+  onChange: (next: ReviewItem[]) => void
+}) {
+  if (!items.length) return <p className="text-sm text-ink-400">Nothing structured was detected.</p>
 
-  if (!rows.length) return <p className="text-sm text-ink-400">Nothing structured was detected.</p>
+  const conflicts = conflictCount(items)
+
+  const setInclude = (id: string, include: boolean) =>
+    onChange(items.map((it) => (it.id === id ? { ...it, include } : it)))
+
+  const setValue = (id: string, key: string, value: number) =>
+    onChange(
+      items.map((it) =>
+        it.id === id ? { ...it, fields: it.fields.map((f) => (f.key === key ? { ...f, value } : f)) } : it,
+      ),
+    )
 
   return (
-    <div className="space-y-3">
-      {rows.map((r) => (
-        <div key={r.label}>
-          <div className="label">{r.label}</div>
-          <div className="space-y-1">
-            {r.items.filter(Boolean).map((it, i) => (
-              <div key={i} className="rounded-lg bg-ink-900 px-3 py-2 text-sm text-cream">
-                {it}
+    <div className="space-y-2">
+      {conflicts > 0 && (
+        <div className="warn-box">
+          {conflicts === 1 ? 'One value' : `${conflicts} values`} would replace something already saved for that day.
+          Each one shows what is there now — tap <span className="font-semibold">Keep</span> to leave it alone, or
+          untick the record to drop it entirely.
+        </div>
+      )}
+      <p className="text-xs text-ink-400">
+        Correct anything Claude got wrong here — nothing is written until you tap Confirm.
+      </p>
+
+      {items.map((it) => (
+        <div
+          key={it.id}
+          className={`rounded-lg bg-ink-900 px-3 py-2 ${it.include ? '' : 'opacity-45'}`}
+        >
+          <div className="flex items-start gap-2.5">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 shrink-0 rounded accent-brand-500"
+              checked={it.include}
+              aria-label={`Include this ${it.section} record`}
+              onChange={(e) => setInclude(it.id, e.target.checked)}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-[10px] uppercase tracking-wide text-ink-500">{it.section}</span>
+                <span className="text-[10px] text-ink-500">{fmtDate(it.date)}</span>
               </div>
-            ))}
+              {it.text && <div className="text-sm text-cream">{it.text}</div>}
+              {it.fields.map((f) => (
+                <FieldRow
+                  key={f.key}
+                  field={f}
+                  disabled={!it.include}
+                  onChange={(v) => setValue(it.id, f.key, v)}
+                />
+              ))}
+            </div>
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function FieldRow({
+  field,
+  disabled,
+  onChange,
+}: {
+  field: ReviewField
+  disabled: boolean
+  onChange: (v: number) => void
+}) {
+  const clamp = (v: number) => Math.min(field.max, Math.max(field.min, Math.round(v / field.step) * field.step))
+  const conflicted = field.saved != null && field.saved !== field.value
+  const show = (v: number) => String(Math.round(v * 10) / 10)
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="w-[5.5rem] shrink-0 text-xs text-ink-300">{field.label}</span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={`Decrease ${field.label}`}
+          className="h-7 w-7 rounded-lg border border-ink-700 text-ink-300 disabled:opacity-40"
+          onClick={() => onChange(clamp(field.value - field.step))}
+        >
+          −
+        </button>
+        <span className="w-10 text-center font-serif text-lg leading-none text-cream">{show(field.value)}</span>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={`Increase ${field.label}`}
+          className="h-7 w-7 rounded-lg border border-ink-700 text-ink-300 disabled:opacity-40"
+          onClick={() => onChange(clamp(field.value + field.step))}
+        >
+          +
+        </button>
+        {field.unit && <span className="text-[11px] text-ink-400">{field.unit}</span>}
+      </div>
+      {conflicted && (
+        <span className="warn-chip">
+          was {show(field.saved as number)}
+          <button
+            type="button"
+            disabled={disabled}
+            className="underline disabled:opacity-40"
+            onClick={() => onChange(field.saved as number)}
+          >
+            Keep
+          </button>
+        </span>
+      )}
     </div>
   )
 }

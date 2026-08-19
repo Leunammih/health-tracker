@@ -8,9 +8,11 @@ import {
 import {
   loadHiddenMetrics, supplementMetricNames, isSuppressedMetric, hideMetric, unhideMetric,
 } from '../lib/hiddenMetrics'
+import { loadCollapsedGroups, setGroupCollapsed } from '../lib/uiPrefs'
 import { readMetric, lastMetricValue, writeMetric, readSegments, writeSegment, rollupKindFor } from '../lib/metricStore'
 import { daysAgoISO } from '../lib/dates'
 import { IconNote } from './icons'
+import { MetricIcon, GroupIcon } from './metricIcons'
 import type { Segment } from '../types'
 
 // Whether `name` should read/write a specific time-of-day segment right now, vs the
@@ -88,6 +90,12 @@ function initRow(date: string, item: Item, saved: SavedState): RowState {
   }
 }
 
+// Values can now carry half steps (Bristol stool is 0.5), so a raw {draft.value}
+// would render 4.5 correctly but also 6.700000000000001 after a segment rollup.
+function fmtValue(v: number): string {
+  return String(Math.round(v * 10) / 10)
+}
+
 // Everything tracked in the last week (plus energy and mood, always), grouped by
 // category, each with a slider for the selected day. A slider starts at the last
 // known value, so a steady habit is one tap to confirm rather than re-entry.
@@ -106,6 +114,7 @@ export default function QuickEntryPanel({
 }) {
   const [extra, setExtra] = useState<string[]>([]) // items added via quick-add this session
   const [hidden, setHidden] = useState<Set<string>>(() => loadHiddenMetrics())
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsedGroups())
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState<string | null>(null)
   const [qlBusy, setQlBusy] = useState<string | null>(null)
@@ -288,6 +297,10 @@ export default function QuickEntryPanel({
     setExtra((e) => (e.includes(name) ? e : [...e, name]))
   }
 
+  async function toggleGroup(group: MetricGroup) {
+    setCollapsed(await setGroupCollapsed(group, !collapsed.has(group)))
+  }
+
   const dirtyItems = items.filter((it) => isDirty(it))
 
   async function saveAll() {
@@ -303,10 +316,13 @@ export default function QuickEntryPanel({
     }
   }
 
+  // Every group is listed, including empty ones — a collapsed heading costs one line
+  // and is where Phase G-2's "+ add a category" button will live, which has to be
+  // reachable in a group you haven't tracked anything in yet.
   const grouped = GROUP_ORDER.map((g) => ({
     ...g,
     rows: items.filter((it) => groupForTrack(it.name, it.category) === g.group),
-  })).filter((g) => g.rows.length)
+  }))
 
   // Standard items not already shown — tap to add a row for this day. Energy and
   // mood are always present, so they never appear here.
@@ -318,48 +334,64 @@ export default function QuickEntryPanel({
   )
 
   return (
-    <div className="card space-y-4">
+    <div className="card space-y-3">
       <div>
         <div className="label">Quick entry{segment ? ` — ${SEGMENT_LABEL[segment]}` : ''}</div>
         <p className="text-xs text-ink-400">
           {segment
             ? `Sliders start at your last value. Items that don't split by time of day (weight, stool) still log the whole day.`
             : 'Sliders start at your last value.'}{' '}
-          Adjust and tap Save — nothing is written until you do.
+          Adjust and tap Save — nothing is written until you do. Tap a heading to fold it away.
         </p>
       </div>
 
-      {grouped.map((g) => (
-        <div key={g.group} className="space-y-2">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-ink-500">{g.title}</div>
-          {g.rows.map((it) => {
-            const d = drafts.get(it.name)
-            const s = saved.get(it.name)
-            if (!d || !s) return null
-            return (
-              <QuickRow
-                key={it.name}
-                name={it.name}
-                category={it.category}
-                draft={d}
-                saved={s}
-                dirty={isDirty(it)}
-                canSave={canSave(it)}
-                justSaved={justSaved === it.name}
-                onChange={(patch) => setDraft(it.name, patch)}
-                onSave={() => void saveOne(it)}
-                onHide={() => void hideRow(it.name)}
-              />
-            )
-          })}
-        </div>
-      ))}
+      {grouped.map((g) => {
+        const isOpen = !collapsed.has(g.group)
+        const dirtyHere = g.rows.filter((it) => isDirty(it)).length
+        return (
+          <div key={g.group}>
+            <button
+              type="button"
+              aria-expanded={isOpen}
+              onClick={() => void toggleGroup(g.group)}
+              className="flex w-full items-center gap-1.5 py-1 text-[11px] font-medium uppercase tracking-wide text-ink-500 hover:text-ink-300"
+            >
+              <GroupIcon group={g.group} size={13} className="shrink-0" />
+              <span>{g.title}</span>
+              <span className="text-ink-600">{g.rows.length}</span>
+              {!isOpen && dirtyHere > 0 && (
+                <span className="warn-dot h-1.5 w-1.5 rounded-full" aria-label={`${dirtyHere} unsaved`} />
+              )}
+              <span className="ml-auto text-ink-500">{isOpen ? '▾' : '▸'}</span>
+            </button>
 
-      {!grouped.length && (
-        <p className="text-xs text-ink-400">
-          Nothing tracked in the last week yet — add something below.
-        </p>
-      )}
+            {isOpen && g.rows.map((it) => {
+              const d = drafts.get(it.name)
+              const s = saved.get(it.name)
+              if (!d || !s) return null
+              return (
+                <QuickRow
+                  key={it.name}
+                  name={it.name}
+                  category={it.category}
+                  draft={d}
+                  saved={s}
+                  dirty={isDirty(it)}
+                  canSave={canSave(it)}
+                  justSaved={justSaved === it.name}
+                  onChange={(patch) => setDraft(it.name, patch)}
+                  onSave={() => void saveOne(it)}
+                  onHide={() => void hideRow(it.name)}
+                />
+              )
+            })}
+
+            {isOpen && !g.rows.length && (
+              <p className="py-1 text-xs text-ink-500">Nothing here yet.</p>
+            )}
+          </div>
+        )
+      })}
 
       {dirtyItems.length > 0 && (
         <button className="btn-primary w-full !py-2 text-sm" disabled={busy} onClick={() => void saveAll()}>
@@ -382,7 +414,7 @@ export default function QuickEntryPanel({
                 className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1.5 text-xs text-ink-200 hover:bg-ink-700"
                 onClick={() => void tapQuickLog(d)}
               >
-                <span className="h-2 w-2 rounded-full" style={{ background: colorForTrack(d.key) }} />
+                <MetricIcon name={d.key} color={colorForTrack(d.key)} size={14} className="shrink-0" />
                 {d.label}
                 <span className="text-brand-400">{qlFlash === d.key ? '✓' : '+5'}</span>
               </button>
@@ -405,6 +437,7 @@ export default function QuickEntryPanel({
                 className="flex items-center gap-1.5 rounded-full border border-ink-700 px-2.5 py-1.5 text-xs text-ink-400 hover:text-cream"
                 onClick={() => void restoreRow(name)}
               >
+                <MetricIcon name={name} size={14} className="shrink-0" />
                 {labelForTrack(name)}
                 <span aria-hidden>↩</span>
               </button>
@@ -423,7 +456,7 @@ export default function QuickEntryPanel({
                 className="flex items-center gap-1.5 rounded-full bg-ink-800 px-2.5 py-1.5 text-xs text-ink-200 hover:bg-ink-700"
                 onClick={() => setExtra((e) => (e.includes(d.key) ? e : [...e, d.key]))}
               >
-                <span className="h-2 w-2 rounded-full" style={{ background: colorForTrack(d.key) }} />
+                <MetricIcon name={d.key} color={colorForTrack(d.key)} size={14} className="shrink-0" />
                 {d.label}
               </button>
             ))}
@@ -442,6 +475,12 @@ function initDraftMap(date: string, segment: Segment | null, items: Item[]): Map
 }
 
 // Presentational and memoised: dragging one slider re-renders only its own row.
+//
+// Two lines, not three. The slider, the note pen and Save share ONE row — the
+// previous layout gave the three buttons a full-width row of their own, which cost
+// a third of the panel's height across every metric and turned finding anything
+// into a scroll. Hiding a row moved into the note panel: it is rare, and it was
+// taking permanent space on every row to say so.
 const QuickRow = memo(function QuickRow({
   name,
   category,
@@ -471,15 +510,15 @@ const QuickRow = memo(function QuickRow({
   const hasNote = !!(draft.noteTouched ? draft.note.trim() : saved.note)
 
   return (
-    <div className="py-2.5">
+    <div className="py-1.5">
       <div className="flex items-center justify-between gap-2">
         <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] text-cream">
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+          <MetricIcon name={name} category={category} color={color} size={17} className="shrink-0" />
           <span className="truncate">{labelForTrack(name)}</span>
           {saved.value != null && !dirty && (
             <span className="shrink-0 text-[10px] text-brand-500">saved</span>
           )}
-          {dirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-label="unsaved" />}
+          {dirty && <span className="warn-dot h-1.5 w-1.5 shrink-0 rounded-full" aria-label="unsaved" />}
         </span>
 
         <span className="flex shrink-0 items-baseline gap-1">
@@ -488,37 +527,37 @@ const QuickRow = memo(function QuickRow({
               dirty || saved.value != null ? 'text-cream' : 'text-ink-400'
             }`}
           >
-            {draft.value}
+            {fmtValue(draft.value)}
           </span>
           <span className="text-[11px] text-ink-400">{scale.unit}</span>
         </span>
       </div>
 
-      <input
-        type="range"
-        min={scale.min}
-        max={scale.max}
-        step={scale.step}
-        value={draft.value}
-        onChange={(e) => onChange({ value: Number(e.target.value) })}
-        className="mt-1 w-full"
-        style={{ accentColor: color }}
-      />
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          type="range"
+          min={scale.min}
+          max={scale.max}
+          step={scale.step}
+          value={draft.value}
+          onChange={(e) => onChange({ value: Number(e.target.value) })}
+          aria-label={labelForTrack(name)}
+          className="min-w-0 flex-1"
+          style={{ accentColor: color }}
+        />
 
-      <div className="mt-2 flex items-center gap-2">
         <button
           type="button"
           aria-label={hasNote ? 'Edit note' : 'Add note'}
           aria-expanded={noteOpen}
           onClick={() => setNoteOpen((o) => !o)}
-          className={`relative flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl border text-xs ${
+          className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
             noteOpen ? 'border-ink-600 bg-ink-700 text-cream' : 'border-ink-700 text-ink-300'
           }`}
         >
-          <IconNote width={13} height={13} />
-          {hasNote ? 'Edit note' : 'Add note'}
+          <IconNote width={14} height={14} />
           {hasNote && !noteOpen && (
-            <span className="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-brand-500" />
+            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-brand-500" />
           )}
         </button>
 
@@ -526,30 +565,30 @@ const QuickRow = memo(function QuickRow({
           type="button"
           disabled={!canSave}
           onClick={onSave}
-          className="btn-primary h-9 shrink-0 !px-4 !py-0 text-xs"
+          className="btn-primary h-9 w-[4.25rem] shrink-0 !px-0 !py-0 text-xs"
         >
           {justSaved ? '✓ Saved' : 'Save'}
-        </button>
-
-        {/* Anything dictation files under `tracks` shows up here, including things
-            that aren't metrics at all. One tap removes the row; the data stays. */}
-        <button
-          type="button"
-          aria-label={`Hide ${labelForTrack(name)} from quick entry`}
-          onClick={onHide}
-          className="h-9 w-9 shrink-0 rounded-xl border border-ink-700 text-sm text-ink-400 hover:text-cream"
-        >
-          ✕
         </button>
       </div>
 
       {noteOpen && (
-        <textarea
-          className="field mt-2 min-h-[2.75rem] !py-2"
-          placeholder="Additional information — e.g. 'right knee only, worse on stairs'"
-          value={draft.note}
-          onChange={(e) => onChange({ note: e.target.value, noteTouched: true })}
-        />
+        <div className="mt-2 space-y-1.5">
+          <textarea
+            className="field min-h-[2.75rem] !py-2"
+            placeholder="Additional information — e.g. 'right knee only, worse on stairs'"
+            value={draft.note}
+            onChange={(e) => onChange({ note: e.target.value, noteTouched: true })}
+          />
+          {/* Anything dictation files under `tracks` shows up here, including things
+              that aren't metrics at all. One tap removes the row; the data stays. */}
+          <button
+            type="button"
+            onClick={onHide}
+            className="text-xs text-ink-500 underline hover:text-red-400"
+          >
+            Hide {labelForTrack(name)} from quick entry
+          </button>
+        </div>
       )}
     </div>
   )

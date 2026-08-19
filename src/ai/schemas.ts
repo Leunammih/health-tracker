@@ -58,7 +58,7 @@ export const DIARY_TOOL = {
             pain: { type: 'number', description: '0-10' },
             bloating: { type: 'number', description: '0-10' },
             preceded_by: precededBy,
-            stool_consistency: { type: 'number', description: 'Bristol scale 1-7' },
+            stool_consistency: { type: 'number', description: 'Bristol scale 1-7. Half steps are allowed (4.5, 5.5) when the user describes something between two types.' },
             warming_bottle_needed: { type: 'boolean', description: 'needed a warming bottle at night' },
             notes: { type: 'string' },
           },

@@ -103,8 +103,9 @@ export async function saveDiaryExtraction(
     const prev = wellbeingOn(date)
     exec('DELETE FROM wellbeing WHERE date = ?', [date])
     exec(
-      `INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes, energy_notes, mood_notes)
-       VALUES (?,?,?,?,?,?,?,?)`,
+      `INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes, energy_notes, mood_notes,
+        sleep_start, sleep_end, sleep_quality)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uid(), entryId, date,
         w.energy ?? prev?.energy ?? null,
@@ -112,6 +113,15 @@ export async function saveDiaryExtraction(
         w.notes ?? prev?.notes ?? null,
         prev?.energy_notes ?? null,
         prev?.mood_notes ?? null,
+        // EVERY column on this table has to be listed here, not just the ones the
+        // extraction can set. This is a DELETE + INSERT, so a column left off the
+        // INSERT is silently destroyed — which is exactly what happened to the three
+        // sleep columns (added in schema v9, never added here): any dictated entry
+        // mentioning energy or mood wiped that day's saved bedtime, wake time and
+        // felt quality. Adding a column to `wellbeing` means adding it here too.
+        prev?.sleep_start ?? null,
+        prev?.sleep_end ?? null,
+        prev?.sleep_quality ?? null,
       ],
     )
   }
@@ -124,6 +134,8 @@ export async function saveDiaryExtraction(
     const prev = dayContextOn(date)
     exec('DELETE FROM day_context WHERE date = ?', [date])
     exec(
+      // Lists every column on the table on purpose — see the note in the wellbeing
+      // block above. A DELETE + INSERT that omits one destroys it.
       `INSERT INTO day_context(id, entry_id, date, tasks, travel, work, retreat, relaxation, stress_load, notes, stress_notes)
        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
@@ -189,8 +201,25 @@ export async function deleteEntry(entryId: string): Promise<void> {
 // rollup would just vanish. Capture which (date, metric) pairs are at risk before
 // deleting, then re-materialise any that still have segments afterward.
 export async function deleteEntryRows(entryId: string): Promise<void> {
-  const wbDates = all<{ date: string }>('SELECT date FROM wellbeing WHERE entry_id = ?', [entryId]).map((r) => r.date)
-  const dcDates = all<{ date: string }>('SELECT date FROM day_context WHERE entry_id = ?', [entryId]).map((r) => r.date)
+  // Columns on these two tables that a diary extraction can NEVER set — sleep has no
+  // field in DIARY_TOOL at all, and the *_notes columns belong to the quick-entry
+  // sliders. They only sit on this row because it is one-row-per-day, so they are not
+  // "everything logged from this entry" and must survive its deletion. Captured
+  // before the DELETE and re-materialised after it.
+  const wbKept = all<{
+    date: string; energy_notes: string | null; mood_notes: string | null
+    sleep_start: string | null; sleep_end: string | null; sleep_quality: number | null
+  }>(
+    `SELECT date, energy_notes, mood_notes, sleep_start, sleep_end, sleep_quality
+     FROM wellbeing WHERE entry_id = ?`,
+    [entryId],
+  )
+  const dcKept = all<{ date: string; stress_notes: string | null }>(
+    'SELECT date, stress_notes FROM day_context WHERE entry_id = ?',
+    [entryId],
+  )
+  const wbDates = wbKept.map((r) => r.date)
+  const dcDates = dcKept.map((r) => r.date)
   const trackRows = all<{ date: string; name: string }>('SELECT date, name FROM tracks WHERE entry_id = ?', [entryId])
 
   exec('DELETE FROM activities WHERE entry_id = ?', [entryId])
@@ -199,6 +228,24 @@ export async function deleteEntryRows(entryId: string): Promise<void> {
   exec('DELETE FROM wellbeing WHERE entry_id = ?', [entryId])
   exec('DELETE FROM day_context WHERE entry_id = ?', [entryId])
   exec('DELETE FROM tracks WHERE entry_id = ?', [entryId])
+
+  for (const r of wbKept) {
+    if (r.sleep_start == null && r.sleep_end == null && r.sleep_quality == null && !r.energy_notes && !r.mood_notes) continue
+    exec(
+      `INSERT INTO wellbeing(id, entry_id, date, energy, mood, notes, energy_notes, mood_notes,
+        sleep_start, sleep_end, sleep_quality)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [uid(), null, r.date, null, null, null, r.energy_notes, r.mood_notes, r.sleep_start, r.sleep_end, r.sleep_quality],
+    )
+  }
+  for (const r of dcKept) {
+    if (!r.stress_notes) continue
+    exec(
+      `INSERT INTO day_context(id, entry_id, date, tasks, travel, work, retreat, relaxation, stress_load, notes, stress_notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [uid(), null, r.date, null, null, null, null, null, null, null, r.stress_notes],
+    )
+  }
 
   for (const date of wbDates) {
     for (const key of ['energy', 'mood']) if (segmentsOn(date, key).length) await recomputeRollup(date, key)

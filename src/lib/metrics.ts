@@ -45,6 +45,10 @@ export interface TrackDef {
   // set it where the group doesn't determine the category — 'release' and the other
   // wellbeing-group tracks share a group but are not the same category.
   category?: string
+  // Which glyph in components/metricIcons.tsx to draw. Defaults to `key`, so a
+  // registered metric only needs this when it borrows another metric's icon —
+  // which is the normal case for user-defined metrics (Phase G-2).
+  icon?: string
 }
 
 export type Rollup = 'sum' | 'avg' | 'last'
@@ -94,7 +98,10 @@ export const TRACK_DEFS: TrackDef[] = [
   { key: 'infection', label: 'Infection', match: /infection/i, color: paletteColor('infection', 'symptom'), group: 'symptom', unit: '/10', min: 0, max: 10, step: 1, lowerIsBetter: true },
   // Key stays "stool" (not "stool consistency") so it reuses the same palette.ts KNOWN
   // colour as the Illness & gut chart's own "Stool" series — same metric, same hue.
-  { key: 'stool', label: 'Stool consistency', match: /stool|bristol/i, color: paletteColor('stool', 'symptom'), group: 'symptom', unit: '', min: 1, max: 7, step: 1, rollup: 'last' },
+  // step 0.5: real stools land between two Bristol pictures more often than on one,
+  // and rounding to the nearer whole type throws away the only distinction that
+  // matters on a scale this short.
+  { key: 'stool', label: 'Stool consistency', match: /stool|bristol/i, color: paletteColor('stool', 'symptom'), group: 'symptom', unit: '', min: 1, max: 7, step: 0.5, rollup: 'last' },
 
   // --- measurements ---
   // rollup: 'last' is explicit (not just inherited from the 'kg'/'' unit default)

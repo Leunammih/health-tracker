@@ -4,6 +4,11 @@ import { colorForTrack, labelForTrack, scaleForTrack, clampToScale } from '../li
 import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
 import { fmtDate } from '../lib/dates'
 import { IconNote } from './icons'
+import { MetricIcon } from './metricIcons'
+
+// Half-step metrics (Bristol stool) and segment rollups both produce values a bare
+// {value} would render as 6.700000000000001.
+const fmt = (v: number): string => String(Math.round(v * 10) / 10)
 
 // Tap a tracked item (knee pain, dancing, breath work…) → pick a day → drag the
 // slider → confirm. The sheet stays open after confirming so several days can be
@@ -63,7 +68,7 @@ export default function QuickLogSheet({
       await writeMetric(forDate, name, v, noteArg)
       setVersion((k) => k + 1)
       onChanged()
-      setStatus(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${v}${scale.unit} for ${fmtDate(forDate)}`)
+      setStatus(v == null ? `Cleared ${fmtDate(forDate)}` : `Saved ${fmt(v)}${scale.unit} for ${fmtDate(forDate)}`)
       setTimeout(() => setStatus(null), 2000)
     } finally {
       setBusy(false)
@@ -81,7 +86,7 @@ export default function QuickLogSheet({
       }
       setVersion((k) => k + 1)
       onChanged()
-      setStatus(`Saved ${value}${scale.unit} for the last ${n} days`)
+      setStatus(`Saved ${fmt(value)}${scale.unit} for the last ${n} days`)
       setTimeout(() => setStatus(null), 2200)
     } finally {
       setBusy(false)
@@ -96,7 +101,7 @@ export default function QuickLogSheet({
       >
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2 text-cream">
-            <span className="h-3 w-3 rounded-full" style={{ background: color }} />
+            <MetricIcon name={name} category={category} color={color} size={20} />
             <span className="text-[17px]">{label}</span>
           </div>
           <button className="text-sm text-ink-400 hover:text-cream" onClick={onClose}>
@@ -110,7 +115,7 @@ export default function QuickLogSheet({
         <div className="mt-4 flex items-baseline justify-between">
           <div className="label !mb-0">{scale.unit === '/10' ? 'Level' : scale.unit === '%' ? 'Intensity' : 'Duration'}</div>
           <div className="font-serif text-2xl leading-none text-cream">
-            {value}
+            {fmt(value)}
             <span className="ml-1 font-sans text-sm text-ink-400">{scale.unit}</span>
           </div>
         </div>
@@ -153,7 +158,7 @@ export default function QuickLogSheet({
           disabled={busy}
           onClick={() => void save(date, value, true)}
         >
-          Save {value}{scale.unit} for {fmtDate(date)}
+          Save {fmt(value)}{scale.unit} for {fmtDate(date)}
         </button>
 
         <div className="mt-3 grid grid-cols-2 gap-2">

@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react'
 import { sleepOn, upsertSleep } from '../db/queries'
 import { sleepDurationMin } from '../lib/dates'
+import TimePicker5 from './TimePicker5'
 
-// Where the native time wheel opens for a day with no sleep saved yet. Applied
-// as the initial field value (not on focus/tap): iOS snapshots the wheel's
-// starting position from whatever the input's value already is at the moment
-// the tap gesture begins, before any JS focus handler runs — so there is no
-// reliable way to inject a default in response to the tap itself. Harmless to
-// pre-fill: nothing reaches the database until "Save sleep" is tapped, same as
-// every other quick-entry control in this app.
+// Where the picker opens for a day with no sleep saved yet. Harmless to pre-fill:
+// nothing reaches the database until "Save sleep" is tapped, same as every other
+// quick-entry control in this app.
 const DEFAULT_BEDTIME = '23:00'
 const DEFAULT_WAKE = '09:00'
 
@@ -49,24 +46,12 @@ export default function SleepCard({ date, onChanged }: { date: string; onChanged
       <div className="label">Sleep</div>
       <div className="flex items-end gap-3">
         <div>
-          <label className="label !mb-1 !text-[10px]">Bedtime</label>
-          <input
-            type="time"
-            step={300}
-            className="field !w-auto"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-          />
+          <div className="label !mb-1 !text-[10px]">Bedtime</div>
+          <TimePicker5 value={start} onChange={setStart} ariaLabel="Bedtime" />
         </div>
         <div>
-          <label className="label !mb-1 !text-[10px]">Wake</label>
-          <input
-            type="time"
-            step={300}
-            className="field !w-auto"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-          />
+          <div className="label !mb-1 !text-[10px]">Wake</div>
+          <TimePicker5 value={end} onChange={setEnd} ariaLabel="Wake time" />
         </div>
         {duration != null && (
           <div className="ml-auto text-right">

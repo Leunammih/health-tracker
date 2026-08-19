@@ -441,92 +441,128 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     ceiling on accuracy, not something to chase further without a real food
     database behind the app.
 
+- **Phase G-1 — dictation stopped destroying manual entries; Log screen halved in
+  height** (2026-08-19). Six changes, one root cause between them: nothing between
+  Claude's output and the database.
+  - **The sleep data-loss bug, root-caused and fixed.** `saveDiaryExtraction()`
+    handled a wellbeing record with `DELETE FROM wellbeing WHERE date = ?` followed
+    by an INSERT listing only 8 of the table's 11 columns. It carefully carried
+    `energy` / `mood` / `notes` forward — but `sleep_start`, `sleep_end` and
+    `sleep_quality` (added later, schema v9) were never added to that INSERT, so
+    **every dictated entry mentioning energy or mood silently wiped that day's
+    saved bedtime, wake time and felt quality**. Same trap in `deleteEntryRows()`:
+    deleting (or re-analyzing) an entry took the day's sleep and the quick-entry
+    `*_notes` with it, even though the extraction can never set them. Both fixed,
+    both regression-tested against the live path.
+  - **Editable, conflict-flagged review step** (`src/lib/diaryReview.ts` +
+    `ExtractionReview` in `LogTab`). The preview used to be read-only text that went
+    straight to the DB. Now every number Claude produced has a −/+ stepper, every
+    record has an include toggle, and anything that would land on a value already
+    stored for that day shows `was 7 · Keep` plus a banner counting them. **The
+    default on a conflict is his value, not Claude's** — the extraction has to be
+    accepted to win.
+  - **Prompt tightened** so Claude stops inventing `energy` / `mood` / `stress_load`
+    from the tone of an entry; it must now ask in `follow_up_questions` instead.
+  - **5-minute sleep picker** (`src/components/TimePicker5.tsx`). `step={300}` on
+    `<input type="time">` shipped in `bd97089` and never worked: WebKit applies
+    `step` to validation only, and iOS's wheel still offers all sixty minutes. Two
+    native `<select>`s instead — each renders as its own iOS wheel, and the options
+    *are* the allowed values. Same `'HH:MM'` in and out, so `sleepDurationMin()` and
+    `upsertSleep()` are untouched. An off-grid legacy value (23:07) is offered as its
+    own option rather than silently snapped.
+  - **Half-step stool consistency** — `stool` step 1 → 0.5. `rollup: 'last'` already
+    prevented a 2-and-6 day averaging to a misleading 4; `tracks.value` is REAL and
+    SQLite's INTEGER affinity stores 4.5 unchanged, so no migration.
+  - **Log screen: three lines per metric → two.** Slider, note pen and Save now share
+    one row; the ✕ hide button moved into the note panel, where it costs nothing on
+    every other row. Group headings (Movement / Practice / Health & pain / Wellbeing /
+    Other) fold away, with the open/closed set persisted in `meta.collapsed_groups`
+    (`src/lib/uiPrefs.ts`) so it syncs to the phone like `hidden_metrics` does. All
+    five headings now always render — G-2's per-group "+" needs to be reachable in an
+    empty group.
+  - **Icons** (`src/components/metricIcons.tsx`) — 33 hand-drawn inline SVGs in the
+    existing `icons.tsx` style, no new dependency, plus a per-group fallback so a
+    dictation-invented name still gets a glyph. Tinted with each metric's own colour
+    and used in the Log rows, the quick-log/add/hidden chips, the Insights tap-to-log
+    grid, the chart legends and the section headers.
+  - **A theme bug fixed on the way:** the amber warning tones were literal Tailwind
+    `text-amber-200/300`, near-invisible on parchment. They now go through
+    `--warn-rgb` / `--warn-text` and the `.warn-box` / `.warn-chip` / `.warn-dot`
+    classes, which flip with the theme like every other colour in the app. This also
+    makes the pre-existing "Backfilling…" and "Editing an existing entry" banners
+    readable in light mode.
+  - Verified in the Browser pane against seeded data in both themes, no console
+    errors. The regression test that matters: sleep 23:00→07:00 quality 8 + energy 7
+    saved by hand, then a dictated entry setting energy 9 / mood 8 / stress 6 /
+    meditation 25 / Bristol 4.5 — after tapping **Keep** on energy and unticking the
+    knee-pain record, the DB held energy **7**, mood 8, stress 6, meditation 25,
+    stool **4.5**, no knee pain row, and sleep **23:00 / 07:00 / 8 fully intact**.
+
 ## Check on your phone (current)
-**Phone-verified 2026-08-19: all of F-4 confirmed working**, including the live
-camera decode loop (the one thing that could only be checked on-device). One
-follow-up question from Immanuel led to a same-session addition — **searching a
-previously-scanned product by name, no rescan needed**:
+_Replaced each iteration — this is the list for **G-1**. Open
+https://leunammih.github.io/health-tracker/ and pull down to refresh first. No
+schema change, so nothing to clear._
 
-- **Meals → Build from ingredients → "⌗ Add via barcode"** (or the review
-  card's ⌗ button): the sheet now opens with a **"Search a product you've
-  already scanned…"** field above the camera. Type a few letters of anything
-  you've scanned before (e.g. "nut" for Nutella) — it should show up instantly
-  from the app's own list (no network call), and tapping it jumps straight to
-  the same grams/confirm step a fresh scan lands on.
-- Confirm this same field works from **both** call sites — the builder's
-  barcode button and the photo/dictation review card's ⌗ buttons — since it's
-  one shared component.
+**Start with item 6 — it is the bug that was eating your sleep data.**
 
-Verified in the Browser pane (manual-entry paths only, camera unavailable
-there): scanned Nutella once, removed it from the meal, reopened the sheet,
-typed "nut" → "Nutella (Nutella) — 539 kcal/100g" appeared immediately with
-zero network requests, tapping it landed on the confirm step unchanged.
-Not yet re-confirmed on the phone specifically for this addition, but it's a
-straightforward extension of the already-verified sheet — low risk.
+1. **Log → Sleep card.** Bedtime and Wake are now two dropdowns each instead of one
+   time field. Tap a minutes dropdown: it must offer **only 00, 05, 10 … 55** (12
+   options). Set 23:15 → 07:30 and confirm the readout on the right says
+   **8h 15m asleep**. Tap **Save sleep**.
+   *Failure looks like:* a full 60-minute wheel, or a minute you can't select.
+2. **Log → Quick entry.** Each row is now **two lines**: name + value on top, then
+   slider + pen + Save all on one line. The ✕ is gone from the row — tap the **pen**
+   and "Hide … from quick entry" is at the bottom of the note box. Hide one, then
+   bring it back from the **Hidden** chips further down.
+3. **Group headings fold.** Movement / Practice / Health & pain / Wellbeing / Other
+   each have an icon, a count and a ▾. Tap one — its rows collapse and the arrow
+   becomes ▸. Switch to another tab and back: **it should still be folded.** (A
+   folded group with unsaved changes shows a small amber dot on the heading.) All
+   five headings show even at 0 — that's deliberate, it's where the "+ add your own
+   category" button lands in the next iteration.
+4. **Icons.** Every row, every quick-log chip, and **Insights → Tap to log** now
+   shows a glyph in the metric's own colour instead of a plain dot. Tell me if any
+   of them is unclear or reads as the wrong thing.
+5. **Insights → Tap to log → Stool consistency.** The slider must now stop at
+   **4.5, 5.5** and so on, not just whole numbers.
+6. **The dictation regression — do this in order:**
+   a. Log tab, today. Set a bedtime, a wake time and a **felt quality** you'll
+      remember. Tap **Save sleep**.
+   b. Quick entry → **Energy**: set a value you'll remember, tap **Save**. Same for
+      **Mood**.
+   c. Now dictate a normal entry that mentions your mood or energy in passing.
+   d. Tap Continue through the questions. On the review screen: every number now has
+      **− / +** buttons, every record has a **checkbox**, and anything that would
+      land on a value you already saved carries an amber **"was 7 · Keep"** pill,
+      with a banner at the top counting them.
+   e. Tap **Keep** on one, correct another with **− / +**, and **untick** any record
+      Claude invented. Then **Confirm & save**.
+   f. Scroll back to the **Sleep card**. Bedtime, wake and felt quality must be
+      **exactly what you set in (a)**. Check Energy too — the one you tapped Keep on
+      must still be your number, not Claude's.
+   *Failure looks like:* sleep back at 23:00 / 09:00 with quality blank, or your
+   energy replaced by Claude's. That is the bug; it should be gone.
+7. **Claude should stop guessing.** It should no longer volunteer an energy or mood
+   number you didn't actually say — if it wants one, it should now **ask** in the
+   follow-up questions instead.
+8. **Both themes.** Settings → Appearance → Dark, then back to Light. The amber
+   "was N · Keep" pill and the "Backfilling…" banner must be readable in **both** —
+   they were washed out on the light ground before.
 
-_Older checklist below, replaced next iteration — kept for reference. Open
-https://leunammih.github.io/health-tracker/ and pull down to refresh first, so
-the service worker picks up the new build. No schema change —
-`foods.barcode`/`brand`/`source='off'` have been ready since F-2._
-
-**What's new:** scan a packaged product's barcode and get its label's exact
-numbers instead of an AI estimate. Three entry points: **Build from
-ingredients** (a new "⌗ Add via barcode" button under "Type an ingredient…"),
-and in the **photo/dictation review card** — a ⌗ button on each ingredient row
-to replace it with a scan, plus an "⌗ Add via barcode" button to append one.
-
-Everything except the **live camera** was already verified in the Browser pane
-(camera access isn't available there) against the real Open Food Facts API —
-manual barcode entry, the grams/kcal math, the local-barcode-index reuse on a
-re-scan, the not-found fallback, and the review-card wiring. **The camera path
-is the one thing only your phone can confirm**, so start there.
-
-1. **Meals → Build from ingredients → "⌗ Add via barcode"** (right under "Type
-   an ingredient…"). The sheet should ask for camera permission and show a live
-   viewfinder. Point it at any packaged food's barcode (a cereal box, a jar, a
-   protein bar — anything with a normal EAN/UPC barcode). It should recognise it
-   within a second or two without you tapping anything, then show the product
-   name, brand, and kcal/100g pulled from Open Food Facts.
-2. Adjust the **grams** field — confirm the "= N kcal" readout updates live —
-   then tap **Add**. The item should land in the ingredient list already in
-   **grams mode** (a "g" / "Use servings" toggle, not a tap-count), with the
-   meal's Total updating to match.
-3. **Scan the same product again** (either via "⌗ Add via barcode" again, or the
-   picker) — it should resolve **instantly**, with no delay, since it's now
-   reading from the app's own list rather than asking Open Food Facts again.
-4. **Camera fallback:** tap "Scan from a photo instead" and photograph a
-   barcode with your camera roll/native camera — confirm it decodes the same
-   way. Then try **typing a barcode number** by hand (any digits on a real
-   package) to confirm that path still works too.
-5. **Photo/dictation path:** dictate or photograph a meal as usual, get to the
-   review card, and confirm each ingredient row now has a small **⌗** button
-   next to the ✕. Tap it on one row, scan a real product — the row should
-   rewrite itself with the product name/grams in an orange-tinted color, and a
-   **"Re-estimate from edits, extra items & answers"** button should appear
-   (it may not have been visible before). Tap **"⌗ Add via barcode"** below the
-   ingredient list too, to confirm it appends a new row the same way.
-6. **Tap Re-estimate** on that review card (needs your Anthropic key configured,
-   which it already is on the deployed app) — confirm the totals update to
-   reflect the scanned item's exact numbers rather than a rough guess.
-7. **Not-found case:** if you have any barcode Open Food Facts won't have
-   (something homemade-labeled, an unusual local product), scan it and confirm
-   you get "No match on Open Food Facts for …" with a fallback text field
-   instead of an error or a dead end.
-8. **Both looks** — Settings → Appearance → Dark and back, open the scan sheet
-   in each to confirm it renders correctly.
-
-Unchanged and worth confirming nothing regressed: the F-3 multi-meal staging
-flow, plain typed ingredients (no barcode), single-meal builder saves, photo/
-dictation meal entry without touching barcode features, Quick entry sliders,
-Insights charts, supplements.
+Unchanged and worth confirming nothing regressed: the meal builder and barcode
+scanner, multi-meal sessions, morning/afternoon/evening segment entry, the Insights
+charts, and supplements.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone1** — phone report on the metric-scale fix (checklist below). Evidently
-  in use already (his `hidden_metrics` arrived via sync), but nothing reported yet.
+- 🟦 **phone2** — phone report on **G-1** (checklist above). The sleep-erasure fix is
+  the one that matters; item 6 is the exact sequence to reproduce what was broken.
+- 🟦 **phone1** — phone report on the metric-scale fix. Never answered, and two
+  iterations have shipped over that code since; superseded by **phone2** unless he
+  says otherwise.
 
 Answered: 🔶 **hide2** → **a**, 2026-08-12. Hiding a metric suppresses ENTRY only
 (sliders + tap-to-log chips); a hidden metric keeps its Insights chart. Recorded at
@@ -646,26 +682,57 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Phase F is complete (F-1 through F-4), phone-verified 2026-08-19** —
-including the barcode scanner's live camera path. One small same-day follow-up
-is built and pushed but **not yet phone-verified**: searching a previously-
-scanned product by name in `BarcodeScanSheet` (see "Check on your phone"
-above) — low risk (verified in the Browser pane, reuses the sheet's existing
-confirm step), but worth a quick real-device check next time Immanuel is in
-the app.
+**Waiting on Immanuel's phone report for G-1** (checklist above). Built,
+typechecked, and verified in the Browser pane in both themes with no console
+errors, including the full sleep-survives-dictation regression test.
 
-1. **Waiting on a phone check of the search-by-name addition** specifically —
-   everything else in F-4 is already confirmed.
-2. No Phase F work remains after that. Older, smaller, optional follow-ups
-   noticed while building Phase C-3 (not blocking, not scheduled):
-   - A supplement's label photo is stored but never read — wire a vision call
-     (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
-   - Adding a supplement doesn't create an `events` row, so it draws no reference
-     line on Insights charts.
-3. Still-unverified-on-a-real-phone backlog from Phase D/D-2 (plateau charts, tap-to-
-   log sliders, day-strip swipe, time-of-day segments, sleep, single events) — lower
-   priority unless Immanuel specifically asks for it.
-4. No other phase is queued — next feature work needs a fresh ask from Immanuel.
+When it comes back and anything broken is fixed, build **G-2** — the second and
+last half of the Phase G ask, already scoped and approved:
+
+1. **A boolean ("checkmark") metric kind** — nothing in the registry can express
+   yes/no today, and both of the next two items need it, so build it once:
+   `kind?: 'scale' | 'bool'` on `TrackDef`, rendered as a toggle instead of a
+   slider in `QuickRow` and `QuickLogSheet`.
+2. **Warming bottle** as a registered boolean metric, and make the Insights
+   "Warming bottle" stat tile count the union of the dictation-extracted
+   `gut_events.warming_bottle_needed` days and the new track's days, so the two
+   entry paths can't report two different numbers.
+3. **Intensity on duration metrics** — schema v13 (`tracks.intensity` and
+   `segment_values.intensity`, INTEGER 1/2/3, via `runMigrations()`), threaded
+   through `upsertTrackValue` → `writeMetric` with the same tri-state
+   carry-forward `notes` already has (`writeTrackRollup` is a DELETE+INSERT).
+   UI: **three small Low/Med/High pills on the slider row**, shown only when
+   `scale.unit === 'min'` — his choice, and the one that costs no extra height.
+4. **Computer time** — a registered `min` metric, 0-720 (12 h, since the movement
+   default of 180 clips a working day), plus an optional `quickStep?: number` on
+   `TrackDef` so its one-tap chip adds 30 min instead of 5.
+5. **User-defined categories** — `src/lib/customMetrics.ts`, a JSON array in the
+   `meta` table modelled exactly on `hiddenMetrics.ts`, merged into the registry by
+   a new `allTrackDefs()` in `metrics.ts`. Everything downstream (`scaleForTrack`,
+   `colorForTrack`, `rollupFor`, `canonicalTrackName`…) already routes through
+   `defForName`, so it works for free. A **+** on each of the five group headings
+   opens a sheet: name, type (Duration / Rating 0-10 / Checkmark / Number), and an
+   icon from `metricIcons.tsx` (`GLYPH_NAMES` is already exported for this, and
+   `TrackDef.icon` already exists).
+6. **Supplement editing** — `updateSupplement(id, patch)` in `queries.ts` plus an
+   inline edit mode in `SupplementsCard`, covering name, composition, label photo,
+   check-in interval, **start date** and (for a stopped one) end date. Today the
+   card only offers Stop and Delete.
+7. **"Log an event" kept, renamed, moved** — it is a genuinely different thing (a
+   dated reference line across the charts, not a number trended over time), so it
+   stays. Rename the heading to **"Mark a change"**, move it below
+   `SupplementsCard` in `LogTab`, and sharpen its one-line description so it stops
+   competing with the Add chips and the new + buttons.
+
+Full plan: `~/.claude/plans/implement-general-modifications-and-foamy-reef.md`.
+
+Older, unscheduled follow-ups (unchanged, not blocking):
+- A supplement's label photo is stored but never read — wire a vision call
+  (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
+- Adding a supplement doesn't create an `events` row, so it draws no reference
+  line on Insights charts.
+- Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
+  segments) still unverified on a real phone.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

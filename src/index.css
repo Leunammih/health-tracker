@@ -47,6 +47,12 @@
   --accent-deep-rgb: 201 123 45; /* ember-700 — hover/deep, destructive border */
   --accent-dim: rgba(244, 162, 89, 0.14);
 
+  /* Warning / "this would overwrite something" tone. A literal Tailwind
+     text-amber-200 is close to invisible on parchment, so the hue lives here and
+     flips with the theme like every other colour in the app. */
+  --warn-rgb: 251 191 36;
+  --warn-text: rgb(253 230 138);
+
   --bg: rgb(var(--bg-rgb));
   --bg-soft: rgb(var(--bg-soft-rgb));
   --surface: rgb(var(--surface-rgb));
@@ -80,6 +86,9 @@
   --accent-bright-rgb: 168 98 31;
   --accent-deep-rgb: 168 98 31;
   --accent-dim: rgba(201, 123, 45, 0.12);
+
+  --warn-rgb: 180 108 12;
+  --warn-text: rgb(124 55 8);
 
   --bg: rgb(var(--bg-rgb));
   --bg-soft: rgb(var(--bg-soft-rgb));
@@ -158,5 +167,20 @@ select {
   }
   .chip-on {
     @apply chip !border-transparent bg-brand-500 !text-ink-900;
+  }
+  /* Warnings that have to stay readable on BOTH grounds — see --warn-* above. */
+  .warn-box {
+    @apply rounded-xl px-3 py-2 text-xs;
+    background: rgb(var(--warn-rgb) / 0.12);
+    border: 1px solid rgb(var(--warn-rgb) / 0.45);
+    color: var(--warn-text);
+  }
+  .warn-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px];
+    background: rgb(var(--warn-rgb) / 0.18);
+    color: var(--warn-text);
+  }
+  .warn-dot {
+    background: rgb(var(--warn-rgb));
   }
 }
