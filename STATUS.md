@@ -674,44 +674,59 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   - Verified in both themes, no console errors after a clean reload and a walk of
     every tab.
 
+- **Phase G-4 — start/end dates on a new supplement, more check-in options, and
+  legible steppers** (2026-08-20). No schema change.
+  - **Start/end date on the FIRST add, not just Edit.** The add form silently used
+    "today" as the start date and had no way to set an end date, so a supplement
+    that actually started last week — or a course that already finished — needed a
+    trip to Edit right after Add to correct it. Both fields are now on the add form
+    itself, defaulting to the day being logged for and blank. Setting an end date on
+    first add puts it straight on the **Stopped** list (verified: `end_date` set,
+    row does NOT appear in `activeSupplements()`); leaving it blank keeps it active
+    (verified: `end_date` null, `Stop` button present). Since Insights now derives
+    supplement markers from this table (G-3), a backfilled supplement's start/stop
+    lines are correct from the first save, no separate marking step.
+  - **Check-in choices: 1d / 2d / 3d added** alongside the original 7 / 14 / 30, on
+    both the add form and the editor (one shared constant, so both stay in sync).
+    Verified `checkin_days` stores exactly the tapped value and the editor shows the
+    right chip pre-selected on reopen.
+  - **The review-screen +/− steppers, resized.** 28px plain outline squares → 40px
+    circles with a 2px accent-coloured ring, matching text colour and glyph size —
+    up from `h-7 w-7 border border-ink-700` to a dedicated `stepBtn` class reading
+    `var(--accent)` for both border and text, so it flips with the theme like every
+    other accent use in the app. Verified in both themes; still increments/decrements
+    correctly, still respects each field's min/max/step.
+  - Verified in both themes, no console errors after a clean reload and a walk of
+    every tab.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-3**. No schema change this time._
+_Replaced each iteration — this is the list for **G-4**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Computer time is in hours.** Log → *Other* → the slider now runs **0–12 h in
-   half-hour steps** and the readout says e.g. **7.5 h**, not 450. The Quick log chip
-   says **+0.5h**. Insights → the *Computer time* card should also read **(h)** —
-   the two must agree. (Under the hood it's still stored in minutes so it stacks up
-   with your other durations; you shouldn't be able to tell.)
-3. **Release has L / M / H** next to its percentage now — both, not one instead of
-   the other. Set a % and an intensity, Save, reopen the day: both should come back.
-4. **Adding a category asks more.** Tap **+** on any heading:
-   - There's a new **"Also ask how hard it was (Low / Med / High)"** tick — on by
-     default for Duration, off for Number, hidden for Yes/no.
-   - The icon list has a **search box**. Try "ball", "outdoors", "water", "sleep",
-     "wind". Sports are in there now — sailing, kite surfing, kayaking, climbing,
-     surfing, skiing, ball games, golf, hiking, plus nature, fire, coffee, travel,
-     work, bed and so on.
-   - Type something with no icon (try "zzz") — it should tell you to use an emoji,
-     and there's an **emoji box**: tap the 🙂 key on your keyboard and pick anything.
-     The emoji becomes the row's icon.
-5. **Supplements and "Mark a change" no longer overlap.**
-   - Insights: your supplements should now draw their **own** dated lines across the
-     charts — "Started …" at the start date, "Stopped …" if you've stopped one. You
-     don't log them twice any more.
-   - Rename a supplement in its Edit form → the line on the charts should follow.
-   - **"Mark a change"** no longer offers *Supplement* (it's Diet / Medication /
-     Life / Other) and says what it's actually for.
-6. **Both themes**, and confirm nothing regressed: sleep wheel, dictation review,
-   Save without Claude, warming bottle, intensity on the movement rows, your existing
-   custom categories, meals and the barcode scanner.
+2. **Add a supplement with real dates.** Log → Supplements → the add form now has
+   **Started** and **Ended** date fields, right under the photo button. Add one
+   with a start date from last week and leave Ended blank — it should land on the
+   **active** list with the right start date shown ("since …").
+   Now add a second one, this time **also** setting an Ended date — it should go
+   straight to **Show stopped**, no separate Stop tap needed.
+3. **More check-in options.** The "Check in every" row now reads **1d 2d 3d 7d 14d
+   30d** — six choices instead of three, both when adding and when editing.
+4. **The +/− buttons in the dictation review are bigger now.** Dictate anything with
+   a number in it (or type it), get to the review screen — each number's − and +
+   should now be **clearly visible circles with a coloured ring**, not the faint
+   little squares from before. Tap a few — still nudges the number up/down and still
+   respects the sensible range for that field.
+5. **Both themes**, and confirm nothing regressed: the supplement editor still opens
+   correctly on an existing supplement, Insights still draws "Started …" / "Stopped
+   …" lines for your supplements, everything else from the last few rounds.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone6** — phone report on **G-3** (checklist above). No schema change.
+- 🟦 **phone7** — phone report on **G-4** (checklist above). No schema change.
+- ✅ **phone6** (G-3) — answered 2026-08-20, "everything is working".
 - ✅ **phone5** (G-2) — answered 2026-08-20, "everything works great".
 - ✅ **phone4** (G-1.6) — answered 2026-08-19, "working great".
 - ✅ **phone3** (G-1.5) — answered 2026-08-19, "all working". The two follow-ups
@@ -840,23 +855,22 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-3** (checklist above). Phase G now covers
-everything he has raised across four rounds.
+**Waiting on Immanuel's phone report for G-4** (checklist above). Small, focused
+round — three items straight off his G-3 feedback.
 
-Verified before pushing: the hours conversion round-trips (7.5 on the slider → 450
-minutes stored, and the Insights card agrees); release carries a % and an intensity
-independently; icon search narrows correctly and all 72 glyphs draw distinct markup;
-an emoji icon stores as `emoji:🪁` and renders inline; a supplement with no `events`
-rows draws both its start and stop markers. Both themes, no console errors after a
-clean reload and a walk of every tab.
-
-Known gap, unchanged from G-2: **intensity is captured but not charted.**
-`PlateauChart` is hand-rolled SVG with no tooltip. Options for a later iteration,
-cheapest first: (a) tint each day's plateau by intensity, (b) add a tooltip to
-`PlateauChart`, (c) an "average intensity" line under the movement chart. Now that
-release also carries intensity, (a) would want thinking about for line charts too.
+Verified before pushing: setting an end date on a brand-new supplement lands it
+directly on the stopped list (not active-then-stop); leaving it blank keeps it
+active; `checkin_days` stores whichever of the six choices was tapped and the editor
+reopens with the right one selected; the review-screen steppers are 40px circles
+with a themed accent ring in both themes and still work correctly. Clean reload,
+every tab walked, no console errors.
 
 Nothing else is queued. Next feature work needs a fresh ask.
+
+Known gap, unchanged from G-2/G-3: **intensity is captured but not charted.**
+`PlateauChart` is hand-rolled SVG with no tooltip. Options for later, cheapest
+first: (a) tint each day's plateau by intensity, (b) add a tooltip to
+`PlateauChart`, (c) an "average intensity" line under the movement chart.
 
 Older, unscheduled follow-ups (unchanged, not blocking):
 - A supplement's label photo is stored but never read — wire a vision call
@@ -864,11 +878,13 @@ Older, unscheduled follow-ups (unchanged, not blocking):
 - Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
   segments) still unverified on a real phone.
 
-**Environment note:** the Browser pane stopped dispatching scroll events (and
-`computer` clicks time out) partway through the 2026-08-19 session and stayed that
-way. Workarounds: drive React handlers with
-`element.dispatchEvent(new Event('scroll'))` after setting `scrollTop`, and click via
-`element.click()` rather than the `computer` tool. A fresh session probably clears it.
+**Environment note:** the Browser pane's `preview_start` tool intermittently times
+out on its safety classifier (unrelated to this codebase) — when that happens,
+start the dev server directly with Bash (`npm run dev -- --port 5199 &`) and attach
+with `navigate` to `http://localhost:5199/` instead; other Browser tools (tabs,
+javascript_tool) are usually unaffected and just need a retry. Also still true from
+the 2026-08-19 session: scroll events don't reliably reach React handlers in this
+pane — set `scrollTop` then `dispatchEvent(new Event('scroll'))`.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

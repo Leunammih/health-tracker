@@ -579,25 +579,37 @@ function FieldRow({
   const conflicted = field.saved != null && field.saved !== field.value
   const show = (v: number) => String(Math.round(v * 10) / 10)
 
+  // Big, coloured, circular — these were a 28px unfilled outline that read as
+  // barely-there next to everything else on this screen. This is the one control
+  // in the review step you tap repeatedly to nudge a number into place, so it gets
+  // the most prominent treatment: a solid accent ring, a larger glyph, and enough
+  // size (40px, over the 24px minimum touch target twice) to hit without looking.
+  const stepBtn =
+    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-xl leading-none ' +
+    'active:scale-95 transition disabled:opacity-30'
+  const stepBtnStyle = { borderColor: 'var(--accent)', color: 'var(--accent)' }
+
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="w-[5.5rem] shrink-0 text-xs text-ink-300">{field.label}</span>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5">
         <button
           type="button"
           disabled={disabled}
           aria-label={`Decrease ${field.label}`}
-          className="h-7 w-7 rounded-lg border border-ink-700 text-ink-300 disabled:opacity-40"
+          className={stepBtn}
+          style={stepBtnStyle}
           onClick={() => onChange(clamp(field.value - field.step))}
         >
           −
         </button>
-        <span className="w-10 text-center font-serif text-lg leading-none text-cream">{show(field.value)}</span>
+        <span className="w-12 text-center font-serif text-xl leading-none text-cream">{show(field.value)}</span>
         <button
           type="button"
           disabled={disabled}
           aria-label={`Increase ${field.label}`}
-          className="h-7 w-7 rounded-lg border border-ink-700 text-ink-300 disabled:opacity-40"
+          className={stepBtn}
+          style={stepBtnStyle}
           onClick={() => onChange(clamp(field.value + field.step))}
         >
           +

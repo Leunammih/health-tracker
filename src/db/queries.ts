@@ -909,12 +909,15 @@ export async function saveSupplement(
   photoPath: string | null,
   startDate: string,
   checkinDays: number,
+  // Optional so a supplement already stopped (a course that ran and finished before
+  // he got round to logging it) doesn't need a separate Stop tap right after Add.
+  endDate: string | null = null,
 ): Promise<string> {
   const id = uid()
   exec(
-    `INSERT INTO supplements(id, name, composition, photo_path, start_date, checkin_days)
-     VALUES (?,?,?,?,?,?)`,
-    [id, name.trim(), composition?.trim() || null, photoPath, startDate, checkinDays],
+    `INSERT INTO supplements(id, name, composition, photo_path, start_date, checkin_days, end_date)
+     VALUES (?,?,?,?,?,?,?)`,
+    [id, name.trim(), composition?.trim() || null, photoPath, startDate, checkinDays, endDate],
   )
   await persist()
   return id

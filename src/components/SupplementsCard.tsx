@@ -10,7 +10,10 @@ import { uid } from '../lib/id'
 import { IconCamera } from './icons'
 import type { Supplement } from '../types'
 
-const CHECKIN_CHOICES = [7, 14, 30]
+// 1/2/3 added alongside the original weekly/fortnightly/monthly options — a new
+// supplement (or a dose change) is often worth a quick same-week check rather than
+// waiting a full 7 days for the first one.
+const CHECKIN_CHOICES = [1, 2, 3, 7, 14, 30]
 
 // An ongoing regimen — unlike EventsCard's one-off "started X" marker, this has a
 // start, an optional stop, and a recurring "how's it going?" check-in (rendered
@@ -22,6 +25,11 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   const [name, setName] = useState('')
   const [composition, setComposition] = useState('')
   const [photo, setPhoto] = useState<PreparedImage | null>(null)
+  // Defaults to the day being logged for, same as every save already did implicitly
+  // — just made visible and editable now, so backfilling a supplement that actually
+  // started last week (or already ended) doesn't need a trip to Edit right after Add.
+  const [startDate, setStartDate] = useState(date)
+  const [endDate, setEndDate] = useState('')
   const [checkinDays, setCheckinDays] = useState(14)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -52,10 +60,14 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
       if (photo && isConfigured()) {
         photoPath = await pushPhoto(photo.bytes, `supplement-${uid().slice(0, 8)}.jpg`)
       }
-      const id = await saveSupplement(name.trim(), composition.trim() || null, photoPath, date, checkinDays)
+      const id = await saveSupplement(
+        name.trim(), composition.trim() || null, photoPath, startDate, checkinDays, endDate || null,
+      )
       setName('')
       setComposition('')
       setPhoto(null)
+      setStartDate(date)
+      setEndDate('')
       setRefresh((k) => k + 1)
       onChanged()
       // Briefly highlight the new row — it lands directly below this form, but a
@@ -142,6 +154,25 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
             <IconCamera width={16} height={16} /> Attach a photo of the label
           </button>
         )}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="text-ink-400">Started</label>
+          <input
+            type="date"
+            className="field !w-auto !py-1.5 text-xs"
+            value={startDate}
+            max={endDate || undefined}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <label className="text-ink-400">Ended</label>
+          <input
+            type="date"
+            className="field !w-auto !py-1.5 text-xs"
+            value={endDate}
+            min={startDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+        </div>
+        <p className="text-xs text-ink-500">Leave "Ended" empty if you're still taking it.</p>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-ink-400">Check in every</span>
           {CHECKIN_CHOICES.map((d) => (
