@@ -10,6 +10,10 @@ import {
   addCustomMetric, loadCustomMetrics, removeCustomMetric, type CustomMetricSpec,
 } from '../lib/customMetrics'
 import {
+  loadGroups, renameGroup, setGroupIcon, moveGroup, deleteGroup, assignMetricToGroup,
+  type ResolvedGroup,
+} from '../lib/groups'
+import {
   loadHiddenMetrics, supplementMetricNames, isSuppressedMetric, hideMetric, unhideMetric,
 } from '../lib/hiddenMetrics'
 import { loadCollapsedGroups, setGroupCollapsed } from '../lib/uiPrefs'
@@ -18,6 +22,9 @@ import { daysAgoISO } from '../lib/dates'
 import { IconNote } from './icons'
 import { MetricIcon, GroupIcon } from './metricIcons'
 import AddMetricSheet from './AddMetricSheet'
+import EditGroupSheet from './EditGroupSheet'
+import MoveMetricSheet from './MoveMetricSheet'
+import NewGroupSheet from './NewGroupSheet'
 import type { Segment } from '../types'
 
 // Whether `name` should read/write a specific time-of-day segment right now, vs the
@@ -28,14 +35,6 @@ function usesSegment(segment: Segment | null, name: string): boolean {
 }
 
 const SEGMENT_LABEL: Record<Segment, string> = { morning: 'Morning', afternoon: 'Afternoon', evening: 'Evening' }
-
-const GROUP_ORDER: { group: MetricGroup; title: string }[] = [
-  { group: 'movement', title: 'Movement' },
-  { group: 'practice', title: 'Practice' },
-  { group: 'symptom', title: 'Health & pain' },
-  { group: 'wellbeing', title: 'Wellbeing' },
-  { group: 'other', title: 'Other' },
-]
 
 // Items a plain "+5 min, tap again to add more" chip makes sense for — duration-based
 // movement/practice metrics. Pain/symptom (/10) and release (%) don't fit a running
@@ -128,7 +127,13 @@ export default function QuickEntryPanel({
   // His own categories. Held in state (not read on every render) because adding one
   // has to re-sort the rows, and the sort key comes from the merged registry.
   const [customs, setCustoms] = useState<CustomMetricSpec[]>(() => loadCustomMetrics())
+  // His categories, in their configured order — held in state for the same reason
+  // customs is: renaming or reordering one must re-render the headings immediately.
+  const [groups, setGroups] = useState<ResolvedGroup[]>(() => loadGroups())
   const [addingTo, setAddingTo] = useState<MetricGroup | null>(null)
+  const [editingGroup, setEditingGroup] = useState<ResolvedGroup | null>(null)
+  const [movingMetric, setMovingMetric] = useState<Item | null>(null)
+  const [addingGroup, setAddingGroup] = useState(false)
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState<string | null>(null)
   const [qlBusy, setQlBusy] = useState<string | null>(null)
@@ -346,6 +351,38 @@ export default function QuickEntryPanel({
     setCollapsed(await setGroupCollapsed(group, !collapsed.has(group)))
   }
 
+  async function renameCurrentGroup(label: string) {
+    setGroups(await renameGroup(editingGroup!.key, label))
+    setEditingGroup((g) => (g ? { ...g, label } : g))
+  }
+
+  async function setCurrentGroupIcon(icon: string | undefined) {
+    setGroups(await setGroupIcon(editingGroup!.key, icon))
+    setEditingGroup((g) => (g ? { ...g, icon } : g))
+  }
+
+  async function moveCurrentGroup(delta: -1 | 1) {
+    const next = await moveGroup(editingGroup!.key, delta)
+    setGroups(next)
+    setEditingGroup(next.find((g) => g.key === editingGroup!.key) ?? null)
+  }
+
+  async function deleteCurrentGroup() {
+    setGroups(await deleteGroup(editingGroup!.key))
+    setEditingGroup(null)
+  }
+
+  async function moveItemToGroup(name: string, group: string) {
+    setGroups(await assignMetricToGroup(name, group))
+    setMovingMetric(null)
+  }
+
+  async function createGroup(label: string, icon?: string) {
+    const { addGroup } = await import('../lib/groups')
+    setGroups(await addGroup(label, icon))
+    setAddingGroup(false)
+  }
+
   const dirtyItems = items.filter((it) => isDirty(it))
 
   async function saveAll() {
@@ -362,11 +399,13 @@ export default function QuickEntryPanel({
   }
 
   // Every group is listed, including empty ones — a collapsed heading costs one line
-  // and is where Phase G-2's "+ add a category" button will live, which has to be
-  // reachable in a group you haven't tracked anything in yet.
-  const grouped = GROUP_ORDER.map((g) => ({
+  // and is where the "+ add a category" button lives, which has to be reachable in a
+  // group nothing has been tracked in yet.
+  const grouped = groups.map((g) => ({
     ...g,
-    rows: items.filter((it) => groupForTrack(it.name, it.category) === g.group),
+    title: g.label,
+    group: g.key,
+    rows: items.filter((it) => groupForTrack(it.name, it.category) === g.key),
   }))
 
   // Standard items not already shown — tap to add a row for this day. Energy and
@@ -402,13 +441,23 @@ export default function QuickEntryPanel({
                 onClick={() => void toggleGroup(g.group)}
                 className="flex flex-1 items-center gap-1.5 py-1 text-[11px] font-medium uppercase tracking-wide text-ink-500 hover:text-ink-300"
               >
-                <GroupIcon group={g.group} size={13} className="shrink-0" />
+                <GroupIcon group={g.group} icon={g.icon} size={13} className="shrink-0" />
                 <span>{g.title}</span>
                 <span className="text-ink-600">{g.rows.length}</span>
                 {!isOpen && dirtyHere > 0 && (
                   <span className="warn-dot h-1.5 w-1.5 rounded-full" aria-label={`${dirtyHere} unsaved`} />
                 )}
                 <span className="ml-auto text-ink-500">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              <button
+                type="button"
+                aria-label={`Edit ${g.title}`}
+                onClick={() => setEditingGroup(g)}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-ink-700 text-ink-400 hover:text-cream"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+                </svg>
               </button>
               <button
                 type="button"
@@ -438,6 +487,7 @@ export default function QuickEntryPanel({
                   onSave={() => void saveOne(it)}
                   onHide={() => void hideRow(it.name)}
                   onRemove={customs.some((c) => c.key === it.name) ? () => void removeCategory(it.name) : undefined}
+                  onMove={() => setMovingMetric(it)}
                 />
               )
             })}
@@ -448,6 +498,18 @@ export default function QuickEntryPanel({
           </div>
         )
       })}
+
+      <button
+        type="button"
+        onClick={() => setAddingGroup(true)}
+        className="text-xs text-ink-400 underline hover:text-cream"
+      >
+        + New category
+      </button>
+
+      {addingGroup && (
+        <NewGroupSheet onAdd={(label, icon) => void createGroup(label, icon)} onClose={() => setAddingGroup(false)} />
+      )}
 
       {dirtyItems.length > 0 && (
         <button className="btn-primary w-full !py-2 text-sm" disabled={busy} onClick={() => void saveAll()}>
@@ -515,6 +577,30 @@ export default function QuickEntryPanel({
         />
       )}
 
+      {editingGroup && (
+        <EditGroupSheet
+          group={editingGroup}
+          isFirst={groups[0]?.key === editingGroup.key}
+          isLast={groups[groups.length - 1]?.key === editingGroup.key}
+          memberCount={items.filter((it) => groupForTrack(it.name, it.category) === editingGroup.key).length}
+          onRename={(label) => void renameCurrentGroup(label)}
+          onSetIcon={(icon) => void setCurrentGroupIcon(icon)}
+          onMove={(delta) => void moveCurrentGroup(delta)}
+          onDelete={() => void deleteCurrentGroup()}
+          onClose={() => setEditingGroup(null)}
+        />
+      )}
+
+      {movingMetric && (
+        <MoveMetricSheet
+          metric={movingMetric.name}
+          currentGroup={groupForTrack(movingMetric.name, movingMetric.category)}
+          groups={groups}
+          onMove={(group) => void moveItemToGroup(movingMetric.name, group)}
+          onClose={() => setMovingMetric(null)}
+        />
+      )}
+
       {addable.length > 0 && (
         <div>
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-500">Add</div>
@@ -566,6 +652,7 @@ const QuickRow = memo(function QuickRow({
   onSave,
   onHide,
   onRemove,
+  onMove,
 }: {
   name: string
   category: string | null
@@ -580,6 +667,7 @@ const QuickRow = memo(function QuickRow({
   // Present only for a category he defined himself — a built-in has nothing to
   // remove, only to hide.
   onRemove?: () => void
+  onMove: () => void
 }) {
   const [noteOpen, setNoteOpen] = useState(false)
   const scale = scaleForTrack(name, category)
@@ -718,6 +806,13 @@ const QuickRow = memo(function QuickRow({
               className="text-xs text-ink-500 underline hover:text-red-400"
             >
               Hide {labelForTrack(name)} from quick entry
+            </button>
+            <button
+              type="button"
+              onClick={onMove}
+              className="text-xs text-ink-500 underline hover:text-cream"
+            >
+              Move to another category
             </button>
             {onRemove && (
               <button

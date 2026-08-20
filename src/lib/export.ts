@@ -1,5 +1,6 @@
 import { exportBytes, replaceDb } from '../db/sqlite'
 import { loadCustomMetrics } from './customMetrics'
+import { loadGroups } from './groups'
 import { all } from '../db/queries'
 import { TABLES } from '../db/schema'
 
@@ -30,6 +31,7 @@ export async function importDbFile(file: File): Promise<void> {
   // own custom metric definitions. Unlike hidden_metrics (re-read on every render)
   // the registry overlay is a module-level cache, so it has to be told.
   loadCustomMetrics()
+  loadGroups()
 }
 
 export function dumpAll(): Record<string, unknown[]> {

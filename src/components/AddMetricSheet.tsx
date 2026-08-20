@@ -1,17 +1,10 @@
 import { useMemo, useState } from 'react'
 import { SHAPE_LABEL, canonicalKey, isBuiltinKey, type MetricShape } from '../lib/customMetrics'
 import { labelForTrack, type MetricGroup } from '../lib/metrics'
+import { labelForGroup } from '../lib/groups'
 import { EMOJI_PREFIX, GlyphIcon, GroupIcon, searchGlyphs } from './metricIcons'
 
 const SHAPES: MetricShape[] = ['duration', 'rating', 'checkmark', 'number']
-
-const GROUP_TITLE: Record<MetricGroup, string> = {
-  movement: 'Movement',
-  practice: 'Practice',
-  symptom: 'Health & pain',
-  wellbeing: 'Wellbeing',
-  other: 'Other',
-}
 
 // "Track something else" — the sheet behind the + on each group heading.
 //
@@ -57,7 +50,7 @@ export default function AddMetricSheet({
         <div className="mb-3 flex items-center justify-between">
           <span className="flex items-center gap-2 text-[17px] text-cream">
             <GroupIcon group={group} size={16} />
-            Track something else in {GROUP_TITLE[group]}
+            Track something else in {labelForGroup(group)}
           </span>
           <button className="text-sm text-ink-400 hover:text-cream" onClick={onClose}>
             Cancel
@@ -193,7 +186,7 @@ export default function AddMetricSheet({
             })
           }
         >
-          Add to {GROUP_TITLE[group]}
+          Add to {labelForGroup(group)}
         </button>
         <p className="mt-2 text-xs text-ink-400">
           It appears as a row straight away, and shows up in Insights once you've logged it.

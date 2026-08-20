@@ -743,41 +743,114 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     additions present, every existing supplement row untouched), clean reload, every
     tab walked, no console errors.
 
+- **Phase G-6 — fully customisable categories, with each one getting a real
+  Insights chart** (2026-08-20). No schema change — everything lives in `meta`,
+  same as `custom_metrics` and `hidden_metrics`. Second half of the plan at
+  `~/.claude/plans/implement-general-modifications-and-foamy-reef.md`; G-5
+  (supplement pause/skip) was the first half.
+  - **The five categories are no longer hardcoded.** `src/lib/groups.ts` stores one
+    JSON blob (`labels`, `custom`, `order`, `assignments`) in `meta`, pushed into
+    `metrics.ts` via a setter at boot / after a Dropbox pull / after a `.db` import —
+    same one-way wiring `custom_metrics` already uses, for the same reason (avoids
+    an import cycle back through `db/queries`). `MetricGroup` stops being a fixed
+    union and becomes a plain string; `groupForTrack()` gained one line — an
+    explicit assignment beats the metric's own registered group — which is what
+    lets **any tracked item move into any category**, built-in or invented.
+  - **A real bug, found and root-caused while testing this:** the very first
+    category ever created on a fresh database always landed in the registry
+    **twice**. Cause: `parse()` returned the SAME shared module-level `EMPTY` object
+    by reference whenever nothing had been saved yet, and every mutating function
+    (`addGroup`, `renameGroup`, …) wrote directly onto whatever `groupsConfig()`
+    handed it, assuming a private copy. `addGroup`'s own `cfg.custom.push(...)`
+    therefore mutated the shared object mid-call, and the `allGroups()` call three
+    lines later — reading that same shared object again — saw the brand-new
+    category as already-known and wrote it into `order` a second time. Fixed by
+    having `parse()` construct a fresh object on every call; added a `Set`-based
+    de-dup in `allGroups()` itself as a second line of defense, since a duplicate
+    key there is a duplicate React list key, not just bad data. Verified with a
+    from-scratch `addGroup()` call: exactly one entry, before and after a reload.
+  - **Editing.** Each Log-tab heading now has a **pen** beside its existing `+` —
+    rename, pick an icon (same search-and-emoji catalogue as custom metrics), move
+    up/down, and delete-if-custom (reassigns its members to Other; their history is
+    untouched — same principle as hiding a metric). A **"+ New category"** button
+    sits below the last heading. Each row's note panel gained **"Move to another
+    category"**. Built-ins can be renamed and reordered but not deleted — metrics
+    fall back to `other` when nothing else claims them, so a database missing that
+    key would have rows pointing nowhere.
+  - **Replaced `window.prompt()` before it shipped.** The first pass at "+ New
+    category" used a bare browser prompt; caught in review as a bad fit — every
+    other "add" surface in the app (`AddMetricSheet`, `EditGroupSheet`) is a proper
+    bottom sheet, and standalone iOS PWAs render `prompt()` inconsistently. Replaced
+    with `NewGroupSheet` (name + the same icon picker) before any phone testing.
+  - **The part that matters: Insights chart routing is now data-driven.** The three
+    hardcoded blocks keyed to the literal strings `'movement'`/`'practice'`/
+    `'symptom'`, plus the catch-all "Other" list, are replaced by one loop over
+    `allGroups()` that picks the chart from what's actually IN the group: every
+    member a duration → the same rounded-plateau chart Movement always drew; every
+    member a 0-10/percent rating → the same multi-line chart Pain always drew;
+    anything mixed → one small card per metric, as "Other" always gave a leftover.
+    **Verified end-to-end, not just read the code:** created a "Sports" category →
+    moved *dancing* (a duration metric with 8 days of real history) into it → it
+    immediately got its own **"Sports (min)"** plateau chart, Movement's chart lost
+    dancing and kept biking, and all 8 days of history moved with it (not just new
+    entries). Moved *knee pain* into the same category next to dancing → Sports
+    correctly switched to the mixed shape (one card each) since it no longer holds
+    one uniform unit. Deleted the category → both metrics fell back to Other with
+    every row intact.
+  - **`stomach pain` verified appearing in both charts** (Health & pain **and**
+    Illness & gut, as "Gut pain") — the one deliberate exception the refactor had to
+    preserve, confirmed by seeding a real row and checking both chart legends.
+  - **Nutrition's position moved** — from between Pain and Other to after the whole
+    category loop. It isn't a metric category, so it no longer needs to be spliced
+    into the middle of one; flagged explicitly below rather than left for him to
+    notice on his own.
+  - Verified in both themes with real click-driven UI passes (not just calling the
+    library functions directly): the edit sheet, the move sheet, rename+reorder
+    surviving a full reload. Clean reload, every tab walked, no console errors from
+    the current state (confirmed by timestamp — stale warnings from mid-session
+    testing, predating the singleton fix, don't reappear on a fresh reload).
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-5**. **This build changes the
-database schema (v14)**: it adds one column and one table when the app opens. Your
-data is untouched, but if anything looks wrong after updating, say so before logging
-a lot on top of it._
+_Replaced each iteration — this is the list for **G-6**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **"Not taken today".** Log → Supplements → each supplement you're currently
-   taking has a small **"Not taken <date>?"** chip. Tap it — it should turn into an
-   amber **"✕ Not taken <date>"**. Tap again to clear it. Only the days you mark get
-   recorded; there's nothing to tap on the days you did take it.
-3. **It follows the day you're logging for.** Swipe the day strip back a few days,
-   then mark a supplement as not taken — it should say that day's date, not today's,
-   and marking it there must not affect today.
-4. **Pause is not Stop — the main thing.** Open a supplement's **Edit** → there's a
-   **❙❙ Pause** button next to the dates. Pause one:
-   - it moves out of the main list into **Show paused (n)**,
-   - it does **not** appear under *Show stopped*,
-   - and it should **stop asking you for check-ins**.
-   Then **Resume** it (from the paused row or from Edit) — it comes straight back to
-   the active list.
-   Use *Ended* only when you've actually stopped something for good.
-5. **Insights** should now draw a **"Paused …"** line for a paused supplement,
-   alongside the "Started …" / "Stopped …" ones.
-6. **Both themes**, and confirm nothing regressed: adding a supplement with start/end
-   dates, the editor, the 1d–30d check-in choices, and everything from the earlier
-   rounds.
+2. **Rename a category.** Log tab → tap the **pen** next to "Movement" (or any
+   heading) → change the name → **Rename**. The heading should update immediately.
+   Fully close and reopen the app — the new name must still be there.
+3. **Reorder.** In that same sheet, **Move up / Move down** — the headings on the
+   Log screen should swap order right away.
+4. **Icon.** Search for something ('ball', 'water', 'outdoors') or type an emoji —
+   the heading's icon should change.
+5. **Create a category — the big one.** Tap **"+ New category"** at the bottom of
+   the list → name it, pick an icon → **Create category**. It appears as an empty
+   heading with its own **+**.
+   - Tap its **+** and add something to track in it, or open an existing item's
+     **pen** (in its note panel) → **"Move to another category"** → pick your new
+     one.
+   - Go to **Insights** — your new category should have **its own chart**: a
+     plateau chart if everything in it is a duration, a line chart if everything is
+     a 0-10 rating, or a small card per item if it's a mix.
+   - **This is retroactive** — if you moved something you'd already logged before,
+     all of its history moves to the new chart, not just what you log from now on.
+6. **Delete a custom category** (pen → Delete, only offered for ones you created) —
+   its items should reappear under **Other**, with nothing you logged lost.
+7. **Built-ins can't be deleted** — open a built-in category's edit sheet and
+   confirm there's no delete option, just a note explaining why.
+8. **Nutrition moved.** The Daily calories / Macros charts in Insights now render
+   **after** all your tracked-category charts instead of between Pain and Other.
+   Just flagging it — say if you'd rather it went back.
+9. **Both themes**, and confirm nothing regressed: supplements (skip/pause from
+   last time), the dictation review, folded groups, meals, barcode scanner.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone8** — phone report on **G-5** (checklist above). Carries a **schema
-  change (v14)**, so worth a look before logging a lot on top of it.
+- 🟦 **phone9** — phone report on **G-6** (checklist above). No schema change; item
+  5 (create a category, move something into it, see its own Insights chart) is the
+  one this whole iteration exists for.
+- ✅ **phone8** (G-5) — answered 2026-08-20, "working great".
 - ✅ **phone7** (G-4) — answered 2026-08-20, "much better".
 - ✅ **phone6** (G-3) — answered 2026-08-20, "everything is working".
 - ✅ **phone5** (G-2) — answered 2026-08-20, "everything works great".
@@ -908,44 +981,12 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-5** (checklist above).
+**Waiting on Immanuel's phone report for G-6** (checklist above). This closes out
+everything from the two-part plan — G-5 (supplements) shipped and was confirmed
+working; G-6 (categories) is built and verified end-to-end, including catching and
+fixing a real duplicate-registration bug before it reached his phone.
 
-Then build **G-6 — fully customisable categories**, the second half of the approved
-plan at `~/.claude/plans/implement-general-modifications-and-foamy-reef.md`. It is
-scoped and decided; nothing about it needs re-asking. In short:
-
-1. **`src/lib/groups.ts`** — one JSON blob in `meta` (`labels`, `custom`, `order`,
-   `assignments`), modelled on `customMetrics.ts`, with the same **push-not-pull**
-   wiring: `db/queries` imports `metrics`, so `groups.ts` registers itself via a
-   setter rather than being imported by `metrics.ts`. `loadGroups()` at boot in
-   `App.tsx`, and again after a Dropbox pull (`sync/manager.ts`) and a `.db` import
-   (`lib/export.ts`) — same reason those already call `loadCustomMetrics()`.
-2. **`MetricGroup` stops being a fixed union** and becomes `string`, with the five
-   current values exported as `BUILTIN_GROUPS`. `groupForTrack()` gains one line: an
-   explicit assignment beats the def's group, which beats the category inference.
-   That single change is what lets any item move anywhere.
-3. **Editing UI in `QuickEntryPanel`** — a pen beside each heading's existing `+`
-   (rename, icon, reorder, delete-if-custom), a **"+ New category"** button, and
-   **"Move to another category"** in each row's note panel, where the other rare
-   per-row actions already live.
-4. **The piece that matters — `InsightsTab` chart routing becomes data-driven.**
-   Today it hardcodes three group blocks matching the literal names `movement`,
-   `practice`, `symptom`, so a user-created group matches none of them and would fall
-   into the generic "Other" list. Replace them with one loop over `allGroups()` that
-   picks the chart from the metrics IN the group: all-`min` → `PlateauChart`,
-   all-`/10`/`%` → reversed-axis `LineChart`, mixed → today's per-metric
-   `TrackCard`s. That reproduces today's charts exactly for the built-ins and gives
-   any new group a real chart automatically.
-   The scattered one-off exclusions (`t.name === 'release'`,
-   `'infection' || 'stool' || 'warming bottle'`) become one named
-   `DEDICATED` set. **`stomach pain` must stay OUT of it** — it deliberately appears
-   in both the pain chart and Illness & gut today, and that must survive the refactor.
-
-**Two things to lead the G-6 checklist with**, both called out in the plan:
-- Moving an item between groups moves it between charts **retroactively** — the one
-  change here that visibly rewrites history.
-- Verify the built-in groups render **identically** to today when nothing has been
-  renamed or moved.
+Nothing else is queued. Next feature work needs a fresh ask.
 
 Known gap, unchanged since G-2: **intensity is captured but not charted.**
 `PlateauChart` is hand-rolled SVG with no tooltip. Cheapest options first: tint each
@@ -957,14 +998,18 @@ Older, unscheduled follow-ups (unchanged, not blocking):
 - Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
   segments) still unverified on a real phone.
 
-**Environment note:** the Browser pane's `preview_start` and occasionally other
-tools time out on an unrelated safety classifier. When that happens: start the dev
-server with Bash (`npm run dev -- --port 5199 &`) and attach with `navigate` to
-`http://localhost:5199/`; retry other tools, they usually succeed on the second or
-third attempt. Also still true: scroll events don't reach React handlers in this
-pane — set `scrollTop` then `dispatchEvent(new Event('scroll'))`. And
-`window.__ht.all(sql)` takes **no bind parameters** — inline values into the SQL
-string or the `?` come back unbound and silently return nothing.
+**Environment note:** the Browser pane's tools (`preview_start` especially, but
+others intermittently too) keep timing out on an unrelated safety classifier this
+session — sometimes clearing on the very next retry, sometimes needing several.
+When `preview_start`/`navigate` both report "no preview is open" even though the
+dev server (checked via `lsof -nP -iTCP:5199 -sTCP:LISTEN`) is still up, the pane
+itself has closed — re-run `preview_start` with the `url` param to reopen it, don't
+assume the server needs restarting. `read_console_messages` does **not** clear
+across reloads — compare the `?t=…` HMR cache-buster in a stack trace against the
+current reload time before trusting an error as live. Also still true: scroll
+events don't reach React handlers in this pane — set `scrollTop` then
+`dispatchEvent(new Event('scroll'))` — and `window.__ht.all(sql)` takes **no bind
+parameters**, inline values into the SQL string.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

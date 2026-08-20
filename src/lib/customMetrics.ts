@@ -17,7 +17,7 @@
 
 import { getMeta, setMeta } from '../db/queries'
 import { colorForTrack as paletteColor } from './palette'
-import { setCustomTrackDefs, TRACK_DEFS, type MetricGroup, type MetricKind, type TrackDef } from './metrics'
+import { setCustomTrackDefs, paletteGroup, TRACK_DEFS, type MetricGroup, type MetricKind, type TrackDef } from './metrics'
 
 const KEY = 'custom_metrics'
 
@@ -85,7 +85,7 @@ function toDef(spec: CustomMetricSpec): TrackDef {
     key: spec.key,
     label: spec.label,
     match: matcherFor(spec.key),
-    color: paletteColor(spec.key, spec.group === 'other' ? 'symptom' : spec.group),
+    color: paletteColor(spec.key, paletteGroup(spec.group)),
     group: spec.group,
     unit: scale.unit,
     min: scale.min,

@@ -1,6 +1,7 @@
 // Coordinates local DB <-> Dropbox: pull on start, debounced push on change.
 import { exportBytes, replaceDb, onDbChange } from '../db/sqlite'
 import { loadCustomMetrics } from '../lib/customMetrics'
+import { loadGroups } from '../lib/groups'
 import { getSyncMeta, setSyncMeta } from '../lib/storage'
 import { nowISO } from '../lib/dates'
 import { isConfigured, pullDb, pushDb, remoteRev } from './dropbox'
@@ -51,7 +52,8 @@ export async function pullIfNewer(): Promise<void> {
       try {
         suppressPush = true
         await replaceDb(res.bytes)
-        loadCustomMetrics() // the pulled file carries its own category definitions
+        loadCustomMetrics() // the pulled file carries its own metric definitions
+        loadGroups() // ...and its own categories and metric-to-category moves
         const at = nowISO()
         setSyncMeta(res.rev, at)
         set({ state: 'idle', message: 'Pulled latest', lastSyncedAt: at })

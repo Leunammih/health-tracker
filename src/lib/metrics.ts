@@ -12,13 +12,28 @@ import { isLight } from './theme'
 export type { PaletteGroup }
 export { chartPalette }
 
-export type MetricGroup = 'practice' | 'movement' | 'symptom' | 'wellbeing' | 'other'
+// Deliberately a plain string, not a union. The five below are the DEFAULTS every
+// database starts with, not the only possibilities — categories are user-defined
+// (see lib/groups.ts), and a union here would make an invented one a type error.
+export type MetricGroup = string
+
+export const BUILTIN_GROUPS = ['movement', 'practice', 'symptom', 'wellbeing', 'other']
+
+export const BUILTIN_GROUP_TITLES: Record<string, string> = {
+  movement: 'Movement',
+  practice: 'Practice',
+  symptom: 'Health & pain',
+  wellbeing: 'Wellbeing',
+  other: 'Other',
+}
 
 // The palette module's hue families don't include 'other' (fallback groups
 // like weight measurements) — those land in the symptom arc, same as any
 // unregistered name, so a stray track never picks a forbidden or clashing hue.
-function paletteGroup(g: MetricGroup): PaletteGroup {
-  return g === 'other' ? 'symptom' : g
+// A user-invented group has no hue family of its own either, so it lands there too.
+const PALETTE_GROUPS = new Set<PaletteGroup>(['movement', 'practice', 'symptom', 'wellbeing', 'illness'])
+export function paletteGroup(g: MetricGroup): PaletteGroup {
+  return PALETTE_GROUPS.has(g as PaletteGroup) ? (g as PaletteGroup) : 'symptom'
 }
 
 export interface TrackDef {
@@ -187,6 +202,15 @@ export function allTrackDefs(): TrackDef[] {
   return customDefs.length ? [...TRACK_DEFS, ...customDefs] : TRACK_DEFS
 }
 
+// Explicit metric -> group moves, pushed in from lib/groups.ts at boot for the same
+// reason customDefs is: db/queries imports this file, so importing groups.ts here
+// would close a cycle. Empty until loadGroups() runs.
+let groupAssignments: Record<string, string> = {}
+
+export function setGroupConfig(assignments: Record<string, string>): void {
+  groupAssignments = assignments
+}
+
 // Resolve a free-form name to its definition. The fuzzy regex pass deliberately
 // SKIPS defs stored outside `tracks`: this runs against arbitrary names read out of
 // the `tracks` table, and a track happening to be called "energy" or "stress" must
@@ -251,6 +275,10 @@ export function isLowerBetter(name: string, category?: string | null): boolean {
 }
 
 export function groupForTrack(name: string, category?: string | null): MetricGroup {
+  // An explicit move wins over everything. This one line is what lets any item live
+  // in any category, including ones that did not exist when the metric was defined.
+  const assigned = groupAssignments[canonicalTrackName(name)]
+  if (assigned) return assigned
   const def = defForName(name)
   if (def) return def.group
   if (category === 'symptom') return 'symptom'

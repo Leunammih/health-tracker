@@ -10,8 +10,9 @@ import {
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
-  canonicalTrackName, chartPalette, scaleForTrack, displayScale, toDisplay,
+  canonicalTrackName, chartPalette, scaleForTrack, displayScale, toDisplay, paletteGroup,
 } from '../lib/metrics'
+import { allGroups } from '../lib/groups'
 import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '../lib/hiddenMetrics'
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
@@ -142,73 +143,105 @@ export default function InsightsTab() {
     return dateSpine(earliest !== null && earliest > since ? earliest : since)
   }, [wb, gut, inf, meals, ctx, tracks, acts, since])
 
-  // --- movement & exercise: activities (workouts) + movement-category tracks,
-  // merged per canonical name per day, rendered as rounded plateaus over a 0 line.
-  const movementSeries = useMemo<PlateauSeries[]>(() => {
-    const byName = new Map<string, Map<string, number>>()
-    const add = (rawName: string, date: string, mins: number | null) => {
-      if (!rawName || mins == null) return
-      const key = defForName(rawName)?.key ?? rawName.trim().toLowerCase()
-      if (groupForTrack(key) !== 'movement') return
-      const m = byName.get(key) ?? new Map<string, number>()
-      m.set(date, (m.get(date) ?? 0) + mins)
-      byName.set(key, m)
-    }
-    for (const a of acts) add(a.type ?? '', a.date, a.duration_min)
-    for (const t of tracks) add(t.name, t.date, t.value)
-    // Spread this chart's own series evenly across the movement hue arc —
-    // guaranteed-distinct within this chart, not just a per-name hash.
-    const keys = [...byName.keys()]
-    const palette = chartPalette(keys, 'movement', light)
-    return keys.map((key) => ({
-      key,
-      label: labelForTrack(key),
-      color: palette[key],
-      values: spine.map((d) => byName.get(key)!.get(d) ?? null),
-    }))
-  }, [acts, tracks, spine, light])
+  // Metrics with their own dedicated chart elsewhere on this page (Energy & mood,
+  // Sleep, Stress, Illness & gut) must not ALSO appear in their category's generic
+  // chart below, or the same number would be drawn twice. `stomach pain` is
+  // deliberately NOT here — it appears in both the Pain-shaped chart below AND the
+  // Illness & gut chart (see illnessData above), which is intentional.
+  const DEDICATED = useMemo(
+    () => new Set(['energy', 'mood', 'stress', 'release', 'infection', 'stool', 'warming bottle']),
+    [],
+  )
 
-  // --- practices: meditation / breath work, same plateau treatment.
-  const practiceSeries = useMemo<PlateauSeries[]>(() => {
-    const byName = new Map<string, Map<string, number>>()
+  // One real chart per CATEGORY rather than three hardcoded blocks keyed to the
+  // literal names 'movement'/'practice'/'symptom'. Categories are user-defined (see
+  // lib/groups.ts) — a group invented on the phone matches none of those literal
+  // names, so routing has to come from what's actually IN the group, not its key:
+  // every member a duration -> the same rounded-plateau chart Movement draws today;
+  // every member a 0-10/percent rating -> the same multi-line chart Pain draws
+  // today; anything mixed -> one small card per metric, as the old catch-all
+  // "Other" section always did. This is what makes "create a category" mean
+  // something in Insights instead of the item just falling into Other.
+  const groupCharts = useMemo(() => {
+    const hidden = loadHiddenMetrics()
+    const supplements = supplementMetricNames()
+
+    const byGroup = new Map<string, Set<string>>()
     for (const t of tracks) {
-      if (t.value == null) continue
-      const key = defForName(t.name)?.key ?? t.name
-      if (groupForTrack(key, t.category) !== 'practice') continue
-      const m = byName.get(key) ?? new Map<string, number>()
-      m.set(t.date, (m.get(t.date) ?? 0) + t.value)
-      byName.set(key, m)
+      if (t.value == null || DEDICATED.has(t.name)) continue
+      if (isSuppressedMetric(t.name, hidden, supplements)) continue
+      const set = byGroup.get(groupForTrack(t.name, t.category)) ?? new Set<string>()
+      set.add(t.name)
+      byGroup.set(groupForTrack(t.name, t.category), set)
     }
-    const keys = [...byName.keys()]
-    const palette = chartPalette(keys, 'practice', light)
-    return keys.map((key) => ({
-      key,
-      label: labelForTrack(key),
-      color: palette[key],
-      values: spine.map((d) => byName.get(key)!.get(d) ?? null),
-    }))
-  }, [tracks, spine, light])
 
-  // --- pain & discomfort: every symptom-category track, on a reversed axis.
-  // Infection and stool are symptom-group too, but they render on the Illness & gut
-  // chart below instead — excluded here so they don't show up in both places. The
-  // warming bottle is excluded for a different reason: it is a yes/no, and a 0-or-1
-  // series pinned to the floor of a 0-10 axis is a flat line that says nothing. It
-  // has its own count in the Illness & gut stats.
-  const painKeys = useMemo(() => {
-    const s = new Set<string>()
-    for (const t of tracks) {
-      if (t.value == null || groupForTrack(t.name, t.category) !== 'symptom') continue
-      if (t.name === 'infection' || t.name === 'stool' || t.name === 'warming bottle') continue
-      s.add(t.name)
-    }
-    return [...s].sort()
-  }, [tracks])
+    return allGroups().map((g) => {
+      const names = [...(byGroup.get(g.key) ?? [])].sort()
+      // Workouts (the `activities` table) always fold into the canonical 'movement'
+      // key specifically, whatever it has been renamed to display as — they are not
+      // part of the customisable-metric system, so they cannot be reassigned to a
+      // different group the way a track can.
+      const isMovement = g.key === 'movement'
 
-  const painRows = useMemo(() => buildRows(spine, tracks, painKeys), [spine, tracks, painKeys])
-  // Spread within the symptom arc — every pain line in this one chart stays
-  // clearly distinct, not just individually hashed.
-  const painPalette = useMemo(() => chartPalette(painKeys, 'symptom', light), [painKeys, light])
+      if (!names.length && !(isMovement && acts.length)) {
+        return { key: g.key, label: g.label, icon: g.icon, shape: 'empty' as const }
+      }
+
+      const allMinutes = names.length > 0 && names.every((n) => scaleForTrack(n, null).unit === 'min')
+      if (isMovement || allMinutes) {
+        const byName = new Map<string, Map<string, number>>()
+        const add = (key: string, date: string, mins: number | null) => {
+          if (!key || mins == null) return
+          const m = byName.get(key) ?? new Map<string, number>()
+          m.set(date, (m.get(date) ?? 0) + mins)
+          byName.set(key, m)
+        }
+        if (isMovement) {
+          for (const a of acts) add(defForName(a.type ?? '')?.key ?? (a.type ?? '').trim().toLowerCase(), a.date, a.duration_min)
+        }
+        for (const t of tracks) if (names.includes(t.name)) add(t.name, t.date, t.value)
+        const keys = [...byName.keys()]
+        if (!keys.length) return { key: g.key, label: g.label, icon: g.icon, shape: 'empty' as const }
+        // Spread this chart's own series evenly across the group's hue arc —
+        // guaranteed-distinct within this chart, not just a per-name hash.
+        const palette = chartPalette(keys, paletteGroup(g.key), light)
+        const plateau: PlateauSeries[] = keys.map((key) => ({
+          key,
+          label: labelForTrack(key),
+          color: palette[key],
+          values: spine.map((d) => byName.get(key)!.get(d) ?? null),
+        }))
+        return { key: g.key, label: g.label, icon: g.icon, shape: 'duration' as const, plateau }
+      }
+
+      const allRating = names.every((n) => {
+        const u = scaleForTrack(n, null).unit
+        return u === '/10' || u === '%'
+      })
+      if (allRating) {
+        const rows = buildRows(spine, tracks, names)
+        const palette = chartPalette(names, paletteGroup(g.key), light)
+        // Reversed only when EVERY member is lowerIsBetter — a mixed group draws
+        // right-way-up rather than picking a direction that misrepresents half of it.
+        const reversed = names.every((n) => isLowerBetter(n))
+        return { key: g.key, label: g.label, icon: g.icon, shape: 'rating' as const, keys: names, rows, palette, reversed }
+      }
+
+      // Mixed shape: one small card per metric — the same treatment the old
+      // catch-all "Other" section always gave a leftover metric.
+      const cards = names.map((name) => {
+        const rowsForName = tracks.filter((t) => t.name === name && t.value != null)
+        const scale = scaleForTrack(name, rowsForName.find((r) => r.category)?.category ?? null)
+        return {
+          name,
+          unit: displayScale(scale).unit,
+          count: rowsForName.length,
+          series: rowsForName.map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: toDisplay(r.value as number, scale) })),
+        }
+      })
+      return { key: g.key, label: g.label, icon: g.icon, shape: 'mixed' as const, cards }
+    })
+  }, [tracks, acts, spine, light, DEDICATED])
 
   // --- sleep: duration (computed from bedtime/wake, never stored) + felt quality,
   // both spine-aligned. High is good for both, so neither axis is reversed.
@@ -403,37 +436,6 @@ export default function InsightsTab() {
     return `Dashed line: your ${goals.calories.toLocaleString()} kcal goal — ${within} of ${totals.length} logged day${totals.length > 1 ? 's' : ''} at or under it.`
   }, [goals.calories, kcalByDate])
 
-  // Remaining tracks that none of the dedicated charts claimed.
-  const trackGroups = useMemo(() => {
-    const hidden = loadHiddenMetrics()
-    const supplements = supplementMetricNames()
-    const byName = new Map<string, Track[]>()
-    for (const t of tracks) {
-      const g = groupForTrack(t.name, t.category)
-      if (g === 'movement' || g === 'practice' || g === 'symptom') continue
-      if (t.name === 'release') continue
-      if (isSuppressedMetric(t.name, hidden, supplements)) continue
-      const arr = byName.get(t.name) ?? []
-      arr.push(t)
-      byName.set(t.name, arr)
-    }
-    return [...byName.entries()].map(([name, rows]) => {
-      const scale = scaleForTrack(name, rows.find((r) => r.category)?.category ?? null)
-      return {
-        name,
-        // From the registry, not the stored `unit` column: a row written before a
-        // metric's scale was corrected still carries the old unit ("min" on what is
-        // now a 0-10 rating), and the chart heading would repeat that stale label.
-        // Display unit, so a slider reading 8h and a chart reading 480 can't disagree.
-        unit: displayScale(scale).unit,
-        count: rows.length,
-        series: rows
-          .filter((r) => r.value != null)
-          .map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: toDisplay(r.value as number, scale) })),
-      }
-    })
-  }, [tracks])
-
   // Chips for the tap-to-log sheet: the standard items plus anything already logged.
   // Keyed by canonical name, so a stored spelling variant ("breathwork") folds into
   // the registry entry it matches instead of listing twice under the same label.
@@ -458,7 +460,6 @@ export default function InsightsTab() {
   // Which section labels actually have something under them, so a section with
   // every chart hidden (no data yet) doesn't leave a floating empty header.
   const hasWellbeingSection = wb.length > 0 || hasRelease || hasSleep || stressData.some((d) => d.stress != null)
-  const hasMovementSection = movementSeries.length > 0 || practiceSeries.length > 0
 
   // A faint texture, not a photo: every card below is fully opaque (bg-ink-800 /
   // its parchment equivalent), so this only ever shows through the gaps between
@@ -643,67 +644,75 @@ export default function InsightsTab() {
         </ChartCard>
       )}
 
-      {hasMovementSection && <SectionLabel title="Movement & practice" icon={<GroupIcon group="movement" />} />}
+      {/* One heading + chart per category, in his configured order — replaces the
+          three hardcoded Movement/Practice/Pain blocks and the catch-all "Other"
+          list. A renamed or newly-created category shows up here automatically;
+          see the groupCharts memo above for how the chart shape is chosen.
+          Nutrition (below) moved from between Pain and Other to after this whole
+          block — it isn't a metric category, so it no longer needs to be spliced
+          into the middle of one. */}
+      {groupCharts.map((gc) => {
+        if (gc.shape === 'empty') return null
+        return (
+          <div key={gc.key}>
+            <SectionLabel title={gc.label} icon={<GroupIcon group={gc.key} icon={gc.icon} size={12} />} />
 
-      {movementSeries.length > 0 && (
-        <ChartCard title="Movement & exercise (min)" hint="tap a day, or a name below, to log it">
-          <PlateauChart
-            dates={spine}
-            series={movementSeries}
-            onPickDay={(d) => setSheet({ name: movementSeries[0].key, category: 'activity', date: d })}
-            onPickSeries={(key) => setSheet({ name: key, category: 'activity' })}
-          />
-        </ChartCard>
-      )}
-
-      {practiceSeries.length > 0 && (
-        <ChartCard title="Meditation & breath work (min)" hint="tap a day, or a name below, to log it">
-          <PlateauChart
-            dates={spine}
-            series={practiceSeries}
-            onPickDay={(d) => setSheet({ name: practiceSeries[0].key, category: 'practice', date: d })}
-            onPickSeries={(key) => setSheet({ name: key, category: 'practice' })}
-          />
-        </ChartCard>
-      )}
-
-      {painKeys.length > 0 && <SectionLabel title="Pain" icon={<GroupIcon group="symptom" />} />}
-
-      {painKeys.length > 0 && (
-        <ChartCard title="Pain & discomfort (0-10)" hint="low is good — worse pain sits at the bottom">
-          <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={painRows} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              {eventMarkers.map((m) => (
-                <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-              ))}
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              {painKeys.map((k) => (
-                <Line isAnimationActive={false}
-                  key={k}
-                  type="monotone"
-                  dataKey={k}
-                  name={labelForTrack(k)}
-                  stroke={painPalette[k]}
-                  strokeWidth={2}
-                  dot={{ r: 2 }}
-                  connectNulls
+            {gc.shape === 'duration' && (
+              <ChartCard title={`${gc.label} (min)`} hint="tap a day, or a name below, to log it">
+                <PlateauChart
+                  dates={spine}
+                  series={gc.plateau}
+                  onPickDay={(d) => setSheet({ name: gc.plateau[0].key, category: categoryOf(gc.plateau[0].key), date: d })}
+                  onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
                 />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
-            {painKeys.map((k) => (
-              <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: 'symptom' })}>
-                <MetricIcon name={k} category="symptom" color={painPalette[k]} size={14} />
-                {labelForTrack(k)}
-              </button>
+              </ChartCard>
+            )}
+
+            {gc.shape === 'rating' && (
+              <ChartCard
+                title={`${gc.label} (0-10)`}
+                hint={gc.reversed ? 'low is good — worse sits at the bottom' : undefined}
+              >
+                <ResponsiveContainer width="100%" height={170}>
+                  <LineChart data={gc.rows} margin={{ left: -20, right: 8, top: 8 }}>
+                    <CartesianGrid stroke="var(--line)" vertical={false} />
+                    {eventMarkers.map((m) => (
+                      <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+                    ))}
+                    <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis domain={[0, 10]} reversed={gc.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+                    {gc.keys.map((k) => (
+                      <Line isAnimationActive={false}
+                        key={k}
+                        type="monotone"
+                        dataKey={k}
+                        name={labelForTrack(k)}
+                        stroke={gc.palette[k]}
+                        strokeWidth={2}
+                        dot={{ r: 2 }}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
+                  {gc.keys.map((k) => (
+                    <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: categoryOf(k) })}>
+                      <MetricIcon name={k} color={gc.palette[k]} size={14} />
+                      {labelForTrack(k)}
+                    </button>
+                  ))}
+                </div>
+              </ChartCard>
+            )}
+
+            {gc.shape === 'mixed' && gc.cards.map((c) => (
+              <TrackCard key={c.name} group={c} spine={spine} onLog={() => setSheet({ name: c.name, category: null })} />
             ))}
           </div>
-        </ChartCard>
-      )}
+        )
+      })}
 
       {kcalByDate.size > 0 && <SectionLabel title="Nutrition" icon={<IconMeal width={14} height={14} />} />}
 
@@ -780,12 +789,6 @@ export default function InsightsTab() {
           />
         </ChartCard>
       )}
-
-      {trackGroups.length > 0 && <SectionLabel title="Other" icon={<GroupIcon group="other" />} />}
-
-      {trackGroups.map((g) => (
-        <TrackCard key={g.name} group={g} spine={spine} onLog={() => setSheet({ name: g.name, category: null })} />
-      ))}
 
       {sheet && (
         <QuickLogSheet

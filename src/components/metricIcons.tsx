@@ -369,7 +369,7 @@ export const METRIC_GLYPHS: Record<string, Glyph> = {
   weight: Weight,
 }
 
-export const GROUP_GLYPHS: Record<MetricGroup, Glyph> = {
+export const GROUP_GLYPHS: Record<string, Glyph> = {
   movement: GroupMovement,
   practice: GroupPractice,
   symptom: GroupSymptom,
@@ -548,7 +548,22 @@ export function GlyphIcon({ name, size = 18, className }: { name: string; size?:
   return <Glyph width={size} height={size} className={className} aria-hidden />
 }
 
-export function GroupIcon({ group, size = 14, className }: { group: MetricGroup; size?: number; className?: string }) {
-  const Glyph = GROUP_GLYPHS[group]
+// `group` is an arbitrary string now that categories are user-defined, so there is
+// no guaranteed glyph for it. `icon` carries a custom group's own choice (a
+// catalogue name or an 'emoji:…' string); without one, an unknown group borrows the
+// generic "other" mark rather than rendering nothing.
+export function GroupIcon({
+  group,
+  icon,
+  size = 14,
+  className,
+}: {
+  group: MetricGroup
+  icon?: string
+  size?: number
+  className?: string
+}) {
+  if (icon) return <GlyphIcon name={icon} size={size} className={className} />
+  const Glyph = GROUP_GLYPHS[group] ?? GroupOther
   return <Glyph width={size} height={size} className={className} aria-hidden />
 }
