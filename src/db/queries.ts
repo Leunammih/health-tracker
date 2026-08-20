@@ -885,8 +885,56 @@ export async function deleteEvent(id: string): Promise<void> {
 // recurring "is it working?" check-in — unlike `events`, which is a one-off
 // point-in-time marker with no lifecycle of its own. ----
 
+// Currently being taken: not stopped AND not paused. A paused one is still his —
+// it just belongs in its own list rather than among the ones he takes each day.
 export function activeSupplements(): Supplement[] {
-  return all<Supplement>('SELECT * FROM supplements WHERE end_date IS NULL ORDER BY start_date DESC')
+  return all<Supplement>(
+    'SELECT * FROM supplements WHERE end_date IS NULL AND paused_since IS NULL ORDER BY start_date DESC',
+  )
+}
+
+export function pausedSupplements(): Supplement[] {
+  return all<Supplement>(
+    'SELECT * FROM supplements WHERE end_date IS NULL AND paused_since IS NOT NULL ORDER BY paused_since DESC',
+  )
+}
+
+export async function pauseSupplement(id: string, since: string = todayISO()): Promise<void> {
+  exec('UPDATE supplements SET paused_since = ? WHERE id = ?', [since, id])
+  await persist()
+}
+
+export async function resumeSupplement(id: string): Promise<void> {
+  exec('UPDATE supplements SET paused_since = NULL WHERE id = ?', [id])
+  await persist()
+}
+
+// ---- Day-level skips ----
+// Exceptions only: a row means "not taken that day". See the supplement_skips
+// comment in db/schema.ts for why there is no matching "taken" row.
+
+// Flip one (supplement, day) and report where it landed. Delete-then-maybe-insert
+// rather than an upsert, because the two directions are the whole operation.
+export async function toggleSupplementSkip(id: string, date: string): Promise<boolean> {
+  const existing = all<{ id: string }>(
+    'SELECT id FROM supplement_skips WHERE supplement_id = ? AND date = ?',
+    [id, date],
+  )
+  const skipped = existing.length === 0
+  if (skipped) {
+    exec('INSERT INTO supplement_skips(id, supplement_id, date) VALUES (?,?,?)', [uid(), id, date])
+  } else {
+    exec('DELETE FROM supplement_skips WHERE supplement_id = ? AND date = ?', [id, date])
+  }
+  await persist()
+  return skipped
+}
+
+export function skippedSupplementIdsOn(date: string): Set<string> {
+  return new Set(
+    all<{ supplement_id: string }>('SELECT supplement_id FROM supplement_skips WHERE date = ?', [date])
+      .map((r) => r.supplement_id),
+  )
 }
 
 export function stoppedSupplements(limit = 10): Supplement[] {
@@ -930,7 +978,7 @@ export async function saveSupplement(
 // Only the keys present in `patch` are written — passing `end_date: null` restarts a
 // stopped supplement, whereas omitting it leaves the stop date alone. Column names
 // come from this whitelist and are never interpolated from caller input.
-const SUPPLEMENT_COLS = ['name', 'composition', 'photo_path', 'start_date', 'end_date', 'checkin_days'] as const
+const SUPPLEMENT_COLS = ['name', 'composition', 'photo_path', 'start_date', 'end_date', 'checkin_days', 'paused_since'] as const
 export type SupplementPatch = Partial<Pick<Supplement, (typeof SUPPLEMENT_COLS)[number]>>
 
 export async function updateSupplement(id: string, patch: SupplementPatch): Promise<void> {
@@ -949,6 +997,9 @@ export async function stopSupplement(id: string, endDate: string = todayISO()): 
 }
 
 export async function deleteSupplement(id: string): Promise<void> {
+  // No FK cascade anywhere in this schema (sql.js runs with foreign_keys OFF), so
+  // the skip rows have to go by hand or they outlive the supplement they describe.
+  exec('DELETE FROM supplement_skips WHERE supplement_id = ?', [id])
   exec('DELETE FROM supplements WHERE id = ?', [id])
   await persist()
 }
@@ -957,10 +1008,13 @@ export async function deleteSupplement(id: string): Promise<void> {
 // since starting, if never checked). Mirrors pendingCheckins()'s "the queue IS the
 // query" shape rather than a stored due-date, so changing checkin_days on an
 // existing supplement takes effect immediately.
+// Paused supplements are excluded, which is the entire point of a pause: it stops
+// the "how's it going?" prompts without claiming the supplement was stopped.
 export function pendingSupplementCheckins(): Supplement[] {
   return all<Supplement>(
     `SELECT * FROM supplements
      WHERE end_date IS NULL
+       AND paused_since IS NULL
        AND date(COALESCE(last_checkin, start_date), '+' || checkin_days || ' days') <= date(?)
      ORDER BY start_date`,
     [todayISO()],

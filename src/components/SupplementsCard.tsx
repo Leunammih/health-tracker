@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  activeSupplements, stoppedSupplements, saveSupplement, stopSupplement, deleteSupplement,
-  updateSupplement,
+  activeSupplements, pausedSupplements, stoppedSupplements, saveSupplement, stopSupplement,
+  deleteSupplement, updateSupplement, pauseSupplement, resumeSupplement,
+  toggleSupplementSkip, skippedSupplementIdsOn,
 } from '../db/queries'
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
@@ -34,13 +35,27 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showStopped, setShowStopped] = useState(false)
+  const [showPaused, setShowPaused] = useState(false)
   const [refresh, setRefresh] = useState(0)
   const [justAddedId, setJustAddedId] = useState<string | null>(null)
   const [editing, setEditing] = useState<Supplement | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const active = useMemo(() => activeSupplements(), [refresh])
+  const paused = useMemo(() => pausedSupplements(), [refresh, showPaused])
   const stopped = useMemo(() => stoppedSupplements(), [refresh, showStopped])
+  // Keyed on `date`, not today: the Log tab is date-driven, so marking a missed dose
+  // while backfilling last Tuesday has to write against last Tuesday.
+  const skipped = useMemo(() => skippedSupplementIdsOn(date), [refresh, date])
+
+  // useState(date) only reads the prop on first render, so swiping the day strip to
+  // backfill left the add form's "Started" stuck on whatever day the card mounted —
+  // adding a supplement while logging last Tuesday would have dated it today. The
+  // whole card is date-driven; this default has to be too.
+  useEffect(() => {
+    setStartDate(date)
+    setEndDate('')
+  }, [date])
 
   async function onPickPhoto(file: File) {
     setError(null)
@@ -91,6 +106,26 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
   async function remove(id: string) {
     if (!confirm('Delete this supplement entirely? This cannot be undone.')) return
     await deleteSupplement(id)
+    setRefresh((k) => k + 1)
+    onChanged()
+  }
+
+  async function toggleSkip(id: string) {
+    await toggleSupplementSkip(id, date)
+    setRefresh((k) => k + 1)
+    onChanged()
+  }
+
+  async function pause(s: Supplement) {
+    await pauseSupplement(s.id, date)
+    setEditing(null)
+    setRefresh((k) => k + 1)
+    onChanged()
+  }
+
+  async function resume(s: Supplement) {
+    await resumeSupplement(s.id)
+    setEditing(null)
     setRefresh((k) => k + 1)
     onChanged()
   }
@@ -208,6 +243,7 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
                   supplement={s}
                   onCancel={() => setEditing(null)}
                   onSave={(patch) => void saveEdit(s.id, patch)}
+                  onPause={() => void pause(s)}
                 />
               ) : (
                 <>
@@ -230,10 +266,65 @@ export default function SupplementsCard({ date, onChanged }: { date: string; onC
                     since {fmtDate(s.start_date)} · check-in every {s.checkin_days}d
                     {s.photo_path ? ' · 📷' : ''}
                   </div>
+                  {/* Exceptions only — see supplement_skips in db/schema.ts. Taken is
+                      the assumption, so this is one tap on the rare day he misses one
+                      and nothing at all on every other day. */}
+                  <button
+                    type="button"
+                    aria-pressed={skipped.has(s.id)}
+                    onClick={() => void toggleSkip(s.id)}
+                    className={skipped.has(s.id) ? 'warn-chip mt-1.5' : 'chip mt-1.5 !py-0.5 !text-[11px]'}
+                  >
+                    {skipped.has(s.id) ? `✕ Not taken ${fmtDate(date)}` : `Not taken ${fmtDate(date)}?`}
+                  </button>
                 </>
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Its own list, not mixed in with the ones he's actually taking and not filed
+          under Stopped either — a pause is a third state, which is the whole reason
+          it exists. */}
+      {paused.length > 0 && (
+        <div>
+          <button className="text-xs text-ink-400 underline" onClick={() => setShowPaused((v) => !v)}>
+            {showPaused ? 'Hide' : 'Show'} paused ({paused.length})
+          </button>
+          {showPaused && (
+            <div className="mt-1.5 space-y-1.5">
+              {paused.map((s) => (
+                <div key={s.id} className="rounded-lg bg-ink-900 px-3 py-2 text-xs">
+                  {editing?.id === s.id ? (
+                    <SupplementEditor
+                      supplement={s}
+                      onCancel={() => setEditing(null)}
+                      onSave={(patch) => void saveEdit(s.id, patch)}
+                      onResume={() => void resume(s)}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-ink-300">
+                        {s.name} · paused since {fmtDate(s.paused_since!)}
+                      </span>
+                      <div className="flex shrink-0 gap-2">
+                        <button className="text-ink-500 hover:text-cream" onClick={() => void resume(s)}>
+                          Resume
+                        </button>
+                        <button className="text-ink-500 hover:text-cream" onClick={() => setEditing(s)}>
+                          Edit
+                        </button>
+                        <button className="text-ink-500 hover:text-red-400" onClick={() => void remove(s.id)} aria-label="Delete">
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -284,6 +375,8 @@ function SupplementEditor({
   supplement,
   onSave,
   onCancel,
+  onPause,
+  onResume,
 }: {
   supplement: Supplement
   onSave: (patch: {
@@ -291,6 +384,9 @@ function SupplementEditor({
     end_date: string | null; checkin_days: number
   }) => void
   onCancel: () => void
+  // Exactly one of these is passed, depending on which list the row is in.
+  onPause?: () => void
+  onResume?: () => void
 }) {
   const [name, setName] = useState(supplement.name)
   const [composition, setComposition] = useState(supplement.composition ?? '')
@@ -316,6 +412,18 @@ function SupplementEditor({
       {/* Clearing the end date puts it back on the active list and restarts its
           check-ins — the way to say "actually, I'm still taking this". */}
       <p className="text-ink-500">Leave “Until” empty if you're still taking it.</p>
+      {(onPause || onResume) && (
+        <div className="flex items-center gap-2">
+          <button type="button" className="chip !py-0.5 !text-xs" onClick={onPause ?? onResume}>
+            {onPause ? '❙❙ Pause' : '▶ Resume'}
+          </button>
+          <span className="text-ink-500">
+            {onPause
+              ? 'Set aside for now — stops the check-ins, keeps it out of Stopped.'
+              : 'Put it back on the list you take each day.'}
+          </span>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-ink-400">Check in every</span>
         {CHECKIN_CHOICES.map((d) => (

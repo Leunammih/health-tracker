@@ -88,6 +88,15 @@ export interface Supplement {
   checkin_days: number
   last_checkin: string | null
   notes: string | null // accumulated check-in notes, newest last
+  paused_since: string | null // null = not paused; a pause is not a stop
+}
+
+// One row per day a supplement was deliberately NOT taken. Exceptions only — no
+// row means nothing to say, which for something taken daily means "as usual".
+export interface SupplementSkip {
+  id: string
+  supplement_id: string
+  date: string
 }
 
 export interface HealthEvent {

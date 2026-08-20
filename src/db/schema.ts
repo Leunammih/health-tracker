@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 13
+export const SCHEMA_VERSION = 14
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entries (
@@ -151,7 +151,21 @@ CREATE TABLE IF NOT EXISTS supplements (
   end_date TEXT,            -- null = still taking
   checkin_days INTEGER NOT NULL DEFAULT 14,
   last_checkin TEXT,        -- date of the last check-in (answered or skipped)
-  notes TEXT                -- accumulated check-in notes, newest last
+  notes TEXT,               -- accumulated check-in notes, newest last
+  paused_since TEXT         -- null = not paused. A PAUSE is not a STOP: end_date
+                            -- still says "I finished with this", while this says
+                            -- "set aside for now". Paused supplements stop asking
+                            -- for check-ins but keep their place on the list.
+);
+
+-- Days a supplement was deliberately NOT taken. Only the exceptions are stored —
+-- taken is the assumption, because these are taken almost every day and a row per
+-- day per supplement would be thousands of rows recording "yes, as usual". A row
+-- here means "not that day"; no row means nothing to say about it.
+CREATE TABLE IF NOT EXISTS supplement_skips (
+  id TEXT PRIMARY KEY,
+  supplement_id TEXT NOT NULL,
+  date TEXT NOT NULL
 );
 
 -- Canonical ingredients for the tap-to-build meal builder. One row per thing the
@@ -248,6 +262,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_segment_unique ON segment_values(date, seg
 CREATE INDEX IF NOT EXISTS idx_segment_metric ON segment_values(metric);
 CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 CREATE INDEX IF NOT EXISTS idx_supplements_active ON supplements(end_date);
+-- Makes the skip toggle idempotent: a double tap can never leave two rows for one
+-- (supplement, day), so "is it skipped" stays a yes/no rather than a count.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_supplement_skip_unique ON supplement_skips(supplement_id, date);
 CREATE INDEX IF NOT EXISTS idx_foods_name_key ON foods(name_key);
 CREATE INDEX IF NOT EXISTS idx_foods_barcode ON foods(barcode);
 CREATE INDEX IF NOT EXISTS idx_meal_items_meal ON meal_items(meal_id);
@@ -268,6 +285,7 @@ export const TABLES = [
   'segment_values',
   'events',
   'supplements',
+  'supplement_skips',
   'foods',
   'meal_items',
   // Included so DB-level settings (nutrition goals) appear in the JSON/CSV

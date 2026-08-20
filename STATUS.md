@@ -699,33 +699,86 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   - Verified in both themes, no console errors after a clean reload and a walk of
     every tab.
 
+- **Phase G-5 — a supplement can be skipped for a day or paused for a stretch**
+  (2026-08-20). **Schema v14.** First half of the two-part plan at
+  `~/.claude/plans/implement-general-modifications-and-foamy-reef.md`; G-6
+  (customisable categories) is the other half and is not started.
+  - **The gap this closes.** Supplements had no day-level record at all, and no way
+    to say "paused" — the only way to stop the check-ins nagging was to set an end
+    date, which claims the supplement was *stopped*. A pause and a stop are
+    different facts and were collapsing into one.
+  - **`supplements.paused_since`** (null = not paused). `activeSupplements()` now
+    means *not stopped AND not paused*; `pausedSupplements()` is new;
+    **`pendingSupplementCheckins()` gained `AND paused_since IS NULL`** — that is the
+    entire point of a pause. Verified end to end: pausing moves it off Active,
+    leaves `end_date` **null**, and silences a check-in that was due; resuming
+    restores all three.
+  - **`supplement_skips` (id, supplement_id, date)** with a **unique index on
+    (supplement_id, date)**. Only exceptions are stored — taken is the assumption,
+    since these are taken almost every day and a row-per-day-per-supplement would be
+    thousands of rows recording "yes, as usual". Verified the index actually holds: a
+    second raw INSERT for the same (supplement, day) is **rejected by the UNIQUE
+    constraint**, and two `toggleSupplementSkip` calls fired without awaiting between
+    them still leave at most one row.
+  - **The skip follows the LOGGED date, not today** — the Log tab is date-driven, so
+    marking a missed dose while backfilling has to write against that day. Verified:
+    with the day picker on Aug 16 and the real date Aug 20, the row landed on Aug 16.
+  - **Card is three sections now** — Active, `Show paused (n)`, `Show stopped (n)` —
+    matching the existing collapsed-section pattern. Active rows carry a
+    **"Not taken <date>?"** toggle that flips to a `.warn-chip` reading
+    "✕ Not taken <date>". The editor gained **Pause / Resume** with one line making
+    the distinction explicit.
+  - **Insights** derives a **"Paused …"** marker from `paused_since`, alongside the
+    Started/Stopped ones added in G-3 — still derived, still **zero rows in
+    `events`**, so it follows renames and deletions for free.
+  - **A bug found while testing:** the add form's "Started" date used
+    `useState(date)`, which only reads the prop on first render — so swiping the day
+    strip to backfill left it stuck on whatever day the card mounted, and a
+    supplement added while logging last Tuesday would have been dated today. The
+    whole card is date-driven; that default now is too.
+  - `deleteSupplement` also clears the supplement's skip rows (no FK cascade anywhere
+    in this schema), and `supplement_skips` is in `TABLES` so it appears in the
+    JSON/CSV exports and in the devtools wipe.
+  - Verified in both themes, migration checked against the live database (v14, both
+    additions present, every existing supplement row untouched), clean reload, every
+    tab walked, no console errors.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-4**. No schema change._
+_Replaced each iteration — this is the list for **G-5**. **This build changes the
+database schema (v14)**: it adds one column and one table when the app opens. Your
+data is untouched, but if anything looks wrong after updating, say so before logging
+a lot on top of it._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Add a supplement with real dates.** Log → Supplements → the add form now has
-   **Started** and **Ended** date fields, right under the photo button. Add one
-   with a start date from last week and leave Ended blank — it should land on the
-   **active** list with the right start date shown ("since …").
-   Now add a second one, this time **also** setting an Ended date — it should go
-   straight to **Show stopped**, no separate Stop tap needed.
-3. **More check-in options.** The "Check in every" row now reads **1d 2d 3d 7d 14d
-   30d** — six choices instead of three, both when adding and when editing.
-4. **The +/− buttons in the dictation review are bigger now.** Dictate anything with
-   a number in it (or type it), get to the review screen — each number's − and +
-   should now be **clearly visible circles with a coloured ring**, not the faint
-   little squares from before. Tap a few — still nudges the number up/down and still
-   respects the sensible range for that field.
-5. **Both themes**, and confirm nothing regressed: the supplement editor still opens
-   correctly on an existing supplement, Insights still draws "Started …" / "Stopped
-   …" lines for your supplements, everything else from the last few rounds.
+2. **"Not taken today".** Log → Supplements → each supplement you're currently
+   taking has a small **"Not taken <date>?"** chip. Tap it — it should turn into an
+   amber **"✕ Not taken <date>"**. Tap again to clear it. Only the days you mark get
+   recorded; there's nothing to tap on the days you did take it.
+3. **It follows the day you're logging for.** Swipe the day strip back a few days,
+   then mark a supplement as not taken — it should say that day's date, not today's,
+   and marking it there must not affect today.
+4. **Pause is not Stop — the main thing.** Open a supplement's **Edit** → there's a
+   **❙❙ Pause** button next to the dates. Pause one:
+   - it moves out of the main list into **Show paused (n)**,
+   - it does **not** appear under *Show stopped*,
+   - and it should **stop asking you for check-ins**.
+   Then **Resume** it (from the paused row or from Edit) — it comes straight back to
+   the active list.
+   Use *Ended* only when you've actually stopped something for good.
+5. **Insights** should now draw a **"Paused …"** line for a paused supplement,
+   alongside the "Started …" / "Stopped …" ones.
+6. **Both themes**, and confirm nothing regressed: adding a supplement with start/end
+   dates, the editor, the 1d–30d check-in choices, and everything from the earlier
+   rounds.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone7** — phone report on **G-4** (checklist above). No schema change.
+- 🟦 **phone8** — phone report on **G-5** (checklist above). Carries a **schema
+  change (v14)**, so worth a look before logging a lot on top of it.
+- ✅ **phone7** (G-4) — answered 2026-08-20, "much better".
 - ✅ **phone6** (G-3) — answered 2026-08-20, "everything is working".
 - ✅ **phone5** (G-2) — answered 2026-08-20, "everything works great".
 - ✅ **phone4** (G-1.6) — answered 2026-08-19, "working great".
@@ -855,22 +908,48 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-4** (checklist above). Small, focused
-round — three items straight off his G-3 feedback.
+**Waiting on Immanuel's phone report for G-5** (checklist above).
 
-Verified before pushing: setting an end date on a brand-new supplement lands it
-directly on the stopped list (not active-then-stop); leaving it blank keeps it
-active; `checkin_days` stores whichever of the six choices was tapped and the editor
-reopens with the right one selected; the review-screen steppers are 40px circles
-with a themed accent ring in both themes and still work correctly. Clean reload,
-every tab walked, no console errors.
+Then build **G-6 — fully customisable categories**, the second half of the approved
+plan at `~/.claude/plans/implement-general-modifications-and-foamy-reef.md`. It is
+scoped and decided; nothing about it needs re-asking. In short:
 
-Nothing else is queued. Next feature work needs a fresh ask.
+1. **`src/lib/groups.ts`** — one JSON blob in `meta` (`labels`, `custom`, `order`,
+   `assignments`), modelled on `customMetrics.ts`, with the same **push-not-pull**
+   wiring: `db/queries` imports `metrics`, so `groups.ts` registers itself via a
+   setter rather than being imported by `metrics.ts`. `loadGroups()` at boot in
+   `App.tsx`, and again after a Dropbox pull (`sync/manager.ts`) and a `.db` import
+   (`lib/export.ts`) — same reason those already call `loadCustomMetrics()`.
+2. **`MetricGroup` stops being a fixed union** and becomes `string`, with the five
+   current values exported as `BUILTIN_GROUPS`. `groupForTrack()` gains one line: an
+   explicit assignment beats the def's group, which beats the category inference.
+   That single change is what lets any item move anywhere.
+3. **Editing UI in `QuickEntryPanel`** — a pen beside each heading's existing `+`
+   (rename, icon, reorder, delete-if-custom), a **"+ New category"** button, and
+   **"Move to another category"** in each row's note panel, where the other rare
+   per-row actions already live.
+4. **The piece that matters — `InsightsTab` chart routing becomes data-driven.**
+   Today it hardcodes three group blocks matching the literal names `movement`,
+   `practice`, `symptom`, so a user-created group matches none of them and would fall
+   into the generic "Other" list. Replace them with one loop over `allGroups()` that
+   picks the chart from the metrics IN the group: all-`min` → `PlateauChart`,
+   all-`/10`/`%` → reversed-axis `LineChart`, mixed → today's per-metric
+   `TrackCard`s. That reproduces today's charts exactly for the built-ins and gives
+   any new group a real chart automatically.
+   The scattered one-off exclusions (`t.name === 'release'`,
+   `'infection' || 'stool' || 'warming bottle'`) become one named
+   `DEDICATED` set. **`stomach pain` must stay OUT of it** — it deliberately appears
+   in both the pain chart and Illness & gut today, and that must survive the refactor.
 
-Known gap, unchanged from G-2/G-3: **intensity is captured but not charted.**
-`PlateauChart` is hand-rolled SVG with no tooltip. Options for later, cheapest
-first: (a) tint each day's plateau by intensity, (b) add a tooltip to
-`PlateauChart`, (c) an "average intensity" line under the movement chart.
+**Two things to lead the G-6 checklist with**, both called out in the plan:
+- Moving an item between groups moves it between charts **retroactively** — the one
+  change here that visibly rewrites history.
+- Verify the built-in groups render **identically** to today when nothing has been
+  renamed or moved.
+
+Known gap, unchanged since G-2: **intensity is captured but not charted.**
+`PlateauChart` is hand-rolled SVG with no tooltip. Cheapest options first: tint each
+day's plateau by intensity; add a tooltip; an average-intensity line.
 
 Older, unscheduled follow-ups (unchanged, not blocking):
 - A supplement's label photo is stored but never read — wire a vision call
@@ -878,13 +957,14 @@ Older, unscheduled follow-ups (unchanged, not blocking):
 - Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
   segments) still unverified on a real phone.
 
-**Environment note:** the Browser pane's `preview_start` tool intermittently times
-out on its safety classifier (unrelated to this codebase) — when that happens,
-start the dev server directly with Bash (`npm run dev -- --port 5199 &`) and attach
-with `navigate` to `http://localhost:5199/` instead; other Browser tools (tabs,
-javascript_tool) are usually unaffected and just need a retry. Also still true from
-the 2026-08-19 session: scroll events don't reliably reach React handlers in this
-pane — set `scrollTop` then `dispatchEvent(new Event('scroll'))`.
+**Environment note:** the Browser pane's `preview_start` and occasionally other
+tools time out on an unrelated safety classifier. When that happens: start the dev
+server with Bash (`npm run dev -- --port 5199 &`) and attach with `navigate` to
+`http://localhost:5199/`; retry other tools, they usually succeed on the second or
+third attempt. Also still true: scroll events don't reach React handlers in this
+pane — set `scrollTop` then `dispatchEvent(new Event('scroll'))`. And
+`window.__ht.all(sql)` takes **no bind parameters** — inline values into the SQL
+string or the `?` come back unbound and silently return nothing.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

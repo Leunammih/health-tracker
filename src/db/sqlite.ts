@@ -91,6 +91,12 @@ function runMigrations(target: Database): void {
   if (!hasColumn(target, 'meals', 'food_groups')) {
     target.run('ALTER TABLE meals ADD COLUMN food_groups TEXT')
   }
+  // v14: a pause is not a stop. supplement_skips is a new table, created by
+  // SCHEMA_SQL's CREATE TABLE IF NOT EXISTS above — only the added COLUMN needs
+  // an ALTER here.
+  if (!hasColumn(target, 'supplements', 'paused_since')) {
+    target.run('ALTER TABLE supplements ADD COLUMN paused_since TEXT')
+  }
   // v13: how hard, alongside how long, for duration metrics.
   if (!hasColumn(target, 'tracks', 'intensity')) {
     target.run('ALTER TABLE tracks ADD COLUMN intensity INTEGER')

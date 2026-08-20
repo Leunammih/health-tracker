@@ -5,7 +5,8 @@ import {
 import { daysAgoISO, dateSpine, fmtDate, sleepDurationMin } from '../lib/dates'
 import {
   wellbeingSince, gutSince, infectionsSince, mealsSince, dayContextSince, tracksSince,
-  activitiesSince, allTrackNames, eventsSince, activeSupplements, stoppedSupplements,
+  activitiesSince, allTrackNames, eventsSince, activeSupplements, pausedSupplements,
+  stoppedSupplements,
 } from '../db/queries'
 import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
@@ -85,7 +86,7 @@ export default function InsightsTab() {
       acts: activitiesSince(since),
       known: allTrackNames(),
       events: eventsSince(since),
-      supplements: [...activeSupplements(), ...stoppedSupplements(50)],
+      supplements: [...activeSupplements(), ...pausedSupplements(), ...stoppedSupplements(50)],
     }),
     [since, refresh],
   )
@@ -115,6 +116,7 @@ export default function InsightsTab() {
     const rows = events.map((e) => ({ id: e.id, date: e.date, label: e.label }))
     for (const s of supplements) {
       if (s.start_date >= since) rows.push({ id: `sup-start-${s.id}`, date: s.start_date, label: `Started ${s.name}` })
+      if (s.paused_since && s.paused_since >= since) rows.push({ id: `sup-pause-${s.id}`, date: s.paused_since, label: `Paused ${s.name}` })
       if (s.end_date && s.end_date >= since) rows.push({ id: `sup-stop-${s.id}`, date: s.end_date, label: `Stopped ${s.name}` })
     }
     return rows.map((r) => ({ id: r.id, x: fmtDate(r.date), label: trim(r.label) }))
