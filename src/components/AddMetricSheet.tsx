@@ -21,21 +21,26 @@ export default function AddMetricSheet({
   existingKeys: Set<string>
   onAdd: (spec: {
     label: string; group: MetricGroup; shape: MetricShape
-    lowerIsBetter?: boolean; hasIntensity?: boolean; icon?: string
+    lowerIsBetter?: boolean; hasIntensity?: boolean; durationUnit?: 'min' | 'h'; icon?: string
   }) => void
   onClose: () => void
 }) {
   const [label, setLabel] = useState('')
   const [shape, setShape] = useState<MetricShape>('rating')
   const [lowerIsBetter, setLowerIsBetter] = useState(group === 'symptom')
-  // Default follows the shape: a duration almost always wants it, a weight never
-  // does. Touching the toggle pins the answer so changing shape stops overriding it.
+  // 'h' reuses the exact store-in-minutes/show-in-hours mechanism Computer Time
+  // already ships with — see HOURS_SCALE in lib/customMetrics.ts.
+  const [durationUnit, setDurationUnit] = useState<'min' | 'h'>('min')
+  // Default follows the shape (and, for a duration, the unit): a minutes duration
+  // almost always wants intensity, an hours one (screen time) almost never does, a
+  // weight never does. Touching the toggle pins the answer so changing shape/unit
+  // stops overriding it.
   const [intensity, setIntensity] = useState<boolean | null>(null)
   const [icon, setIcon] = useState<string | undefined>(undefined)
   const [iconQuery, setIconQuery] = useState('')
   const [emoji, setEmoji] = useState('')
 
-  const wantsIntensity = intensity ?? shape === 'duration'
+  const wantsIntensity = intensity ?? (shape === 'duration' && durationUnit !== 'h')
   const matches = useMemo(() => searchGlyphs(iconQuery), [iconQuery])
   const key = canonicalKey(label)
   const taken = !!key && (isBuiltinKey(key) || existingKeys.has(key))
@@ -81,12 +86,27 @@ export default function AddMetricSheet({
             ))}
           </div>
           <p className="mt-1 text-xs text-ink-400">
-            {shape === 'duration' && 'Minutes, summed over the day. Gets a Low / Med / High intensity too.'}
+            {shape === 'duration' && durationUnit === 'min' && 'Minutes, summed over the day. Gets a Low / Med / High intensity too.'}
+            {shape === 'duration' && durationUnit === 'h' && 'Hours (half-hour steps), summed over the day — for things like screen time you think of in hours, not minutes.'}
             {shape === 'rating' && 'A 0-10 slider, averaged if you log it more than once in a day.'}
             {shape === 'checkmark' && 'A yes/no tick — for things that either happened or did not.'}
             {shape === 'number' && 'A plain number (a count, a measurement). The day keeps the last one you enter.'}
           </p>
         </div>
+
+        {shape === 'duration' && (
+          <div className="mt-3">
+            <div className="label">Track in</div>
+            <div className="flex gap-1.5">
+              <button type="button" className={durationUnit === 'min' ? 'chip-on' : 'chip'} onClick={() => setDurationUnit('min')}>
+                Minutes
+              </button>
+              <button type="button" className={durationUnit === 'h' ? 'chip-on' : 'chip'} onClick={() => setDurationUnit('h')}>
+                Hours
+              </button>
+            </div>
+          </div>
+        )}
 
         {shape === 'rating' && (
           <label className="mt-3 flex items-center gap-2 text-sm text-ink-300">
@@ -182,6 +202,7 @@ export default function AddMetricSheet({
               shape,
               lowerIsBetter: shape === 'rating' ? lowerIsBetter : undefined,
               hasIntensity: shape === 'checkmark' ? false : wantsIntensity,
+              durationUnit: shape === 'duration' ? durationUnit : undefined,
               icon,
             })
           }

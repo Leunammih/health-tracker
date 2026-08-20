@@ -13,6 +13,7 @@ import {
   canonicalTrackName, chartPalette, scaleForTrack, displayScale, toDisplay, paletteGroup,
 } from '../lib/metrics'
 import { allGroups } from '../lib/groups'
+import { loadInsightsLayout, orderIds, setSectionCollapsed, moveSection, type InsightsLayout } from '../lib/insightsLayout'
 import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '../lib/hiddenMetrics'
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
@@ -72,6 +73,11 @@ export default function InsightsTab() {
   // Collapsed by default — the grid used to occupy the whole first screen before
   // any chart was visible.
   const [tapOpen, setTapOpen] = useState(false)
+  // Order + fold state for the sections built below (Wellbeing & sleep, Illness &
+  // gut, one per category, Nutrition) — separate from the Log tab's own collapsed
+  // groups (lib/uiPrefs.ts): folding a chart while browsing Insights has no reason
+  // to also fold the matching quick-entry group on the Log tab.
+  const [sectionsLayout, setSectionsLayout] = useState<InsightsLayout>(() => loadInsightsLayout())
   const light = useTheme() === 'light'
 
   const since = daysAgoISO(days)
@@ -333,17 +339,6 @@ export default function InsightsTab() {
     })
   }, [inf, gut, tracks, spine])
 
-  // Days needing a warming bottle, counted ONCE however they were recorded — the
-  // dictation path writes gut_events.warming_bottle_needed, the quick-entry
-  // checkmark writes a 'warming bottle' track, and a day logged both ways is still
-  // one night.
-  const warmingBottleDays = useMemo(() => {
-    const days = new Set<string>()
-    for (const g of gut) if (g.warming_bottle_needed) days.add(g.date)
-    for (const t of tracks) if (t.name === 'warming bottle' && (t.value ?? 0) >= 1) days.add(t.date)
-    return days.size
-  }, [gut, tracks])
-
   const hasIllness = illnessData.some((r) => r.infection != null || r.gutPain != null || r.stool != null)
   const illnessPalette = useMemo(
     () => chartPalette(['Infection', 'Gut pain', 'Stool'], 'illness', light),
@@ -470,6 +465,309 @@ export default function InsightsTab() {
   // convention — see tailwind.config.js's withOpacity() comment.
   const bgTint = light ? 0.94 : 0.9
 
+  // Every foldable/reorderable block on this page, built once here so the render
+  // below is just "walk them in order". Gated exactly as each block always was
+  // (hasWellbeingSection, hasIllness, a non-empty groupCharts entry, meals logged)
+  // — a section with nothing in it still doesn't appear, unchanged from before this
+  // existed. Fixed ids are namespaced (`section-…`) apart from category-chart ids
+  // (`cat-…`) so a category literally named "Nutrition" can never collide with the
+  // built-in Nutrition section.
+  const sectionList: { id: string; title: string; icon: React.ReactNode; body: React.ReactNode }[] = []
+
+  if (hasWellbeingSection) {
+    sectionList.push({
+      id: 'section-wellbeing-sleep',
+      title: 'Wellbeing & sleep',
+      icon: <GroupIcon group="wellbeing" />,
+      body: (
+        <>
+          {(wb.length > 0 || hasRelease) && (
+            <ChartCard title="Energy & mood">
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
+                  <CartesianGrid stroke="var(--line)" vertical={false} />
+                  {eventMarkers.map((m) => (
+                    <ReferenceLine key={m.id} x={m.x} yAxisId="l" stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+                  ))}
+                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                  {hasRelease && (
+                    <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: colRelease, fontSize: 10 }} />
+                  )}
+                  <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="energy" stroke={colEnergy} strokeWidth={2} dot={false} connectNulls />
+                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="mood" stroke={colMood} strokeWidth={2} dot={false} connectNulls />
+                  {hasRelease && (
+                    <Line
+                      isAnimationActive={false}
+                      yAxisId="r"
+                      type="monotone"
+                      dataKey="release"
+                      stroke={colRelease}
+                      strokeWidth={2}
+                      dot={releaseDot}
+                    />
+                  )}
+                </LineChart>
+              </ResponsiveContainer>
+              <Legend
+                items={[
+                  { color: colEnergy, label: 'Energy', key: 'energy' },
+                  { color: colMood, label: 'Mood', key: 'mood' },
+                  ...(hasRelease ? [{ color: colRelease, label: 'Release 💦 (0% top)', key: 'release' }] : []),
+                ]}
+                onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
+              />
+            </ChartCard>
+          )}
+
+          {hasSleep && (
+            <ChartCard title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top">
+              <ResponsiveContainer width="100%" height={170}>
+                <LineChart data={sleepData} margin={{ left: -20, right: -20, top: 8 }}>
+                  <CartesianGrid stroke="var(--line)" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis yAxisId="l" domain={[0, 12]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                  <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={{ fill: colSleepQuality, fontSize: 10 }} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                  <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                </LineChart>
+              </ResponsiveContainer>
+              <Legend
+                items={[
+                  { color: colSleepHours, label: 'Hours asleep' },
+                  { color: colSleepQuality, label: 'Felt quality (0-10)' },
+                ]}
+              />
+            </ChartCard>
+          )}
+
+          {stressData.some((d) => d.stress != null) && (
+            <ChartCard title="Stress load" hint="low is good — high stress sits at the bottom">
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart data={stressData} margin={{ left: -20, right: 8, top: 8 }}>
+                  <CartesianGrid stroke="var(--line)" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+                  <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke={colStress} strokeWidth={2} dot={false} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+              <button
+                className="mt-1 text-xs text-ink-400 hover:text-cream"
+                onClick={() => setSheet({ name: 'stress', category: null })}
+              >
+                + Log stress
+              </button>
+            </ChartCard>
+          )}
+        </>
+      ),
+    })
+  }
+
+  // The three fixed counters (Gut episodes / Infections / Warming bottle) that used
+  // to sit above this chart are gone — removed outright, not relocated, per his
+  // explicit call. The chart itself is untouched.
+  if (hasIllness) {
+    sectionList.push({
+      id: 'section-illness-gut',
+      title: 'Illness & gut',
+      icon: <GroupIcon group="symptom" />,
+      body: (
+        <ChartCard title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
+          <ResponsiveContainer width="100%" height={170}>
+            <LineChart data={illnessData} margin={{ left: -20, right: 8, top: 8 }}>
+              <CartesianGrid stroke="var(--line)" vertical={false} />
+              {eventMarkers.map((m) => (
+                <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+              ))}
+              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+              <ReferenceLine y={4} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
+              <Line isAnimationActive={false} type="monotone" dataKey="infection" name="Infection" stroke={illnessPalette.Infection} strokeWidth={2} dot={false} connectNulls />
+              <Line isAnimationActive={false} type="monotone" dataKey="gutPain" name="Gut pain" stroke={illnessPalette['Gut pain']} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+              <Line isAnimationActive={false} type="monotone" dataKey="stool" name="Stool (Bristol)" stroke={illnessPalette.Stool} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+            </LineChart>
+          </ResponsiveContainer>
+          <Legend
+            items={[
+              { color: illnessPalette.Infection, label: 'Infection', key: 'infection' },
+              // "Gut pain" has no dedicated track — it routes to the existing
+              // "stomach pain" metric (see the illnessData comment above).
+              { color: illnessPalette['Gut pain'], label: 'Gut pain', key: 'stomach pain' },
+              { color: illnessPalette.Stool, label: 'Stool (Bristol, 4 ideal)', key: 'stool' },
+            ]}
+            onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
+          />
+        </ChartCard>
+      ),
+    })
+  }
+
+  // One entry per category, in the order this render's groupCharts already
+  // resolved — see that memo for how the chart shape (duration/rating/mixed) is
+  // chosen from what's actually logged in the category. A renamed or newly-created
+  // category shows up here automatically.
+  for (const gc of groupCharts) {
+    if (gc.shape === 'empty') continue
+    sectionList.push({
+      id: `cat-${gc.key}`,
+      title: gc.label,
+      icon: <GroupIcon group={gc.key} icon={gc.icon} size={12} />,
+      body: (
+        <>
+          {gc.shape === 'duration' && (
+            <ChartCard title={`${gc.label} (min)`} hint="tap a day, or a name below, to log it">
+              <PlateauChart
+                dates={spine}
+                series={gc.plateau}
+                onPickDay={(d) => setSheet({ name: gc.plateau[0].key, category: categoryOf(gc.plateau[0].key), date: d })}
+                onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
+              />
+            </ChartCard>
+          )}
+
+          {gc.shape === 'rating' && (
+            <ChartCard
+              title={`${gc.label} (0-10)`}
+              hint={gc.reversed ? 'low is good — worse sits at the bottom' : undefined}
+            >
+              <ResponsiveContainer width="100%" height={170}>
+                <LineChart data={gc.rows} margin={{ left: -20, right: 8, top: 8 }}>
+                  <CartesianGrid stroke="var(--line)" vertical={false} />
+                  {eventMarkers.map((m) => (
+                    <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+                  ))}
+                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis domain={[0, 10]} reversed={gc.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+                  {gc.keys.map((k) => (
+                    <Line isAnimationActive={false}
+                      key={k}
+                      type="monotone"
+                      dataKey={k}
+                      name={labelForTrack(k)}
+                      stroke={gc.palette[k]}
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                      connectNulls
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
+                {gc.keys.map((k) => (
+                  <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: categoryOf(k) })}>
+                    <MetricIcon name={k} color={gc.palette[k]} size={14} />
+                    {labelForTrack(k)}
+                  </button>
+                ))}
+              </div>
+            </ChartCard>
+          )}
+
+          {gc.shape === 'mixed' && gc.cards.map((c) => (
+            <TrackCard key={c.name} group={c} spine={spine} onLog={() => setSheet({ name: c.name, category: null })} />
+          ))}
+        </>
+      ),
+    })
+  }
+
+  if (kcalByDate.size > 0) {
+    sectionList.push({
+      id: 'section-nutrition',
+      title: 'Nutrition',
+      icon: <IconMeal width={14} height={14} />,
+      body: (
+        <>
+          <ChartCard title="Daily calories">
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={calData} margin={{ left: -20, right: 8, top: 8 }}>
+                <CartesianGrid stroke="var(--line)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+                <Bar isAnimationActive={false} dataKey="kcal" fill="var(--accent-deep)" radius={[4, 4, 0, 0]} />
+                {/* extendDomain, so a goal set above the tallest bar still shows —
+                    Recharts otherwise clips a reference line outside the auto Y
+                    domain. No text label: at phone width it lands on top of the
+                    bars; the caption under the chart names the goal instead. */}
+                {goals.calories != null && (
+                  <ReferenceLine y={goals.calories} ifOverflow="extendDomain" stroke="var(--accent)" strokeDasharray="4 3" />
+                )}
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs text-ink-300">
+              <Avg label="Protein" v={totalMacro.p / mealDays} goal={goals.protein_g} />
+              <Avg label="Fat" v={totalMacro.f / mealDays} />
+              <Avg label="Carbs" v={totalMacro.c / mealDays} />
+              <Avg label="Fiber" v={totalMacro.fb / mealDays} />
+            </div>
+            {goalSummary && <p className="mt-2 text-xs text-ink-400">{goalSummary}</p>}
+          </ChartCard>
+
+          <ChartCard title="Macros & food groups" hint="two 100% bars per day, side by side">
+            <ResponsiveContainer width="100%" height={170}>
+              {/* Left margin -8, not the -20 every other chart here uses: this is
+                  the one chart with a 4-character axis label ("100%"), and -20
+                  left it clipped/overlapping under the hover cursor. tickFormatter
+                  instead of the `unit` prop for the same reason — sidesteps
+                  whatever Recharts does internally to append a unit string. */}
+              <BarChart data={mealBarsData} margin={{ left: -8, right: 8, top: 8 }}>
+                <CartesianGrid stroke="var(--line)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis domain={[0, 100]} tick={{ fill: 'var(--faint)', fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
+                <Tooltip content={<MealBarsTooltip />} cursor={{ fill: 'var(--faint)', fillOpacity: 0.08 }} />
+                <Bar isAnimationActive={false} stackId="macro" dataKey="protein" fill={MACRO_COLORS.protein} />
+                <Bar isAnimationActive={false} stackId="macro" dataKey="fat" fill={MACRO_COLORS.fat} />
+                <Bar isAnimationActive={false} stackId="macro" dataKey="carbs" fill={MACRO_COLORS.carbs} />
+                <Bar isAnimationActive={false} stackId="macro" dataKey="macroUnclassified" fill={FOOD_GROUP_COLORS.unclassified} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="vegan" fill={FOOD_GROUP_COLORS.vegan} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="dairy_eggs" fill={FOOD_GROUP_COLORS.dairy_eggs} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="meat_beef" fill={FOOD_GROUP_COLORS.meat_beef} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="meat_chicken" fill={FOOD_GROUP_COLORS.meat_chicken} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="meat_fish" fill={FOOD_GROUP_COLORS.meat_fish} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="meat_other" fill={FOOD_GROUP_COLORS.meat_other} radius={[3, 3, 0, 0]} />
+                <Bar isAnimationActive={false} stackId="food" dataKey="fgUnclassified" fill={FOOD_GROUP_COLORS.unclassified} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <Legend
+              items={[
+                { color: MACRO_COLORS.protein, label: 'Protein' },
+                { color: MACRO_COLORS.fat, label: 'Fat' },
+                { color: MACRO_COLORS.carbs, label: 'Carbs' },
+              ]}
+            />
+            <Legend
+              items={[
+                { color: FOOD_GROUP_COLORS.vegan, label: 'Vegan' },
+                { color: FOOD_GROUP_COLORS.dairy_eggs, label: 'Dairy & eggs' },
+                { color: FOOD_GROUP_COLORS.meat_beef, label: 'Beef' },
+                { color: FOOD_GROUP_COLORS.meat_chicken, label: 'Chicken' },
+                { color: FOOD_GROUP_COLORS.meat_fish, label: 'Fish' },
+                { color: FOOD_GROUP_COLORS.meat_other, label: 'Other meat' },
+              ]}
+            />
+          </ChartCard>
+        </>
+      ),
+    })
+  }
+
+  const orderedSectionIds = orderIds(sectionList.map((sec) => sec.id), sectionsLayout)
+  const sectionsById = new Map(sectionList.map((sec) => [sec.id, sec]))
+
+  async function toggleSection(id: string) {
+    setSectionsLayout(await setSectionCollapsed(id, !sectionsLayout.collapsed.includes(id)))
+  }
+  async function moveSectionBy(id: string, delta: -1 | 1) {
+    setSectionsLayout(await moveSection(id, delta, sectionList.map((sec) => sec.id)))
+  }
+
   return (
     <div
       className="space-y-4"
@@ -522,273 +820,24 @@ export default function InsightsTab() {
         </div>
       )}
 
-      {hasWellbeingSection && <SectionLabel title="Wellbeing & sleep" icon={<GroupIcon group="wellbeing" />} />}
-
-      {(wb.length > 0 || hasRelease) && (
-        <ChartCard title="Energy & mood">
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              {eventMarkers.map((m) => (
-                <ReferenceLine key={m.id} x={m.x} yAxisId="l" stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-              ))}
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              {hasRelease && (
-                <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: colRelease, fontSize: 10 }} />
-              )}
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="energy" stroke={colEnergy} strokeWidth={2} dot={false} connectNulls />
-              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="mood" stroke={colMood} strokeWidth={2} dot={false} connectNulls />
-              {hasRelease && (
-                <Line
-                  isAnimationActive={false}
-                  yAxisId="r"
-                  type="monotone"
-                  dataKey="release"
-                  stroke={colRelease}
-                  strokeWidth={2}
-                  dot={releaseDot}
-                />
-              )}
-            </LineChart>
-          </ResponsiveContainer>
-          <Legend
-            items={[
-              { color: colEnergy, label: 'Energy', key: 'energy' },
-              { color: colMood, label: 'Mood', key: 'mood' },
-              ...(hasRelease ? [{ color: colRelease, label: 'Release 💦 (0% top)', key: 'release' }] : []),
-            ]}
-            onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
-          />
-        </ChartCard>
-      )}
-
-      {hasSleep && (
-        <ChartCard title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top">
-          <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={sleepData} margin={{ left: -20, right: -20, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis yAxisId="l" domain={[0, 12]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={{ fill: colSleepQuality, fontSize: 10 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-              <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-          <Legend
-            items={[
-              { color: colSleepHours, label: 'Hours asleep' },
-              { color: colSleepQuality, label: 'Felt quality (0-10)' },
-            ]}
-          />
-        </ChartCard>
-      )}
-
-      {stressData.some((d) => d.stress != null) && (
-        <ChartCard title="Stress load" hint="low is good — high stress sits at the bottom">
-          <ResponsiveContainer width="100%" height={150}>
-            <LineChart data={stressData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke={colStress} strokeWidth={2} dot={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
-          <button
-            className="mt-1 text-xs text-ink-400 hover:text-cream"
-            onClick={() => setSheet({ name: 'stress', category: null })}
-          >
-            + Log stress
-          </button>
-        </ChartCard>
-      )}
-
-      <SectionLabel title="Illness & gut" icon={<GroupIcon group="symptom" />} />
-
-      <div className="grid grid-cols-3 gap-2">
-        <Stat label="Gut episodes" value={gut.length} />
-        <Stat label="Infections" value={inf.length} />
-        <Stat label="Warming bottle" value={warmingBottleDays} />
-      </div>
-
-      {hasIllness && (
-        <ChartCard title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
-          <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={illnessData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              {eventMarkers.map((m) => (
-                <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-              ))}
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              <ReferenceLine y={4} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
-              <Line isAnimationActive={false} type="monotone" dataKey="infection" name="Infection" stroke={illnessPalette.Infection} strokeWidth={2} dot={false} connectNulls />
-              <Line isAnimationActive={false} type="monotone" dataKey="gutPain" name="Gut pain" stroke={illnessPalette['Gut pain']} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-              <Line isAnimationActive={false} type="monotone" dataKey="stool" name="Stool (Bristol)" stroke={illnessPalette.Stool} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-          <Legend
-            items={[
-              { color: illnessPalette.Infection, label: 'Infection', key: 'infection' },
-              // "Gut pain" has no dedicated track — it routes to the existing
-              // "stomach pain" metric (see the illnessData comment above).
-              { color: illnessPalette['Gut pain'], label: 'Gut pain', key: 'stomach pain' },
-              { color: illnessPalette.Stool, label: 'Stool (Bristol, 4 ideal)', key: 'stool' },
-            ]}
-            onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
-          />
-        </ChartCard>
-      )}
-
-      {/* One heading + chart per category, in his configured order — replaces the
-          three hardcoded Movement/Practice/Pain blocks and the catch-all "Other"
-          list. A renamed or newly-created category shows up here automatically;
-          see the groupCharts memo above for how the chart shape is chosen.
-          Nutrition (below) moved from between Pain and Other to after this whole
-          block — it isn't a metric category, so it no longer needs to be spliced
-          into the middle of one. */}
-      {groupCharts.map((gc) => {
-        if (gc.shape === 'empty') return null
+      {orderedSectionIds.map((id, i) => {
+        const sec = sectionsById.get(id)
+        if (!sec) return null
+        const isCollapsed = sectionsLayout.collapsed.includes(id)
         return (
-          <div key={gc.key}>
-            <SectionLabel title={gc.label} icon={<GroupIcon group={gc.key} icon={gc.icon} size={12} />} />
-
-            {gc.shape === 'duration' && (
-              <ChartCard title={`${gc.label} (min)`} hint="tap a day, or a name below, to log it">
-                <PlateauChart
-                  dates={spine}
-                  series={gc.plateau}
-                  onPickDay={(d) => setSheet({ name: gc.plateau[0].key, category: categoryOf(gc.plateau[0].key), date: d })}
-                  onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
-                />
-              </ChartCard>
-            )}
-
-            {gc.shape === 'rating' && (
-              <ChartCard
-                title={`${gc.label} (0-10)`}
-                hint={gc.reversed ? 'low is good — worse sits at the bottom' : undefined}
-              >
-                <ResponsiveContainer width="100%" height={170}>
-                  <LineChart data={gc.rows} margin={{ left: -20, right: 8, top: 8 }}>
-                    <CartesianGrid stroke="var(--line)" vertical={false} />
-                    {eventMarkers.map((m) => (
-                      <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-                    ))}
-                    <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-                    <YAxis domain={[0, 10]} reversed={gc.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-                    <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                    {gc.keys.map((k) => (
-                      <Line isAnimationActive={false}
-                        key={k}
-                        type="monotone"
-                        dataKey={k}
-                        name={labelForTrack(k)}
-                        stroke={gc.palette[k]}
-                        strokeWidth={2}
-                        dot={{ r: 2 }}
-                        connectNulls
-                      />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
-                  {gc.keys.map((k) => (
-                    <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: categoryOf(k) })}>
-                      <MetricIcon name={k} color={gc.palette[k]} size={14} />
-                      {labelForTrack(k)}
-                    </button>
-                  ))}
-                </div>
-              </ChartCard>
-            )}
-
-            {gc.shape === 'mixed' && gc.cards.map((c) => (
-              <TrackCard key={c.name} group={c} spine={spine} onLog={() => setSheet({ name: c.name, category: null })} />
-            ))}
+          <div key={id}>
+            <SectionLabel
+              title={sec.title}
+              icon={sec.icon}
+              collapsed={isCollapsed}
+              onToggle={() => void toggleSection(id)}
+              onMoveUp={i > 0 ? () => void moveSectionBy(id, -1) : undefined}
+              onMoveDown={i < orderedSectionIds.length - 1 ? () => void moveSectionBy(id, 1) : undefined}
+            />
+            {!isCollapsed && sec.body}
           </div>
         )
       })}
-
-      {kcalByDate.size > 0 && <SectionLabel title="Nutrition" icon={<IconMeal width={14} height={14} />} />}
-
-      {kcalByDate.size > 0 && (
-        <ChartCard title="Daily calories">
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={calData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              <Bar isAnimationActive={false} dataKey="kcal" fill="var(--accent-deep)" radius={[4, 4, 0, 0]} />
-              {/* extendDomain, so a goal set above the tallest bar still shows —
-                  Recharts otherwise clips a reference line outside the auto Y
-                  domain. No text label: at phone width it lands on top of the
-                  bars; the caption under the chart names the goal instead. */}
-              {goals.calories != null && (
-                <ReferenceLine y={goals.calories} ifOverflow="extendDomain" stroke="var(--accent)" strokeDasharray="4 3" />
-              )}
-            </BarChart>
-          </ResponsiveContainer>
-          <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs text-ink-300">
-            <Avg label="Protein" v={totalMacro.p / mealDays} goal={goals.protein_g} />
-            <Avg label="Fat" v={totalMacro.f / mealDays} />
-            <Avg label="Carbs" v={totalMacro.c / mealDays} />
-            <Avg label="Fiber" v={totalMacro.fb / mealDays} />
-          </div>
-          {goalSummary && <p className="mt-2 text-xs text-ink-400">{goalSummary}</p>}
-        </ChartCard>
-      )}
-
-      {kcalByDate.size > 0 && (
-        <ChartCard title="Macros & food groups" hint="two 100% bars per day, side by side">
-          <ResponsiveContainer width="100%" height={170}>
-            {/* Left margin -8, not the -20 every other chart here uses: this is
-                the one chart with a 4-character axis label ("100%"), and -20
-                left it clipped/overlapping under the hover cursor. tickFormatter
-                instead of the `unit` prop for the same reason — sidesteps
-                whatever Recharts does internally to append a unit string. */}
-            <BarChart data={mealBarsData} margin={{ left: -8, right: 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 100]} tick={{ fill: 'var(--faint)', fontSize: 11 }} tickFormatter={(v) => `${v}%`} />
-              <Tooltip content={<MealBarsTooltip />} cursor={{ fill: 'var(--faint)', fillOpacity: 0.08 }} />
-              <Bar isAnimationActive={false} stackId="macro" dataKey="protein" fill={MACRO_COLORS.protein} />
-              <Bar isAnimationActive={false} stackId="macro" dataKey="fat" fill={MACRO_COLORS.fat} />
-              <Bar isAnimationActive={false} stackId="macro" dataKey="carbs" fill={MACRO_COLORS.carbs} />
-              <Bar isAnimationActive={false} stackId="macro" dataKey="macroUnclassified" fill={FOOD_GROUP_COLORS.unclassified} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="vegan" fill={FOOD_GROUP_COLORS.vegan} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="dairy_eggs" fill={FOOD_GROUP_COLORS.dairy_eggs} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="meat_beef" fill={FOOD_GROUP_COLORS.meat_beef} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="meat_chicken" fill={FOOD_GROUP_COLORS.meat_chicken} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="meat_fish" fill={FOOD_GROUP_COLORS.meat_fish} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="meat_other" fill={FOOD_GROUP_COLORS.meat_other} radius={[3, 3, 0, 0]} />
-              <Bar isAnimationActive={false} stackId="food" dataKey="fgUnclassified" fill={FOOD_GROUP_COLORS.unclassified} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-          <Legend
-            items={[
-              { color: MACRO_COLORS.protein, label: 'Protein' },
-              { color: MACRO_COLORS.fat, label: 'Fat' },
-              { color: MACRO_COLORS.carbs, label: 'Carbs' },
-            ]}
-          />
-          <Legend
-            items={[
-              { color: FOOD_GROUP_COLORS.vegan, label: 'Vegan' },
-              { color: FOOD_GROUP_COLORS.dairy_eggs, label: 'Dairy & eggs' },
-              { color: FOOD_GROUP_COLORS.meat_beef, label: 'Beef' },
-              { color: FOOD_GROUP_COLORS.meat_chicken, label: 'Chicken' },
-              { color: FOOD_GROUP_COLORS.meat_fish, label: 'Fish' },
-              { color: FOOD_GROUP_COLORS.meat_other, label: 'Other meat' },
-            ]}
-          />
-        </ChartCard>
-      )}
 
       {sheet && (
         <QuickLogSheet
@@ -953,11 +1002,57 @@ function MealBarsTooltip({ active, payload, label }: { active?: boolean; payload
 // sleep → Illness & gut → Movement & practice → Pain → Nutrition → Other) instead
 // of one undifferentiated stack. Callers only render this when the section has at
 // least one visible chart under it, so a header is never left floating over nothing.
-function SectionLabel({ title, icon }: { title: string; icon?: React.ReactNode }) {
+// Every Insights section's heading: click the title to fold/unfold, small ▲▼ to
+// move it up or down the whole page — same visual language as the pen/+ pair on
+// every Log-tab category heading (QuickEntryPanel), so "tap the heading to arrange
+// things" reads as one consistent idea across both screens rather than two.
+function SectionLabel({
+  title,
+  icon,
+  collapsed,
+  onToggle,
+  onMoveUp,
+  onMoveDown,
+}: {
+  title: string
+  icon?: React.ReactNode
+  collapsed?: boolean
+  onToggle?: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
+}) {
   return (
-    <div className="flex items-center gap-1.5 pt-1 text-[11px] font-semibold uppercase tracking-widest text-ink-500">
-      {icon}
-      {title}
+    <div className="flex items-center gap-1 pt-1">
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={onToggle}
+        className="flex flex-1 items-center gap-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-ink-500 hover:text-ink-300"
+      >
+        {icon}
+        <span>{title}</span>
+        <span className="ml-auto text-ink-500">{collapsed ? '▸' : '▾'}</span>
+      </button>
+      {onMoveUp && (
+        <button
+          type="button"
+          aria-label={`Move ${title} up`}
+          onClick={onMoveUp}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-ink-700 text-[10px] text-ink-400 hover:text-cream"
+        >
+          ▲
+        </button>
+      )}
+      {onMoveDown && (
+        <button
+          type="button"
+          aria-label={`Move ${title} down`}
+          onClick={onMoveDown}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-ink-700 text-[10px] text-ink-400 hover:text-cream"
+        >
+          ▼
+        </button>
+      )}
     </div>
   )
 }
@@ -968,15 +1063,6 @@ function ChartCard({ title, hint, children }: { title: string; hint?: string; ch
       <div className="label mb-0.5">{title}</div>
       {hint && <div className="mb-2 text-[10px] text-ink-500">{hint}</div>}
       {children}
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="card !p-3 text-center">
-      <div className="font-serif text-2xl leading-none text-cream">{value}</div>
-      <div className="mt-1 text-[11px] text-ink-400">{label}</div>
     </div>
   )
 }

@@ -810,46 +810,87 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     the current state (confirmed by timestamp — stale warnings from mid-session
     testing, predating the singleton fix, don't reappear on a fresh reload).
 
+- **Phase G-7 — hours-based durations, and an Insights page he arranges himself**
+  (2026-08-20). No schema change. Second G-7 round after G-5 (supplements) and G-6
+  (categories) both shipped and were confirmed working.
+  - **An hours option for duration metrics.** `CustomMetricSpec.durationUnit` reuses
+    exactly the store-in-minutes/show-in-hours mechanism Computer Time already had
+    (G-3's `TrackDef.display`) — same numbers (12h ceiling, half-hour steps,
+    30-minute quick-log tap), so a metric like "Phone use" sums, rolls up and
+    charts in minutes underneath while showing and editing in hours. The **+** sheet
+    gets a **Minutes / Hours** chip pair, shown only when the shape is Duration.
+    Intensity defaults **off** for hours mode (screen time has no "how hard" the
+    way a workout does) but the existing checkbox still lets him turn it on.
+    Verified: 3h on the slider → **180 min stored**.
+  - **Every Insights chart is now foldable and reorderable — the whole page, not
+    just within a group.** New `src/lib/insightsLayout.ts`, same pattern as
+    `groups.ts`: one JSON blob in `meta`, syncs via Dropbox, survives an
+    export/import. Deliberately a **separate** store from the Log tab's own
+    collapsed-group state (`uiPrefs.ts`) — confirmed distinct `meta` keys, folding a
+    chart in Insights does not fold the matching Log-tab group or vice versa. Click
+    a heading to fold its chart(s); small **▲ ▼** buttons — same visual language as
+    the pen/`+` pair already on every Log-tab heading — move that section up or
+    down the **entire page**, not just against its neighbours in one block. Verified
+    a category chart moved all the way above "Wellbeing & sleep", and that both the
+    new order and the fold state survive a full reload.
+  - **The Illness & gut counters are gone.** Gut episodes / Infections / Warming
+    bottle — removed outright per his explicit call, not relocated. The chart itself
+    is untouched; the `warmingBottleDays` memo that fed only that row came out too,
+    since it was otherwise dead code.
+  - **Chart-sharing needed no new mechanism — confirmed, not just assumed.** G-6
+    already merges same-shaped metrics in one category onto a single chart. Created
+    "Phone use" as an hours-duration metric, moved it and the **built-in** Computer
+    time into a new "Screens" category via the existing move sheet, and got one
+    real **"Screens (min)"** chart with both as separate lines — Computer time's
+    prior logged history moved with it, not just new entries. This was also the
+    first real exercise of "Move to another category" on a built-in metric rather
+    than a custom one; it worked without any change.
+  - The render itself moved from four hardcoded JSX blocks to one array of
+    `{ id, title, icon, body }` sections built from the exact same gates each block
+    already used (`hasWellbeingSection`, `hasIllness`, a non-empty `groupCharts`
+    entry, meals logged), then walked in stored order — so a section with nothing
+    in it still doesn't appear, unchanged from before this existed.
+  - Verified in both themes: clean reload, every tab walked, no console errors,
+    test data (the Screens category, Phone use, layout changes) cleaned up before
+    push so the shipped build starts from the same blank state as always.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-6**. No schema change._
+_Replaced each iteration — this is the list for **G-7**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Rename a category.** Log tab → tap the **pen** next to "Movement" (or any
-   heading) → change the name → **Rename**. The heading should update immediately.
-   Fully close and reopen the app — the new name must still be there.
-3. **Reorder.** In that same sheet, **Move up / Move down** — the headings on the
-   Log screen should swap order right away.
-4. **Icon.** Search for something ('ball', 'water', 'outdoors') or type an emoji —
-   the heading's icon should change.
-5. **Create a category — the big one.** Tap **"+ New category"** at the bottom of
-   the list → name it, pick an icon → **Create category**. It appears as an empty
-   heading with its own **+**.
-   - Tap its **+** and add something to track in it, or open an existing item's
-     **pen** (in its note panel) → **"Move to another category"** → pick your new
-     one.
-   - Go to **Insights** — your new category should have **its own chart**: a
-     plateau chart if everything in it is a duration, a line chart if everything is
-     a 0-10 rating, or a small card per item if it's a mix.
-   - **This is retroactive** — if you moved something you'd already logged before,
-     all of its history moves to the new chart, not just what you log from now on.
-6. **Delete a custom category** (pen → Delete, only offered for ones you created) —
-   its items should reappear under **Other**, with nothing you logged lost.
-7. **Built-ins can't be deleted** — open a built-in category's edit sheet and
-   confirm there's no delete option, just a note explaining why.
-8. **Nutrition moved.** The Daily calories / Macros charts in Insights now render
-   **after** all your tracked-category charts instead of between Pain and Other.
-   Just flagging it — say if you'd rather it went back.
-9. **Both themes**, and confirm nothing regressed: supplements (skip/pause from
-   last time), the dictation review, folded groups, meals, barcode scanner.
+2. **Log something in hours.** Tap **+** on any heading → name it (e.g. "Phone
+   use") → **Duration (min)** → a **Minutes / Hours** choice appears, pick
+   **Hours** → **Add**. Its slider should run **0–12h in half-hour steps**, not
+   0–180 minutes.
+3. **Fold a chart.** Insights → tap any heading (e.g. "Movement") — its chart
+   should disappear, the heading stays. Tap again to bring it back. Fully close
+   and reopen the app — it should still be folded/unfolded exactly as you left it.
+4. **Rearrange the whole page.** Use the small **▲ ▼** next to any heading to move
+   that chart up or down — try moving one all the way above "Wellbeing & sleep" at
+   the very top. Reopen the app — the new position should hold.
+5. **Folding in Insights shouldn't touch the Log tab.** Fold something in
+   Insights, then go to the Log tab — that same category's quick-entry section
+   should be exactly as it was, not folded.
+6. **Illness & gut's three numbers are gone.** The Gut episodes / Infections /
+   Warming bottle counts no longer show — just the chart, same as before.
+7. **Phone use next to Computer time — the big one.** Create "Phone use" as an
+   Hours duration (step 2). Tap **+ New category** and make one called "Screens" (or
+   whatever you like). Open Computer time's row → pen → **"Move to another
+   category"** → Screens. Do the same for Phone use. Go to Insights — there should
+   be **one "Screens" chart with both as separate lines**, and your existing
+   Computer time history should already be on it, not just new entries.
+8. **Both themes**, and confirm nothing regressed: supplements (pause/skip), the
+   dictation review, meals, barcode scanner.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone9** — phone report on **G-6** (checklist above). No schema change; item
-  5 (create a category, move something into it, see its own Insights chart) is the
-  one this whole iteration exists for.
+- 🟦 **phone10** — phone report on **G-7** (checklist above). No schema change.
+  Item 7 (Phone use sharing a chart with Computer time) is the one this whole
+  round exists for.
+- ✅ **phone9** (G-6) — answered 2026-08-20, "everything's works great".
 - ✅ **phone8** (G-5) — answered 2026-08-20, "working great".
 - ✅ **phone7** (G-4) — answered 2026-08-20, "much better".
 - ✅ **phone6** (G-3) — answered 2026-08-20, "everything is working".
@@ -981,10 +1022,17 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-6** (checklist above). This closes out
-everything from the two-part plan — G-5 (supplements) shipped and was confirmed
-working; G-6 (categories) is built and verified end-to-end, including catching and
-fixing a real duplicate-registration bug before it reached his phone.
+**Waiting on Immanuel's phone report for G-7** (checklist above).
+
+Verified before pushing: 3h on an hours-duration slider stores as 180 minutes; a
+folded chart's content disappears while its heading stays, and both fold state and
+page-wide reorder survive a full reload; Insights fold/order is confirmed stored
+under a separate `meta` key from the Log tab's own collapsed-group state (folding
+one never touches the other); the three illness counters are gone with the chart
+otherwise untouched; Computer time (a built-in metric) moved cleanly into a new
+category alongside a custom hours-duration metric and both landed on one real
+chart with Computer time's prior history intact. Both themes, clean reload, every
+tab walked, no console errors. Test data cleaned up before push.
 
 Nothing else is queued. Next feature work needs a fresh ask.
 
@@ -998,18 +1046,17 @@ Older, unscheduled follow-ups (unchanged, not blocking):
 - Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
   segments) still unverified on a real phone.
 
-**Environment note:** the Browser pane's tools (`preview_start` especially, but
-others intermittently too) keep timing out on an unrelated safety classifier this
-session — sometimes clearing on the very next retry, sometimes needing several.
-When `preview_start`/`navigate` both report "no preview is open" even though the
-dev server (checked via `lsof -nP -iTCP:5199 -sTCP:LISTEN`) is still up, the pane
-itself has closed — re-run `preview_start` with the `url` param to reopen it, don't
-assume the server needs restarting. `read_console_messages` does **not** clear
-across reloads — compare the `?t=…` HMR cache-buster in a stack trace against the
-current reload time before trusting an error as live. Also still true: scroll
-events don't reach React handlers in this pane — set `scrollTop` then
-`dispatchEvent(new Event('scroll'))` — and `window.__ht.all(sql)` takes **no bind
-parameters**, inline values into the SQL string.
+**Environment note:** the Browser pane's `preview_start` and occasionally other
+tools intermittently time out on an unrelated safety classifier — usually clears on
+retry within a call or two. When `preview_start`/`navigate` both report "no preview
+is open" but the dev server (`lsof -nP -iTCP:5199 -sTCP:LISTEN`) is still up, the
+pane itself has closed — re-run `preview_start` with the `url` param to reopen it.
+`read_console_messages` does **not** clear across reloads — compare the `?t=…` HMR
+cache-buster in a stack trace against the current reload time before trusting an
+error as live. Also still true: scroll events don't reach React handlers in this
+pane — set `scrollTop` then `dispatchEvent(new Event('scroll'))` — and
+`window.__ht.all(sql)` takes **no bind parameters**, inline values into the SQL
+string.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

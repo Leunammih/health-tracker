@@ -17,7 +17,7 @@
 
 import { getMeta, setMeta } from '../db/queries'
 import { colorForTrack as paletteColor } from './palette'
-import { setCustomTrackDefs, paletteGroup, TRACK_DEFS, type MetricGroup, type MetricKind, type TrackDef } from './metrics'
+import { setCustomTrackDefs, paletteGroup, TRACK_DEFS, type MetricGroup, type MetricKind, type TrackDef, type DisplayUnit } from './metrics'
 
 const KEY = 'custom_metrics'
 
@@ -36,6 +36,11 @@ export interface CustomMetricSpec {
   // "how hard" is a real question for a workout and a meaningless one for a weight.
   // Undefined means "never chose" — for a duration that still defaults to true.
   hasIntensity?: boolean
+  // Only meaningful when shape === 'duration'. 'h' reuses the exact same
+  // store-in-minutes-show-in-hours mechanism Computer Time uses (see metrics.ts's
+  // TrackDef.display) — screen time and similar things are thought of in hours, and
+  // a 0-180 slider in 5-minute steps is the wrong control for them.
+  durationUnit?: 'min' | 'h'
   // A catalogue name from metricIcons.tsx, or an 'emoji:🪁' string.
   icon?: string
 }
@@ -54,6 +59,7 @@ interface Scale {
   step: number
   kind?: MetricKind
   quickStep?: number
+  display?: DisplayUnit
 }
 
 const SHAPE_SCALE: Record<MetricShape, Scale> = {
@@ -61,6 +67,14 @@ const SHAPE_SCALE: Record<MetricShape, Scale> = {
   rating: { unit: '/10', min: 0, max: 10, step: 1 },
   checkmark: { unit: '', min: 0, max: 1, step: 1, kind: 'bool' },
   number: { unit: '', min: 0, max: 200, step: 1 },
+}
+
+// Same numbers Computer Time (metrics.ts) already ships with: a 12h ceiling, since
+// the ordinary 180-minute duration cap would clip a normal working day at lunch,
+// and a half-hour display step since nobody tracks phone use to the minute.
+const HOURS_SCALE: Scale = {
+  unit: 'min', min: 0, max: 720, step: 30, quickStep: 30,
+  display: { unit: 'h', per: 60, step: 0.5 },
 }
 
 export function canonicalKey(label: string): string {
@@ -80,7 +94,7 @@ function matcherFor(key: string): RegExp {
 }
 
 function toDef(spec: CustomMetricSpec): TrackDef {
-  const scale = SHAPE_SCALE[spec.shape]
+  const scale = spec.shape === 'duration' && spec.durationUnit === 'h' ? HOURS_SCALE : SHAPE_SCALE[spec.shape]
   return {
     key: spec.key,
     label: spec.label,
@@ -93,8 +107,12 @@ function toDef(spec: CustomMetricSpec): TrackDef {
     step: scale.step,
     kind: scale.kind,
     quickStep: scale.quickStep,
+    display: scale.display,
     lowerIsBetter: spec.lowerIsBetter,
-    hasIntensity: spec.hasIntensity ?? (spec.shape === 'duration'),
+    // An hours-based duration defaults OFF: screen time has no "how hard" the way a
+    // workout does. He can still turn it on — the sheet's checkbox is explicit,
+    // this is only the default it opens with.
+    hasIntensity: spec.hasIntensity ?? (spec.shape === 'duration' && spec.durationUnit !== 'h'),
     icon: spec.icon,
     // Checkmarks and one-off numbers are point-in-time readings: two entries on a
     // day don't add up and don't average. Durations sum, ratings average — the
