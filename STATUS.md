@@ -888,37 +888,80 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     no console errors. Test data (temporary "Phone use"/"Water intake" custom
     metrics, the "Productivity" category, their track rows) cleaned up before push.
 
+- **Phase G-9 — hours-unit shared charts, combine everywhere, supplement markers
+  scoped to Illness & gut** (2026-08-21). No schema change. Three fixes from his
+  G-8 phone report, same day.
+  - **A shared duration chart now shows hours when every member prefers hours.**
+    The "Productivity" chart (Computer time + Phone use, both hours-mode) was
+    still labelled "(min)" with a 0-600 axis — the shared-chart code summed raw
+    stored minutes and never consulted each metric's own display unit the way
+    the individual-card path already did. `groupCharts` now checks every duration
+    member's `displayScale(...).unit`: all-hours converts the whole bucket
+    (title, axis, legend unit) to hours at aggregation time; anything mixed or
+    plain-minutes is untouched. Verified: the same Productivity scenario now
+    reads "PRODUCTIVITY (H)" with a 0-5 axis instead of "(MIN)" with 0-600.
+  - **The ⇄ combine control now covers Movement too.** G-8b's button skipped the
+    Movement bucket on the assumption a logged activity type (Dancing, Biking)
+    couldn't be reassigned the way a tracked metric can — wrong assumption,
+    activity types go through the exact same `assignMetricToGroup` (proven back
+    in G-6 by moving "dancing" into a new "Sports" category). Verified by
+    moving "Dancing" out of Movement into "Other" and back via the new ⇄ button
+    — its full logged history moved with it both times, same as any other
+    metric. The `membersByGroup` preview lost its Movement exclusion too.
+  - **Supplement start/pause/stop markers no longer show up on unrelated
+    charts.** They were drawn on every custom category's rating chart (so
+    "Productivity (0-10)" — Brain clarity alone — was covered in "Started
+    Creatine monohydrate" labels that have nothing to do with it) and on Energy
+    & mood. Per his explicit call, restricted to Illness & gut only, the one
+    place they're meant to live. Verified: Illness & gut still shows them,
+    Productivity (0-10) and Energy & mood no longer do.
+  - Verified in-browser: reproduced the Productivity scenario, confirmed the
+    hours axis; moved Dancing in and out of Movement; confirmed marker scoping
+    on Illness & gut vs. two other charts that used to show them. Test data
+    cleaned up before push.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-8**. No schema change._
+_Replaced each iteration — this is the list for **G-9**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **The actual bug you reported — Computer time and Phone use should now share
-   one chart again.** Go to Insights → Productivity. You should see **one chart**
-   with both Computer time and Phone use as separate lines, plus a **separate**
-   chart for Brain clarity (0–10) — both under the same "Productivity" heading.
-   Before this fix they'd fallen back to three separate mini-charts.
-3. **The new combine control.** Next to every name in a chart's legend (and next
-   to any single-metric chart card) there's now a small **⇄** button. Tap it on
-   Brain clarity — a sheet opens listing every category, and each one previews
-   what's already in it (e.g. "Productivity — with Computer time, Phone use").
-   Tap a different category — Brain clarity should move there immediately and
-   the chart should update to match. Move it back to Productivity the same way.
-4. **Confirm it's really the same "move category" mechanism as before** — moving
-   something with ⇄ from Insights should also show up if you check that metric's
-   category from the Log tab (pen icon → "Move to another category"), and vice
-   versa. This was a deliberate reuse, not a new separate system, so a metric's
-   Insights chart and its Log-tab section always agree.
-5. **Both themes**, and confirm nothing regressed: the fold/reorder from G-7,
-   supplements (pause/skip), the dictation review, meals, barcode scanner.
+2. **Productivity should read in hours, not minutes.** Insights → Productivity —
+   the chart with Computer time and Phone use should now say **"Productivity
+   (h)"** with a small axis (e.g. 0/3/5), not "(min)" with a 0-600 axis.
+3. **Combine now works on Movement too.** Scroll to Movement — every activity
+   name in its legend (Dancing, Biking, whatever you've logged) should have the
+   same **⇄** button Productivity's items had. Tap it on one, move it to another
+   category, confirm it lands there with its full history, move it back.
+4. **Supplement markers — only on Illness & gut now.** Open any *other* chart
+   that has a rating (0-10) line — e.g. Health & pain, or a custom category with
+   a rating metric in it — the dashed vertical "Started X" / "Stopped X"
+   supplement lines should be **gone** from it. Scroll to Illness & gut — they
+   should still be there, same as always. Energy & mood also no longer shows
+   them (this one used to, on purpose — flagging in case you actually want it
+   back there specifically, separate from the general "only Illness & gut" ask).
+5. **Both themes**, and confirm nothing regressed: the fold/reorder and combine
+   picker from G-7/G-8, supplements (pause/skip), the dictation review, meals,
+   barcode scanner.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
+- 🔶 **dedicated1** — Energy, Mood, Stress, Release, Infection, Stool and Warming
+  bottle each live in their own fixed chart (Wellbeing & sleep, Illness & gut)
+  with bespoke rendering (Infection's carry-forward-until-resolved, Stool's
+  Bristol coloring, Release's dual axis) — they don't go through the
+  customisable-category system at all, so they have no ⇄ button and can't be
+  moved like everything else now can. Extending "move and customise" to these
+  specifically means either losing that bespoke rendering when moved, or
+  keeping it permanently regardless of category — a real design choice, not
+  guessed at. Say the word if you want this built next and which way to take it.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
-  (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone11** — phone report on **G-8** (checklist above). No schema change.
-  The bucketing fix (item 2) and the new ⇄ combine picker (items 3-4) are what
-  this round exists for.
+  (Log tab). Double-counted calories; the "stray reference line on three
+  charts" half of this is now moot on its own — G-9 restricted every event/
+  supplement marker to the Illness & gut chart only, so it structurally can't
+  appear elsewhere anymore. The underlying duplicate rows are still there.
+- 🟦 **phone12** — phone report on **G-9** (checklist above). No schema change.
+- ✅ **phone11** (G-8) — answered 2026-08-21: combine works; three follow-ups
+  (hours display, combine everywhere, supplement markers) became G-9.
 - ✅ **phone10** (G-7) — answered 2026-08-21, "everything working wonderfully",
   plus the bug report and feature ask that became G-8.
 - ✅ **phone9** (G-6) — answered 2026-08-20, "everything's works great".
@@ -1053,37 +1096,43 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-8** (checklist above).
+**Waiting on Immanuel's phone report for G-9** (checklist above).
 
-Root cause of the reported bug: `groupCharts`' per-category shape decision in
-`InsightsTab.tsx` used to be all-or-nothing (every member a duration → one shared
-plateau; every member a rating → one shared line chart; anything else mixed in →
-one card per metric, no merging). A category holding a rating metric (Brain
-clarity) alongside two durations (Computer time, Phone use) fell into the "mixed"
-branch, so the two durations stopped sharing a chart even though nothing about
-their own compatibility changed. Fixed by bucketing duration/rating/other
-independently per category, so all three can render together under one heading.
+G-9 was three direct fixes from his G-8 phone report, same day, no schema change:
 
-On top of the fix, built the direct "combine" UI he asked for: a ⇄ button on every
-chart legend entry (`PlateauChart`'s new `onCombineSeries` prop, plus the inline
-rating-chart legend) and on every single-metric card, opening `MoveMetricSheet`
-(now previewing each category's current members) straight from Insights. Worth
-being upfront about: "combining" two graphs is the *same* mechanism as "move to
-another category" from the Log tab — reusing that existing system rather than
-building an independent chart-membership concept, so moving something from either
-side always changes both its chart and its Log-tab section together, never one
-without the other.
+1. **Hours unit on shared duration charts.** The Productivity chart (Computer
+   time + Phone use, both hours-mode metrics) still read "(min)" with a 0-600
+   axis — the shared-chart aggregation in `groupCharts` summed raw stored
+   minutes and never checked each member's own `displayScale(...).unit` the way
+   the single-metric card path already did. Now checks every duration member: if
+   every one prefers hours, the whole bucket (title, axis, legend) converts to
+   hours at aggregation time; mixed or plain-minutes buckets are untouched.
+2. **⇄ combine extended to Movement.** G-8b's button excluded Movement on the
+   wrong assumption that a logged activity type couldn't be reassigned the way a
+   tracked metric can — G-6 already proved otherwise (moving "dancing" into a
+   new "Sports" category, verified again this round by moving "Dancing" out of
+   Movement into "Other" and back, full history intact both times).
+3. **Supplement markers scoped to Illness & gut only.** They were being drawn on
+   every custom category's rating chart and on Energy & mood too — read as
+   clutter on charts that have nothing to do with supplements ("Productivity
+   (0-10)" showing "Started Creatine monohydrate"). Restricted to Illness & gut,
+   per his explicit call. Flagged in the phone checklist that Energy & mood
+   losing them too was part of that literal instruction, in case he only meant
+   the generic category charts and actually wants it back on Energy & mood
+   specifically — easy to re-add if so.
 
-Verified before pushing: reproduced the exact reported scenario (Brain clarity +
-Computer time + Phone use, all in "Productivity") and confirmed Insights now draws
-"Productivity (min)" (both durations, separate lines) and "Productivity (0-10)"
-(Brain clarity) together under one heading; used the new ⇄ button to move Brain
-clarity to "Other" and back, confirming the chart and the member-preview text both
-update correctly each time; confirmed the ⇄ control renders and works on all three
-render paths — the shared duration chart's legend, the shared rating chart's
-legend, and a single-metric card. Both themes, clean reload, no console errors.
-Test data (the temporary "Phone use" and "Water intake" custom metrics, the
-"Productivity" category, and their track rows) cleaned up before push.
+Verified in-browser before pushing: reproduced the Productivity scenario and
+confirmed "Productivity (h)" with a small axis; moved "Dancing" out of Movement
+into "Other" and back via ⇄, confirming full history follows each time; confirmed
+Illness & gut still shows supplement markers while Productivity (0-10) and Energy
+& mood no longer do. Clean reload, no console errors. Test data cleaned up before
+push.
+
+**Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
+Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed
+charts outside the customisable-category system entirely, so "move and customise
+all items traced" doesn't yet reach them. Needs his steer on which way to take it
+before building, not a guess.
 
 Nothing else is queued. Next feature work needs a fresh ask.
 
