@@ -12,12 +12,13 @@ import {
   colorForTrack, labelForTrack, defForName, groupForTrack, isLowerBetter, QUICK_LOG_ITEMS,
   canonicalTrackName, chartPalette, scaleForTrack, displayScale, toDisplay, paletteGroup,
 } from '../lib/metrics'
-import { allGroups } from '../lib/groups'
+import { allGroups, assignMetricToGroup } from '../lib/groups'
 import { loadInsightsLayout, orderIds, setSectionCollapsed, moveSection, type InsightsLayout } from '../lib/insightsLayout'
 import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '../lib/hiddenMetrics'
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
+import MoveMetricSheet from '../components/MoveMetricSheet'
 import { MetricIcon, GroupIcon } from '../components/metricIcons'
 import { IconMeal } from '../components/icons'
 import heroResources from '../assets/hero-resources.jpg'
@@ -70,6 +71,12 @@ export default function InsightsTab() {
   const [days, setDays] = useState(30)
   const [refresh, setRefresh] = useState(0)
   const [sheet, setSheet] = useState<{ name: string; category: string | null; date?: string } | null>(null)
+  // The metric currently in the "combine into another graph" picker — this is the
+  // direct-from-Insights entry point for the ⇄ button; it opens MoveMetricSheet
+  // with its category preselected the same way QuickEntryPanel's per-row move
+  // already does, since "combine" and "move to a category" are the same operation
+  // under the hood (a category's members always share one chart).
+  const [combining, setCombining] = useState<{ name: string; from: string } | null>(null)
   // Collapsed by default — the grid used to occupy the whole first screen before
   // any chart was visible.
   const [tapOpen, setTapOpen] = useState(false)
@@ -168,6 +175,17 @@ export default function InsightsTab() {
   // today; anything mixed -> one small card per metric, as the old catch-all
   // "Other" section always did. This is what makes "create a category" mean
   // something in Insights instead of the item just falling into Other.
+  // Each category's chart area used to be an all-or-nothing choice: every member a
+  // duration -> one shared plateau, every member a rating -> one shared line chart,
+  // ANYTHING else mixed in -> fall back to one small card per metric, no merging at
+  // all. That was the bug: a category holding Brain clarity (rating) alongside
+  // Computer time and Phone use (both duration) fell into the "anything else"
+  // branch, so Computer time and Phone use stopped sharing a chart even though nothing
+  // about them individually changed. Categories now bucket by SHAPE independently —
+  // every duration member always shares one plateau, every rating member always
+  // shares one line chart, and only what's left over (checkmarks, plain numbers,
+  // measurements) falls back to individual cards. All three can render together
+  // under the same heading.
   const groupCharts = useMemo(() => {
     const hidden = loadHiddenMetrics()
     const supplements = supplementMetricNames()
@@ -190,11 +208,18 @@ export default function InsightsTab() {
       const isMovement = g.key === 'movement'
 
       if (!names.length && !(isMovement && acts.length)) {
-        return { key: g.key, label: g.label, icon: g.icon, shape: 'empty' as const }
+        return { key: g.key, label: g.label, icon: g.icon, duration: null, rating: null, cards: [] }
       }
 
-      const allMinutes = names.length > 0 && names.every((n) => scaleForTrack(n, null).unit === 'min')
-      if (isMovement || allMinutes) {
+      const durationNames = names.filter((n) => scaleForTrack(n, null).unit === 'min')
+      const ratingNames = names.filter((n) => {
+        const u = scaleForTrack(n, null).unit
+        return u === '/10' || u === '%'
+      })
+      const otherNames = names.filter((n) => !durationNames.includes(n) && !ratingNames.includes(n))
+
+      let duration: PlateauSeries[] | null = null
+      if (isMovement || durationNames.length) {
         const byName = new Map<string, Map<string, number>>()
         const add = (key: string, date: string, mins: number | null) => {
           if (!key || mins == null) return
@@ -205,37 +230,34 @@ export default function InsightsTab() {
         if (isMovement) {
           for (const a of acts) add(defForName(a.type ?? '')?.key ?? (a.type ?? '').trim().toLowerCase(), a.date, a.duration_min)
         }
-        for (const t of tracks) if (names.includes(t.name)) add(t.name, t.date, t.value)
+        for (const t of tracks) if (durationNames.includes(t.name)) add(t.name, t.date, t.value)
         const keys = [...byName.keys()]
-        if (!keys.length) return { key: g.key, label: g.label, icon: g.icon, shape: 'empty' as const }
-        // Spread this chart's own series evenly across the group's hue arc —
-        // guaranteed-distinct within this chart, not just a per-name hash.
-        const palette = chartPalette(keys, paletteGroup(g.key), light)
-        const plateau: PlateauSeries[] = keys.map((key) => ({
-          key,
-          label: labelForTrack(key),
-          color: palette[key],
-          values: spine.map((d) => byName.get(key)!.get(d) ?? null),
-        }))
-        return { key: g.key, label: g.label, icon: g.icon, shape: 'duration' as const, plateau }
+        if (keys.length) {
+          // Spread this chart's own series evenly across the group's hue arc —
+          // guaranteed-distinct within this chart, not just a per-name hash.
+          const palette = chartPalette(keys, paletteGroup(g.key), light)
+          duration = keys.map((key) => ({
+            key,
+            label: labelForTrack(key),
+            color: palette[key],
+            values: spine.map((d) => byName.get(key)!.get(d) ?? null),
+          }))
+        }
       }
 
-      const allRating = names.every((n) => {
-        const u = scaleForTrack(n, null).unit
-        return u === '/10' || u === '%'
-      })
-      if (allRating) {
-        const rows = buildRows(spine, tracks, names)
-        const palette = chartPalette(names, paletteGroup(g.key), light)
-        // Reversed only when EVERY member is lowerIsBetter — a mixed group draws
+      let rating: { keys: string[]; rows: ReturnType<typeof buildRows>; palette: Record<string, string>; reversed: boolean } | null = null
+      if (ratingNames.length) {
+        const rows = buildRows(spine, tracks, ratingNames)
+        const palette = chartPalette(ratingNames, paletteGroup(g.key), light)
+        // Reversed only when EVERY member is lowerIsBetter — a mixed bucket draws
         // right-way-up rather than picking a direction that misrepresents half of it.
-        const reversed = names.every((n) => isLowerBetter(n))
-        return { key: g.key, label: g.label, icon: g.icon, shape: 'rating' as const, keys: names, rows, palette, reversed }
+        const reversed = ratingNames.every((n) => isLowerBetter(n))
+        rating = { keys: ratingNames, rows, palette, reversed }
       }
 
-      // Mixed shape: one small card per metric — the same treatment the old
-      // catch-all "Other" section always gave a leftover metric.
-      const cards = names.map((name) => {
+      // Whatever's left (checkmarks, plain numbers, measurements) — one small card
+      // per metric, same treatment the old catch-all "Other" section always gave.
+      const cards = otherNames.map((name) => {
         const rowsForName = tracks.filter((t) => t.name === name && t.value != null)
         const scale = scaleForTrack(name, rowsForName.find((r) => r.category)?.category ?? null)
         return {
@@ -245,9 +267,29 @@ export default function InsightsTab() {
           series: rowsForName.map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: toDisplay(r.value as number, scale) })),
         }
       })
-      return { key: g.key, label: g.label, icon: g.icon, shape: 'mixed' as const, cards }
+
+      return { key: g.key, label: g.label, icon: g.icon, duration, rating, cards }
     })
   }, [tracks, acts, spine, light, DEDICATED])
+
+  // Every metric currently sharing each category's chart(s), for the "combine"
+  // picker's member preview — "movement" is excluded since that bucket mixes in
+  // logged activity types, which aren't metrics assignMetricToGroup can move.
+  const membersByGroup = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const gc of groupCharts) {
+      if (gc.key === 'movement') continue
+      const names = [...(gc.duration?.map((d) => d.key) ?? []), ...(gc.rating?.keys ?? []), ...gc.cards.map((c) => c.name)]
+      if (names.length) map[gc.key] = names
+    }
+    return map
+  }, [groupCharts])
+
+  async function moveMetricToGroup(name: string, group: string) {
+    await assignMetricToGroup(name, group)
+    setCombining(null)
+    setRefresh((k) => k + 1)
+  }
 
   // --- sleep: duration (computed from bedtime/wake, never stored) + felt quality,
   // both spine-aligned. High is good for both, so neither axis is reversed.
@@ -608,49 +650,51 @@ export default function InsightsTab() {
   }
 
   // One entry per category, in the order this render's groupCharts already
-  // resolved — see that memo for how the chart shape (duration/rating/mixed) is
-  // chosen from what's actually logged in the category. A renamed or newly-created
-  // category shows up here automatically.
+  // resolved — see that memo for how each bucket (duration/rating/cards) is built
+  // independently from what's actually logged in the category, so more than one can
+  // render together under the same heading. A renamed or newly-created category
+  // shows up here automatically.
   for (const gc of groupCharts) {
-    if (gc.shape === 'empty') continue
+    if (!gc.duration && !gc.rating && !gc.cards.length) continue
     sectionList.push({
       id: `cat-${gc.key}`,
       title: gc.label,
       icon: <GroupIcon group={gc.key} icon={gc.icon} size={12} />,
       body: (
         <>
-          {gc.shape === 'duration' && (
+          {gc.duration && (
             <ChartCard title={`${gc.label} (min)`} hint="tap a day, or a name below, to log it">
               <PlateauChart
                 dates={spine}
-                series={gc.plateau}
-                onPickDay={(d) => setSheet({ name: gc.plateau[0].key, category: categoryOf(gc.plateau[0].key), date: d })}
+                series={gc.duration}
+                onPickDay={(d) => setSheet({ name: gc.duration![0].key, category: categoryOf(gc.duration![0].key), date: d })}
                 onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
+                onCombineSeries={gc.key === 'movement' ? undefined : (key) => setCombining({ name: key, from: gc.key })}
               />
             </ChartCard>
           )}
 
-          {gc.shape === 'rating' && (
+          {gc.rating && (
             <ChartCard
               title={`${gc.label} (0-10)`}
-              hint={gc.reversed ? 'low is good — worse sits at the bottom' : undefined}
+              hint={gc.rating.reversed ? 'low is good — worse sits at the bottom' : undefined}
             >
               <ResponsiveContainer width="100%" height={170}>
-                <LineChart data={gc.rows} margin={{ left: -20, right: 8, top: 8 }}>
+                <LineChart data={gc.rating.rows} margin={{ left: -20, right: 8, top: 8 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
                   {eventMarkers.map((m) => (
                     <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
                   ))}
                   <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis domain={[0, 10]} reversed={gc.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+                  <YAxis domain={[0, 10]} reversed={gc.rating.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  {gc.keys.map((k) => (
+                  {gc.rating.keys.map((k) => (
                     <Line isAnimationActive={false}
                       key={k}
                       type="monotone"
                       dataKey={k}
                       name={labelForTrack(k)}
-                      stroke={gc.palette[k]}
+                      stroke={gc.rating!.palette[k]}
                       strokeWidth={2}
                       dot={{ r: 2 }}
                       connectNulls
@@ -659,18 +703,33 @@ export default function InsightsTab() {
                 </LineChart>
               </ResponsiveContainer>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
-                {gc.keys.map((k) => (
-                  <button key={k} className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: categoryOf(k) })}>
-                    <MetricIcon name={k} color={gc.palette[k]} size={14} />
-                    {labelForTrack(k)}
-                  </button>
+                {gc.rating.keys.map((k) => (
+                  <span key={k} className="flex items-center gap-1">
+                    <button className="flex items-center gap-1.5 hover:text-cream" onClick={() => setSheet({ name: k, category: categoryOf(k) })}>
+                      <MetricIcon name={k} color={gc.rating!.palette[k]} size={14} />
+                      {labelForTrack(k)}
+                    </button>
+                    <button
+                      className="text-ink-500 hover:text-cream"
+                      title={`Move ${labelForTrack(k)} to another graph`}
+                      onClick={() => setCombining({ name: k, from: gc.key })}
+                    >
+                      ⇄
+                    </button>
+                  </span>
                 ))}
               </div>
             </ChartCard>
           )}
 
-          {gc.shape === 'mixed' && gc.cards.map((c) => (
-            <TrackCard key={c.name} group={c} spine={spine} onLog={() => setSheet({ name: c.name, category: null })} />
+          {gc.cards.map((c) => (
+            <TrackCard
+              key={c.name}
+              group={c}
+              spine={spine}
+              onLog={() => setSheet({ name: c.name, category: null })}
+              onMove={() => setCombining({ name: c.name, from: gc.key })}
+            />
           ))}
         </>
       ),
@@ -849,6 +908,17 @@ export default function InsightsTab() {
           onChanged={() => setRefresh((k) => k + 1)}
         />
       )}
+
+      {combining && (
+        <MoveMetricSheet
+          metric={combining.name}
+          currentGroup={combining.from}
+          groups={allGroups()}
+          membersByGroup={membersByGroup}
+          onMove={(group) => void moveMetricToGroup(combining.name, group)}
+          onClose={() => setCombining(null)}
+        />
+      )}
     </div>
   )
 }
@@ -888,10 +958,12 @@ function TrackCard({
   group,
   spine,
   onLog,
+  onMove,
 }: {
   group: { name: string; unit: string; count: number; series: { date: string; rawDate: string; value: number }[] }
   spine: string[]
   onLog: () => void
+  onMove?: () => void
 }) {
   const title = labelForTrack(group.name) + (group.unit ? ` (${group.unit})` : '')
   const reversed = isLowerBetter(group.name)
@@ -917,21 +989,35 @@ function TrackCard({
             <Line isAnimationActive={false} type="monotone" dataKey="value" stroke={colorForTrack(group.name)} strokeWidth={2} dot={{ r: 2 }} connectNulls />
           </LineChart>
         </ResponsiveContainer>
-        <button className="mt-1 text-xs text-ink-400 hover:text-cream" onClick={onLog}>
-          + Log {labelForTrack(group.name)}
-        </button>
+        <div className="mt-1 flex items-center gap-3">
+          <button className="text-xs text-ink-400 hover:text-cream" onClick={onLog}>
+            + Log {labelForTrack(group.name)}
+          </button>
+          {onMove && (
+            <button className="text-xs text-ink-500 hover:text-cream" title="Move to another graph" onClick={onMove}>
+              ⇄ Combine
+            </button>
+          )}
+        </div>
       </ChartCard>
     )
   }
   const latest = group.series.at(-1)
   return (
-    <button className="card flex w-full items-center justify-between !py-3 text-left" onClick={onLog}>
-      <div className="text-sm text-cream">{title}</div>
-      <div className="text-xs text-ink-300">
-        {latest ? `latest ${latest.value}` : `${group.count}×`}
-        {group.count > 1 && latest ? ` · ${group.count}×` : ''}
-      </div>
-    </button>
+    <div className="card flex w-full items-center justify-between !py-3">
+      <button className="flex-1 text-left" onClick={onLog}>
+        <div className="text-sm text-cream">{title}</div>
+        <div className="text-xs text-ink-300">
+          {latest ? `latest ${latest.value}` : `${group.count}×`}
+          {group.count > 1 && latest ? ` · ${group.count}×` : ''}
+        </div>
+      </button>
+      {onMove && (
+        <button className="pl-2 text-ink-500 hover:text-cream" title="Move to another graph" onClick={onMove}>
+          ⇄
+        </button>
+      )}
+    </div>
   )
 }
 

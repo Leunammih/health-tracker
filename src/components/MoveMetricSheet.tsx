@@ -11,12 +11,14 @@ export default function MoveMetricSheet({
   metric,
   currentGroup,
   groups,
+  membersByGroup,
   onMove,
   onClose,
 }: {
   metric: string
   currentGroup: string
   groups: ResolvedGroup[]
+  membersByGroup?: Record<string, string[]>
   onMove: (group: string) => void
   onClose: () => void
 }) {
@@ -37,23 +39,31 @@ export default function MoveMetricSheet({
         </div>
 
         <div className="space-y-1.5">
-          {groups.map((g) => (
-            <button
-              key={g.key}
-              type="button"
-              disabled={g.key === currentGroup}
-              onClick={() => onMove(g.key)}
-              className={`flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm ${
-                g.key === currentGroup
-                  ? 'border-brand-500 text-cream'
-                  : 'border-ink-700 text-ink-300 hover:text-cream'
-              }`}
-            >
-              <GroupIcon group={g.key} icon={g.icon} size={16} />
-              {g.label}
-              {g.key === currentGroup && <span className="ml-auto text-[11px] text-brand-500">current</span>}
-            </button>
-          ))}
+          {groups.map((g) => {
+            const members = (membersByGroup?.[g.key] ?? []).filter((m) => m !== metric)
+            return (
+              <button
+                key={g.key}
+                type="button"
+                disabled={g.key === currentGroup}
+                onClick={() => onMove(g.key)}
+                className={`flex w-full flex-col gap-0.5 rounded-xl border px-3 py-2.5 text-left text-sm ${
+                  g.key === currentGroup
+                    ? 'border-brand-500 text-cream'
+                    : 'border-ink-700 text-ink-300 hover:text-cream'
+                }`}
+              >
+                <span className="flex w-full items-center gap-2">
+                  <GroupIcon group={g.key} icon={g.icon} size={16} />
+                  {g.label}
+                  {g.key === currentGroup && <span className="ml-auto text-[11px] text-brand-500">current</span>}
+                </span>
+                {members.length > 0 && (
+                  <span className="pl-6 text-[11px] text-ink-400">with {members.map(labelForTrack).join(', ')}</span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
         <p className="mt-3 text-xs text-ink-400">
