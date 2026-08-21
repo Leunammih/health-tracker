@@ -854,42 +854,73 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     test data (the Screens category, Phone use, layout changes) cleaned up before
     push so the shipped build starts from the same blank state as always.
 
+- **Phase G-8 — fix category chart merging, add a graph-to-graph combine picker**
+  (2026-08-21). No schema change. Direct bug report + feature ask after G-7 shipped
+  and was confirmed working.
+  - **Root-cause fix: `groupCharts` now buckets duration/rating/other independently
+    per category**, instead of one all-or-nothing shape decision. The reported bug
+    — Computer time and Phone use (both durations) rendering as separate mini-charts
+    instead of one shared chart, just because Brain clarity (a rating) shared their
+    "Productivity" category — was exactly this: a rating metric mixed in used to
+    knock the *whole* category into the "mixed" fallback. Now every duration member
+    always shares one plateau, every rating member always shares one line chart, and
+    only genuine leftovers (checkmarks, numbers) fall back to individual cards — all
+    three can render together under one heading. Verified by reproducing the exact
+    scenario (Brain clarity + Computer time + Phone use, all "Productivity") and
+    confirming both "Productivity (min)" and "Productivity (0-10)" render together.
+  - **Direct "combine" control from Insights itself**, not just the Log tab's move
+    sheet. A small **⇄** button next to every legend entry (`PlateauChart` gained an
+    `onCombineSeries` prop; the inline rating-chart legend got the same button
+    inline) and on every single-metric card, opening `MoveMetricSheet` right from
+    Insights. That sheet now takes an optional `membersByGroup` and previews each
+    category's current members under its name (e.g. "Productivity — with Computer
+    time, Phone use"), so the picker reads as "a list of graphs and what's in them,"
+    per his wording.
+  - **Deliberately reuses category assignment as the combine mechanism** — the same
+    choice already made in G-7 — rather than building an independent chart-membership
+    concept. Combining two graphs calls the same `assignMetricToGroup` the Log tab's
+    move sheet always used, so moving something from either side changes both its
+    Insights chart and its Log-tab section together, never just one.
+  - Verified all three render paths where the ⇄ button appears (shared duration
+    chart legend, shared rating chart legend, single-metric card) in both themes;
+    moved Brain clarity out to "Other" and back via the new control, confirming the
+    chart and the member-preview text both update correctly each time. Clean reload,
+    no console errors. Test data (temporary "Phone use"/"Water intake" custom
+    metrics, the "Productivity" category, their track rows) cleaned up before push.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-7**. No schema change._
+_Replaced each iteration — this is the list for **G-8**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Log something in hours.** Tap **+** on any heading → name it (e.g. "Phone
-   use") → **Duration (min)** → a **Minutes / Hours** choice appears, pick
-   **Hours** → **Add**. Its slider should run **0–12h in half-hour steps**, not
-   0–180 minutes.
-3. **Fold a chart.** Insights → tap any heading (e.g. "Movement") — its chart
-   should disappear, the heading stays. Tap again to bring it back. Fully close
-   and reopen the app — it should still be folded/unfolded exactly as you left it.
-4. **Rearrange the whole page.** Use the small **▲ ▼** next to any heading to move
-   that chart up or down — try moving one all the way above "Wellbeing & sleep" at
-   the very top. Reopen the app — the new position should hold.
-5. **Folding in Insights shouldn't touch the Log tab.** Fold something in
-   Insights, then go to the Log tab — that same category's quick-entry section
-   should be exactly as it was, not folded.
-6. **Illness & gut's three numbers are gone.** The Gut episodes / Infections /
-   Warming bottle counts no longer show — just the chart, same as before.
-7. **Phone use next to Computer time — the big one.** Create "Phone use" as an
-   Hours duration (step 2). Tap **+ New category** and make one called "Screens" (or
-   whatever you like). Open Computer time's row → pen → **"Move to another
-   category"** → Screens. Do the same for Phone use. Go to Insights — there should
-   be **one "Screens" chart with both as separate lines**, and your existing
-   Computer time history should already be on it, not just new entries.
-8. **Both themes**, and confirm nothing regressed: supplements (pause/skip), the
-   dictation review, meals, barcode scanner.
+2. **The actual bug you reported — Computer time and Phone use should now share
+   one chart again.** Go to Insights → Productivity. You should see **one chart**
+   with both Computer time and Phone use as separate lines, plus a **separate**
+   chart for Brain clarity (0–10) — both under the same "Productivity" heading.
+   Before this fix they'd fallen back to three separate mini-charts.
+3. **The new combine control.** Next to every name in a chart's legend (and next
+   to any single-metric chart card) there's now a small **⇄** button. Tap it on
+   Brain clarity — a sheet opens listing every category, and each one previews
+   what's already in it (e.g. "Productivity — with Computer time, Phone use").
+   Tap a different category — Brain clarity should move there immediately and
+   the chart should update to match. Move it back to Productivity the same way.
+4. **Confirm it's really the same "move category" mechanism as before** — moving
+   something with ⇄ from Insights should also show up if you check that metric's
+   category from the Log tab (pen icon → "Move to another category"), and vice
+   versa. This was a deliberate reuse, not a new separate system, so a metric's
+   Insights chart and its Log-tab section always agree.
+5. **Both themes**, and confirm nothing regressed: the fold/reorder from G-7,
+   supplements (pause/skip), the dictation review, meals, barcode scanner.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories + a stray reference line on three charts.
-- 🟦 **phone10** — phone report on **G-7** (checklist above). No schema change.
-  Item 7 (Phone use sharing a chart with Computer time) is the one this whole
-  round exists for.
+- 🟦 **phone11** — phone report on **G-8** (checklist above). No schema change.
+  The bucketing fix (item 2) and the new ⇄ combine picker (items 3-4) are what
+  this round exists for.
+- ✅ **phone10** (G-7) — answered 2026-08-21, "everything working wonderfully",
+  plus the bug report and feature ask that became G-8.
 - ✅ **phone9** (G-6) — answered 2026-08-20, "everything's works great".
 - ✅ **phone8** (G-5) — answered 2026-08-20, "working great".
 - ✅ **phone7** (G-4) — answered 2026-08-20, "much better".
@@ -1022,17 +1053,37 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-7** (checklist above).
+**Waiting on Immanuel's phone report for G-8** (checklist above).
 
-Verified before pushing: 3h on an hours-duration slider stores as 180 minutes; a
-folded chart's content disappears while its heading stays, and both fold state and
-page-wide reorder survive a full reload; Insights fold/order is confirmed stored
-under a separate `meta` key from the Log tab's own collapsed-group state (folding
-one never touches the other); the three illness counters are gone with the chart
-otherwise untouched; Computer time (a built-in metric) moved cleanly into a new
-category alongside a custom hours-duration metric and both landed on one real
-chart with Computer time's prior history intact. Both themes, clean reload, every
-tab walked, no console errors. Test data cleaned up before push.
+Root cause of the reported bug: `groupCharts`' per-category shape decision in
+`InsightsTab.tsx` used to be all-or-nothing (every member a duration → one shared
+plateau; every member a rating → one shared line chart; anything else mixed in →
+one card per metric, no merging). A category holding a rating metric (Brain
+clarity) alongside two durations (Computer time, Phone use) fell into the "mixed"
+branch, so the two durations stopped sharing a chart even though nothing about
+their own compatibility changed. Fixed by bucketing duration/rating/other
+independently per category, so all three can render together under one heading.
+
+On top of the fix, built the direct "combine" UI he asked for: a ⇄ button on every
+chart legend entry (`PlateauChart`'s new `onCombineSeries` prop, plus the inline
+rating-chart legend) and on every single-metric card, opening `MoveMetricSheet`
+(now previewing each category's current members) straight from Insights. Worth
+being upfront about: "combining" two graphs is the *same* mechanism as "move to
+another category" from the Log tab — reusing that existing system rather than
+building an independent chart-membership concept, so moving something from either
+side always changes both its chart and its Log-tab section together, never one
+without the other.
+
+Verified before pushing: reproduced the exact reported scenario (Brain clarity +
+Computer time + Phone use, all in "Productivity") and confirmed Insights now draws
+"Productivity (min)" (both durations, separate lines) and "Productivity (0-10)"
+(Brain clarity) together under one heading; used the new ⇄ button to move Brain
+clarity to "Other" and back, confirming the chart and the member-preview text both
+update correctly each time; confirmed the ⇄ control renders and works on all three
+render paths — the shared duration chart's legend, the shared rating chart's
+legend, and a single-metric card. Both themes, clean reload, no console errors.
+Test data (the temporary "Phone use" and "Water intake" custom metrics, the
+"Productivity" category, and their track rows) cleaned up before push.
 
 Nothing else is queued. Next feature work needs a fresh ask.
 
