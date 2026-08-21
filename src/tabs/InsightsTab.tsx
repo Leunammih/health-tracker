@@ -109,10 +109,13 @@ export default function InsightsTab() {
   // line on the calories chart. Null when unset — no line, chart unchanged.
   const goals = useMemo(() => loadGoals(), [refresh])
 
-  // Reference-line markers for the "started X" events above, keyed on the same
-  // formatted date string the categorical XAxis uses — Recharts positions a
-  // ReferenceLine by matching x against an axis tick, so this must be identical to
-  // what each chart's dataKey="date" renders for that day.
+  // Reference-line markers for the "started X" events above, drawn ONLY on the
+  // Illness & gut chart (his explicit call, 2026-08-21 — they used to also appear
+  // on Energy & mood and on every custom category's rating chart, which read as
+  // supplement clutter on charts that have nothing to do with supplements). Keyed
+  // on the same formatted date string the categorical XAxis uses — Recharts
+  // positions a ReferenceLine by matching x against an axis tick, so this must be
+  // identical to what Illness & gut's dataKey="date" renders for that day.
   //
   // The label is drawn rotated inside the plot area, so it is truncated here: a real
   // event label is a sentence ("July 5 start: Creatine monohydrate 3 g per day by …")
@@ -208,7 +211,7 @@ export default function InsightsTab() {
       const isMovement = g.key === 'movement'
 
       if (!names.length && !(isMovement && acts.length)) {
-        return { key: g.key, label: g.label, icon: g.icon, duration: null, rating: null, cards: [] }
+        return { key: g.key, label: g.label, icon: g.icon, duration: null, durationUnit: 'min' as const, rating: null, cards: [] }
       }
 
       const durationNames = names.filter((n) => scaleForTrack(n, null).unit === 'min')
@@ -219,13 +222,28 @@ export default function InsightsTab() {
       const otherNames = names.filter((n) => !durationNames.includes(n) && !ratingNames.includes(n))
 
       let duration: PlateauSeries[] | null = null
+      // Members store minutes either way — only their preferred DISPLAY unit can
+      // differ (an hours-mode metric like Computer time or Phone use still stores
+      // raw minutes underneath, see G-7a). Showing the shared chart in hours only
+      // makes sense when every member agrees on that; a movement/practice bucket
+      // full of plain-minutes activities is untouched, and a genuinely mixed
+      // bucket falls back to minutes rather than guess.
+      let durationUnit: 'min' | 'h' = 'min'
       if (isMovement || durationNames.length) {
         const byName = new Map<string, Map<string, number>>()
+        const factor = { current: 1 }
         const add = (key: string, date: string, mins: number | null) => {
           if (!key || mins == null) return
           const m = byName.get(key) ?? new Map<string, number>()
-          m.set(date, (m.get(date) ?? 0) + mins)
+          m.set(date, (m.get(date) ?? 0) + mins / factor.current)
           byName.set(key, m)
+        }
+        if (!isMovement && durationNames.length) {
+          const units = durationNames.map((n) => displayScale(scaleForTrack(n, null)).unit)
+          if (units.every((u) => u === 'h')) {
+            durationUnit = 'h'
+            factor.current = 60
+          }
         }
         if (isMovement) {
           for (const a of acts) add(defForName(a.type ?? '')?.key ?? (a.type ?? '').trim().toLowerCase(), a.date, a.duration_min)
@@ -268,17 +286,15 @@ export default function InsightsTab() {
         }
       })
 
-      return { key: g.key, label: g.label, icon: g.icon, duration, rating, cards }
+      return { key: g.key, label: g.label, icon: g.icon, duration, durationUnit, rating, cards }
     })
   }, [tracks, acts, spine, light, DEDICATED])
 
   // Every metric currently sharing each category's chart(s), for the "combine"
-  // picker's member preview — "movement" is excluded since that bucket mixes in
-  // logged activity types, which aren't metrics assignMetricToGroup can move.
+  // picker's member preview.
   const membersByGroup = useMemo(() => {
     const map: Record<string, string[]> = {}
     for (const gc of groupCharts) {
-      if (gc.key === 'movement') continue
       const names = [...(gc.duration?.map((d) => d.key) ?? []), ...(gc.rating?.keys ?? []), ...gc.cards.map((c) => c.name)]
       if (names.length) map[gc.key] = names
     }
@@ -528,9 +544,6 @@ export default function InsightsTab() {
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
-                  {eventMarkers.map((m) => (
-                    <ReferenceLine key={m.id} x={m.x} yAxisId="l" stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-                  ))}
                   <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                   {hasRelease && (
@@ -663,13 +676,14 @@ export default function InsightsTab() {
       body: (
         <>
           {gc.duration && (
-            <ChartCard title={`${gc.label} (min)`} hint="tap a day, or a name below, to log it">
+            <ChartCard title={`${gc.label} (${gc.durationUnit})`} hint="tap a day, or a name below, to log it">
               <PlateauChart
                 dates={spine}
                 series={gc.duration}
+                unit={gc.durationUnit}
                 onPickDay={(d) => setSheet({ name: gc.duration![0].key, category: categoryOf(gc.duration![0].key), date: d })}
                 onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
-                onCombineSeries={gc.key === 'movement' ? undefined : (key) => setCombining({ name: key, from: gc.key })}
+                onCombineSeries={(key) => setCombining({ name: key, from: gc.key })}
               />
             </ChartCard>
           )}
@@ -682,9 +696,6 @@ export default function InsightsTab() {
               <ResponsiveContainer width="100%" height={170}>
                 <LineChart data={gc.rating.rows} margin={{ left: -20, right: 8, top: 8 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
-                  {eventMarkers.map((m) => (
-                    <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-                  ))}
                   <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis domain={[0, 10]} reversed={gc.rating.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
