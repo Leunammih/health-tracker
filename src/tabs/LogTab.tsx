@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { extractDiary, refineDiary } from '../ai/anthropic'
 import {
   saveDiaryExtraction, saveRawEntry, deleteEntry, recentEntries, entryDetail,
   pendingCheckins, recordCheckin, dismissCheckin, loggedDates, type EntryDetail,
   pendingSupplementCheckins, recordSupplementCheckin, dismissSupplementCheckin,
 } from '../db/queries'
-import { fmtDate, todayISO, dateSpine, daysAgoISO } from '../lib/dates'
+import { fmtDate, fmtDay, todayISO, dateSpine, daysAgoISO } from '../lib/dates'
+import { onDbChange, replaceDb } from '../db/sqlite'
+import { useWorkingDay } from '../lib/workingDay'
+import WorkingDayBar from '../components/WorkingDayBar'
+import MoveDaySheet from '../components/MoveDaySheet'
 import { IconMic } from '../components/icons'
 import DayStrip from '../components/DayStrip'
 import QuickEntryPanel from '../components/QuickEntryPanel'
@@ -35,7 +39,17 @@ const SEGMENT_CHOICES: { value: SegmentChoice; label: string }[] = [
 export default function LogTab() {
   const [phase, setPhase] = useState<Phase>('input')
   const [raw, setRaw] = useState('')
-  const [entryDate, setEntryDate] = useState(todayISO())
+  // Shared with Meals and kept across saves, tab switches and reloads — see
+  // lib/workingDay.ts. It used to reset to today after every save.
+  const [entryDate, setEntryDate] = useWorkingDay()
+  // Editing an old entry jumps to that entry's day; finishing or cancelling the
+  // edit comes back to the day he was on, rather than leaving him on the old one.
+  const dayBeforeEdit = useRef<string | null>(null)
+  const [moveOpen, setMoveOpen] = useState(false)
+  const [undoMove, setUndoMove] = useState<{ snapshot: Uint8Array; from: string; to: string; moved: number; kept: number } | null>(null)
+  // Bumped when a move or its undo rewrites the day under the cards below, so
+  // they remount and re-read instead of showing their pre-move drafts.
+  const [dataVersion, setDataVersion] = useState(0)
   const [extraction, setExtraction] = useState<DiaryExtraction | null>(null)
   // The reviewed, editable form of `extraction` — built on entering the preview
   // phase and applied on save, so nothing Claude returned reaches the database
@@ -56,6 +70,30 @@ export default function LogTab() {
   const supplementCheckins = useMemo(() => pendingSupplementCheckins(), [refreshKey, phase])
   const strip = useMemo(() => dateSpine(daysAgoISO(STRIP_DAYS)), [])
   const marked = useMemo(() => loggedDates(daysAgoISO(STRIP_DAYS)), [refreshKey])
+
+  // Undo restores the whole database as it was just before the move, so it is
+  // only offered until anything else changes it — after that, restoring would
+  // also throw away whatever was logged since.
+  useEffect(() => {
+    if (!undoMove) return
+    return onDbChange(() => setUndoMove(null))
+  }, [undoMove])
+
+  async function undoLastMove() {
+    if (!undoMove) return
+    const { snapshot, from } = undoMove
+    setUndoMove(null)
+    try {
+      await replaceDb(snapshot)
+      setEntryDate(from)
+      setDataVersion((v) => v + 1)
+      setRefreshKey((k) => k + 1)
+      setSavedNote('Move undone.')
+      setTimeout(() => setSavedNote(null), 2500)
+    } catch (e) {
+      setError(msg(e))
+    }
+  }
 
   async function process() {
     setError(null)
@@ -129,10 +167,11 @@ export default function LogTab() {
   }
 
   function startEdit(entry: Entry) {
+    if (!editingId) dayBeforeEdit.current = entryDate
     setEditingId(entry.id)
     setExpandedId(null)
     setRaw(entry.raw_text)
-    setEntryDate(entry.entry_date ?? todayISO())
+    setEntryDate(entry.entry_date ?? entryDate)
     setExtraction(null)
     setReview(null)
     setAnswers([])
@@ -153,7 +192,11 @@ export default function LogTab() {
   function reset() {
     setPhase('input')
     setRaw('')
-    setEntryDate(todayISO())
+    // Deliberately NOT back to today: the day stays until he changes it.
+    if (dayBeforeEdit.current) {
+      setEntryDate(dayBeforeEdit.current)
+      dayBeforeEdit.current = null
+    }
     setExtraction(null)
     setReview(null)
     setAnswers([])
@@ -164,6 +207,32 @@ export default function LogTab() {
 
   return (
     <div className="space-y-4">
+      {phase === 'input' && !editingId && <WorkingDayBar />}
+      {undoMove && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2 text-sm text-brand-300">
+          <span>
+            Moved {undoMove.moved} item{undoMove.moved === 1 ? '' : 's'} from {fmtDay(undoMove.from)} to {fmtDay(undoMove.to)}
+            {undoMove.kept ? ` · ${undoMove.kept} kept where ${undoMove.kept === 1 ? 'it was' : 'they were'}` : ''}.
+          </span>
+          <button type="button" className="shrink-0 underline" onClick={() => void undoLastMove()}>
+            Undo
+          </button>
+        </div>
+      )}
+      {moveOpen && (
+        <MoveDaySheet
+          from={entryDate}
+          onClose={() => setMoveOpen(false)}
+          onMoved={({ to, moved, kept, snapshot }) => {
+            setMoveOpen(false)
+            setUndoMove({ snapshot, from: entryDate, to, moved, kept })
+            // Follow the logs to their new day, so what he sees next is the result.
+            setEntryDate(to)
+            setDataVersion((v) => v + 1)
+            setRefreshKey((k) => k + 1)
+          }}
+        />
+      )}
       {savedNote && (
         <div className="rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2 text-sm text-brand-300">
           {savedNote}
@@ -259,6 +328,11 @@ export default function LogTab() {
               />
               <span className="text-xs text-ink-500">or swipe the strip above</span>
             </div>
+            {!editingId && (
+              <button type="button" className="mt-2 text-xs text-brand-400 underline" onClick={() => setMoveOpen(true)}>
+                Logged on the wrong day? Move {fmtDay(entryDate)}'s logs to another date…
+              </button>
+            )}
             {entryDate !== todayISO() && !multiDay && (
               <p className="warn-box mt-1">
                 Backfilling {fmtDate(entryDate)} — dates you don't mention will default here, not today.
@@ -323,11 +397,12 @@ export default function LogTab() {
       )}
 
       {phase === 'input' && !editingId && (
-        <SleepCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <SleepCard key={`sleep:${entryDate}:${dataVersion}`} date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'input' && !editingId && (
         <QuickEntryPanel
+          key={`quick:${entryDate}:${dataVersion}`}
           date={entryDate}
           segment={segment === 'whole' ? null : segment}
           onChanged={() => setRefreshKey((k) => k + 1)}
@@ -335,14 +410,14 @@ export default function LogTab() {
       )}
 
       {phase === 'input' && !editingId && (
-        <SupplementsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <SupplementsCard key={`supp:${entryDate}:${dataVersion}`} date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {/* Below Supplements, not above: it is the rarest thing on this screen, and
           sitting between the sliders and the supplements it competed with both for
           "add something" attention. */}
       {phase === 'input' && !editingId && (
-        <EventsCard date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
+        <EventsCard key={`events:${entryDate}:${dataVersion}`} date={entryDate} onChanged={() => setRefreshKey((k) => k + 1)} />
       )}
 
       {phase === 'processing' && (

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import DayStrip from './DayStrip'
+import { getWorkingDay, setWorkingDay } from '../lib/workingDay'
 import IngredientGrid from './IngredientGrid'
 import BuildItemRow from './BuildItemRow'
 import NewIngredientField from './NewIngredientField'
@@ -60,7 +61,13 @@ export default function MealBuilder({
   onSaved: (message: string) => void
   onCancel: () => void
 }) {
-  const [date, setDate] = useState(init?.date ?? todayISO())
+  const [date, setDate] = useState(init?.date ?? getWorkingDay())
+  // A new meal's day is the working day (lib/workingDay.ts); editing a saved
+  // meal's date only changes that meal.
+  const pickDate = (d: string) => {
+    setDate(d)
+    if (!mealId) setWorkingDay(d)
+  }
   const [slot, setSlot] = useState<MealType>(init?.mealType ?? mealTypeForHour(new Date().getHours()))
   const [time, setTime] = useState<string | null>(init?.time ?? null)
   const [items, setItems] = useState<BuildItem[]>(init?.items ?? [])
@@ -282,7 +289,7 @@ export default function MealBuilder({
 
       <div>
         <div className="label">Day</div>
-        <DayStrip dates={days} selected={date} onSelect={setDate} marked={marked} />
+        <DayStrip dates={days} selected={date} onSelect={pickDate} marked={marked} />
       </div>
 
       <div>

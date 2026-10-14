@@ -34,6 +34,13 @@ export function fmtDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+// 'Mon, Oct 12' — fmtDate plus the weekday, for when the day itself is the point
+// (which day you're logging for, which day logs are moving to).
+export function fmtDay(iso: string): string {
+  if (!iso) return ''
+  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 export function daysAgoISO(n: number): string {
   const d = new Date()
   d.setDate(d.getDate() - n)

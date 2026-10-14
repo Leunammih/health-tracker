@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-08-12 (metric-scale fix: 0-10 intensities for ad-hoc tracks, supplements out of the sliders)_
+_Last updated: 2026-10-14 (G-10: the logging day stays put; move a day's logs to another date)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -920,27 +920,91 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     on Illness & gut vs. two other charts that used to show them. Test data
     cleaned up before push.
 
+- **G-10 — the day stays put, and a day's logs can move (2026-10-14)** — no schema
+  change. His ask: he'd log a quick entry for a past day, the app jumped back to
+  today, and a whole evening of tracking landed on the wrong day.
+  - **Working day** — new `src/lib/workingDay.ts`, shared by Log and Meals
+    (`useWorkingDay()`, `useSyncExternalStore`). It snapped to today in three
+    places: `reset()` after every diary save, tab switches (tabs unmount, state was
+    `useState(todayISO())`), and iOS reloading the backgrounded PWA. Now persisted
+    in **localStorage** (a device-local pointer, not health data — syncing it
+    would drag the laptop onto the phone's day). Picking today stores `null` =
+    "follow today", so it rolls over at midnight. **6-hour idle reset** (his
+    call): untouched for 6h → back to today, so the next morning doesn't log onto
+    yesterday. `WorkingDayBar` ("Logging for Tue, Oct 13 — not today · Back to
+    today") on Log and Meals whenever it isn't today. Editing an old diary entry
+    jumps to its day and returns to the previous day on save/cancel. Meals: the
+    form date starts on the working day and returns to it after save; picking a
+    date for a NEW meal (form or builder strip) moves the working day, editing a
+    saved meal doesn't; Duplicate goes to the working day instead of today.
+    Insights' tap-to-log sheet is unchanged (it opens on the tapped date).
+  - **Move a day** — `src/db/moveDay.ts` (`planMove` → `applyMove`) +
+    `MoveDaySheet`, opened from "Logged on the wrong day? Move …'s logs to another
+    date…" under the Log day strip. Everything on the day is listed and ticked;
+    untick what belongs where it is. **Clashes are asked, never guessed** (his
+    explicit rule): no default, the Move button stays disabled until each is
+    answered. One-per-day slots (tracked items, energy, mood, sleep, stress, day
+    notes/tasks/travel…): Replace / Keep existing / Merge — Merge only where it
+    means something (minutes add, text joins with "; "; ratings can't merge).
+    Repeatable kinds (meals, activities, diary entries, gut, infections, events):
+    Keep both / Replace existing / Keep existing. **Keep existing leaves the moved
+    item on its original day** — nothing is deleted except by Replace.
+    Morning/afternoon/evening segments travel with their metric; a minutes Merge
+    adds slot-by-slot if both days are segmented, else collapses to one whole-day
+    value so the rollup invariant holds. Supplement skips move (a duplicate skip
+    just goes); supplement start/stop dates don't. Wellbeing/day_context rows left
+    empty on the source day are deleted. One transaction, rolled back on error.
+  - **Undo** — `applyMove` returns `exportBytes()` from just before; Undo calls
+    `replaceDb(snapshot)`. Offered only until the next DB change (`onDbChange`),
+    since restoring after that would also drop whatever was logged since. After a
+    move the working day follows the logs to the target day.
+  - Verified in-browser (Playwright, 390px, seeded data, both themes): day
+    survives save, tab switch and reload; 7h-idle reload returns to today; a move
+    with 7 clashes (Replace/Keep/Merge/Keep both mixed) produced exactly the
+    expected rows incl. segments and a merged minutes total (30+20=50) and joined
+    note; Undo restored the DB byte-for-byte as checked; a clash-free move with one
+    meal unticked left that meal behind; Meals builder opens on the working day and
+    a builder date pick moves it; Back to today clears the bar. No console errors.
+
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-9**. No schema change._
+_Replaced each iteration — this is the list for **G-10**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Productivity should read in hours, not minutes.** Insights → Productivity —
-   the chart with Computer time and Phone use should now say **"Productivity
-   (h)"** with a small axis (e.g. 0/3/5), not "(min)" with a 0-600 axis.
-3. **Combine now works on Movement too.** Scroll to Movement — every activity
-   name in its legend (Dancing, Biking, whatever you've logged) should have the
-   same **⇄** button Productivity's items had. Tap it on one, move it to another
-   category, confirm it lands there with its full history, move it back.
-4. **Supplement markers — only on Illness & gut now.** Open any *other* chart
-   that has a rating (0-10) line — e.g. Health & pain, or a custom category with
-   a rating metric in it — the dashed vertical "Started X" / "Stopped X"
-   supplement lines should be **gone** from it. Scroll to Illness & gut — they
-   should still be there, same as always. Energy & mood also no longer shows
-   them (this one used to, on purpose — flagging in case you actually want it
-   back there specifically, separate from the general "only Illness & gut" ask).
-5. **Both themes**, and confirm nothing regressed: the fold/reorder and combine
-   picker from G-7/G-8, supplements (pause/skip), the dictation review, meals,
-   barcode scanner.
+2. **The day stays after saving (new).** Log → in the day strip tap **yesterday**.
+   An amber bar appears at the very top: **"Logging for <yesterday> — not today ·
+   Back to today"**. Type "test" in the box → **Save without Claude**. Expected:
+   the strip is *still* on yesterday and the bar is still there. Failure: it jumps
+   to today. (Delete the "test" entry afterwards from Recent entries.)
+3. **…and across tabs and a restart (new).** Still on yesterday: go to **Meals** —
+   the same amber bar shows yesterday's date; tap the build/dictate option and the
+   date it shows should be yesterday, not today. Back to **Log** → still
+   yesterday. Swipe the app away completely and reopen → still yesterday.
+4. **Back to today (new).** Tap **Back to today** in the bar → strip jumps to today,
+   bar disappears. (Not testable quickly, just so you know: if the app sits unused
+   for 6 hours it goes back to today on its own.)
+5. **Move a day — the sheet (new).** Pick a day that has logs → under the date
+   field tap **"Logged on the wrong day? Move <day>'s logs to another date…"**. A
+   sheet lists everything on that day, grouped (tracked items, energy/mood, meals…),
+   all ticked. Pick a target day in its strip. If the target already has the same
+   things, those rows get a small **clash** tag and a box below asks about each one;
+   the big button reads **"Answer N clashes first"** and won't work until you've
+   chosen for every one. Untick one item → the count on the button drops by one.
+   Tap **Cancel** → nothing changed.
+6. **Move a day — for real, then undo (new).** Best on two days you don't mind
+   touching: open the sheet again, pick the target, answer the clashes (try one
+   **Keep existing** and one **Merge** on something in minutes), tap **Move N
+   items**. Expected: you land on the target day; a green bar says **"Moved N items
+   from … to … · 1 kept where it was"** with **Undo**; the sliders on the target
+   show the moved values (a merged minutes item shows the sum). Tap **Undo** →
+   you're back on the original day and both days look exactly as before. Failure
+   to report: anything missing after Undo, or a "Keep existing" item that vanished
+   from both days.
+7. **Unchanged — check nothing regressed:** dictating an entry with Claude, the
+   quick-entry sliders and morning/evening segments, sleep, supplements (skip/
+   pause), meals (photo, dictate, builder, edit an old meal — its date should stay
+   the meal's own date), Insights charts, both themes. Also still open from G-9
+   (never reported): Productivity in hours, ⇄ on Movement, supplement markers only
+   on Illness & gut.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -959,7 +1023,9 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone12** — phone report on **G-9** (checklist above). No schema change.
+- 🟦 **phone13** — phone report on **G-10** (checklist above). No schema change.
+- 🟦 **phone12** — phone report on **G-9**. Not answered; he moved straight to the
+  G-10 ask. Its three checks are folded into item 7 of the G-10 checklist.
 - ✅ **phone11** (G-8) — answered 2026-08-21: combine works; three follow-ups
   (hours display, combine everywhere, supplement markers) became G-9.
 - ✅ **phone10** (G-7) — answered 2026-08-21, "everything working wonderfully",
@@ -1096,37 +1162,13 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-9** (checklist above).
+**Waiting on Immanuel's phone report for G-10** (checklist above).
 
-G-9 was three direct fixes from his G-8 phone report, same day, no schema change:
-
-1. **Hours unit on shared duration charts.** The Productivity chart (Computer
-   time + Phone use, both hours-mode metrics) still read "(min)" with a 0-600
-   axis — the shared-chart aggregation in `groupCharts` summed raw stored
-   minutes and never checked each member's own `displayScale(...).unit` the way
-   the single-metric card path already did. Now checks every duration member: if
-   every one prefers hours, the whole bucket (title, axis, legend) converts to
-   hours at aggregation time; mixed or plain-minutes buckets are untouched.
-2. **⇄ combine extended to Movement.** G-8b's button excluded Movement on the
-   wrong assumption that a logged activity type couldn't be reassigned the way a
-   tracked metric can — G-6 already proved otherwise (moving "dancing" into a
-   new "Sports" category, verified again this round by moving "Dancing" out of
-   Movement into "Other" and back, full history intact both times).
-3. **Supplement markers scoped to Illness & gut only.** They were being drawn on
-   every custom category's rating chart and on Energy & mood too — read as
-   clutter on charts that have nothing to do with supplements ("Productivity
-   (0-10)" showing "Started Creatine monohydrate"). Restricted to Illness & gut,
-   per his explicit call. Flagged in the phone checklist that Energy & mood
-   losing them too was part of that literal instruction, in case he only meant
-   the generic category charts and actually wants it back on Energy & mood
-   specifically — easy to re-add if so.
-
-Verified in-browser before pushing: reproduced the Productivity scenario and
-confirmed "Productivity (h)" with a small axis; moved "Dancing" out of Movement
-into "Other" and back via ⇄, confirming full history follows each time; confirmed
-Illness & gut still shows supplement markers while Productivity (0-10) and Energy
-& mood no longer do. Clean reload, no console errors. Test data cleaned up before
-push.
+G-10 was his ask of 2026-10-14: (1) don't jump back to today after adding an
+entry — stay on the chosen day until he changes it (his pick: return to today
+after 6h unused); (2) move a whole day's logs to another date, and when the target
+already has logs, ask what to replace / merge / keep rather than guessing. Details
+under Done → G-10.
 
 **Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
 Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed

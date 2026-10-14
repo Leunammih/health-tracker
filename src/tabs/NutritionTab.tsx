@@ -4,6 +4,8 @@ import { saveMeal, updateMeal, deleteMeal, recentMeals, mealsSince, mealItems, f
 import { prepareImage, type PreparedImage } from '../lib/image'
 import { isConfigured, pushPhoto } from '../sync/dropbox'
 import { todayISO, nowTime, fmtDate } from '../lib/dates'
+import { getWorkingDay, setWorkingDay, useWorkingDay } from '../lib/workingDay'
+import WorkingDayBar from '../components/WorkingDayBar'
 import { uid } from '../lib/id'
 import { IconCamera, IconMic, IconMeal } from '../components/icons'
 import GoalProgress from '../components/GoalProgress'
@@ -54,7 +56,11 @@ export default function NutritionTab() {
   const [answer, setAnswer] = useState('')
   const [extraItems, setExtraItems] = useState('')
   const [describeText, setDescribeText] = useState('')
-  const [date, setDate] = useState(todayISO())
+  // The form's date. Starts on the working day shared with the Log tab (see
+  // lib/workingDay.ts) and returns to it after a save — not to today. Editing a
+  // saved meal sets this to that meal's date without moving the working day.
+  const [date, setDate] = useState(getWorkingDay)
+  const [workingDay] = useWorkingDay()
   const [savePhoto, setSavePhoto] = useState(isConfigured())
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -284,12 +290,25 @@ export default function NutritionTab() {
     setExistingPhotoPath(null)
     setEntryTime(null)
     setIngredientsDirty(false)
-    setDate(todayISO())
+    setDate(getWorkingDay())
     setDictateMode('single')
     setMultiMeals(null)
     setBuilderMealId(null)
     setBuilderPhotoPath(null)
     setBuilderInit(null)
+  }
+
+  // "Back to today" on the bar, or the 6-hour idle reset, moves the working day
+  // out from under the form — follow it unless a saved meal is open for editing.
+  useEffect(() => {
+    if (!editingId && !builderMealId) setDate(workingDay)
+  }, [workingDay])
+
+  // Picking a date for a NEW meal moves the working day too; while editing a
+  // saved one it only changes that meal.
+  function pickDate(d: string) {
+    setDate(d)
+    if (d && !editingId) setWorkingDay(d)
   }
 
   function startEditMeal(m: Meal) {
@@ -321,8 +340,8 @@ export default function NutritionTab() {
 
   // Same pre-fill as edit, but WITHOUT setting editingId/builderMealId — save()
   // then creates a new row instead of overwriting the original. Defaults to
-  // today/now since a duplicate means "eating this again", not backdating the
-  // source.
+  // the working day (today unless he's picked another) and no time, since a
+  // duplicate means "eating this again", not backdating the source.
   function duplicateMeal(m: Meal) {
     setError(null)
     const items = mealItems(m.id)
@@ -331,14 +350,14 @@ export default function NutritionTab() {
       const init = builderInitFromMeal(m, items, foodsByIds(foodIds))
       setBuilderMealId(null)
       setBuilderPhotoPath(null)
-      setBuilderInit({ ...init, date: todayISO(), time: null })
+      setBuilderInit({ ...init, date: getWorkingDay(), time: null })
       setPhase('build')
       return
     }
     setEditingId(null)
     setExistingPhotoPath(m.photo_path)
     setEntryTime(null)
-    setDate(todayISO())
+    setDate(getWorkingDay())
     setImage(null)
     setDescribeText(m.notes ?? '')
     setAnswer('')
@@ -414,6 +433,7 @@ export default function NutritionTab() {
 
   return (
     <div className="space-y-4">
+      {phase === 'input' && <WorkingDayBar />}
       {note && (
         <div className="rounded-xl border border-brand-500/40 bg-brand-500/10 px-3 py-2 text-sm text-brand-300">{note}</div>
       )}
@@ -493,7 +513,7 @@ export default function NutritionTab() {
               className="field !w-auto"
               value={date}
               max={todayISO()}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => pickDate(e.target.value)}
             />
             {date !== todayISO() && (
               <p className="mt-1 text-xs text-amber-300">
@@ -735,7 +755,7 @@ export default function NutritionTab() {
               className="field !w-auto"
               value={date}
               max={todayISO()}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => pickDate(e.target.value)}
             />
             <label className="label !mb-0">Time</label>
             <input
