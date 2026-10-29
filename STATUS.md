@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-30 (G-13: move a metric onto an exact chart, extra axes for mixed scales, warnings for bad combinations)_
+_Last updated: 2026-10-30 (G-14: per-chart line style — smooth / straight / steps / points / plateau, auto best fit)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -1062,37 +1062,60 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     back, then Move anyway → 3 axes, kg fitted to its data; tap-a-day opens the log
     sheet; knee pain back to its own Health & pain chart; meta round-trips; default
     charts unchanged; G-10.1 regression identical. No console errors.
+- **G-14 — line style per chart (2026-10-30)** — no schema change (meta key
+  `chart_styles`). His ask after confirming G-13: some charts curve, some are
+  straight; pick the best fit initially, then let him change how points are joined,
+  including no line at all (points only, like his 2-reading K-Meditation chart).
+  - **`src/lib/chartStyle.ts`** — `LineStyle` = plateau / smooth / straight / step /
+    points; per-chart choice in meta (synced), null = auto. **`autoLineStyle`**:
+    minutes charts → plateau (unchanged look); every line ≤ 2 readings → points
+    only; every line logged on ≥ 80% of days → smooth; anything with gaps →
+    straight (a smooth curve across a gap invents a swoop — the long arcs on his
+    Health & pain chart). `lineProps()` maps a style to Recharts Line props.
+  - **Every line chart** gets a "Lines ▾" control in its header (`ChartCard lines=`;
+    `LineStylePicker`): Auto (says what it resolves to) / Smooth / Straight / Steps
+    / Points only, plus Plateau on minutes charts. Covered: Energy & mood (Release
+    keeps its marker dots), Sleep, Bedtime → wake (own control; the night band
+    follows the curve), Stress, Illness & gut, category minutes / 0-10 / mixed
+    charts, single-metric cards. A minutes chart set to anything but Plateau is
+    drawn by new `DurationLines` (same data; no-entry = 0 except in points-only;
+    same tap-a-day, legend, ⇄). Calories/macros are bars — no control.
+  - Verified in-browser both themes: autos came out Energy & mood / Stress smooth,
+    Illness & gut / Health & pain straight, a 2-reading chart points-only, minutes
+    plateau; Points only → no stroke, 14 dots; Steps; Movement → Straight renders
+    lines with ⇄ legend, Auto returns it to the plateau; choices survive reload;
+    sleep card shows both controls. No console errors.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-13**. No schema change._
+_Replaced each iteration — this is the list for **G-14**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Nothing moved by itself.** Insights → scroll every category: the charts look
-   exactly as before this update (same titles, same items on each). Failure: an
-   item jumped to another chart without you moving it.
-3. **Step 2 (new).** Tap **⇄** next to a 0-10 item (e.g. **Anxiety** in Wellbeing)
-   → pick a category (e.g. **Wellbeing** itself — the current one is tappable now)
-   → a second screen asks **"Which chart should it go on?"** and lists that
-   category's charts with what's on them, e.g. **"Wellbeing (min) — adds a 2nd
-   axis — with Nap, Cold exposure…"**, plus **"A chart of its own"**. The **‹** at
-   the top goes back to the categories.
-4. **Second axis (new).** Pick the minutes chart → the sheet closes and that chart
-   is now titled e.g. **"Wellbeing (min · 0-10)"**: minutes as bars on the left
-   axis, Anxiety as a line on a 0-10 axis on the right; the legend says
-   "(min, left)" / "(0-10, right)". Tap a day on it → the log sheet opens.
-5. **Warning (new).** Move a third kind of thing onto that same chart (e.g. a
-   yes/no item like Intimacy/Sex, or Weight) → instead of moving, a box says why it
-   may not work (**"would need 3 different axes"** or **"A yes/no item has no
-   scale…"**) with **Move it there anyway** / **Pick another chart**. Pick another
-   → back to the list; Move anyway → it's added with its own extra axis.
-6. **Undo it.** ⇄ on the moved item → its category → **"New … chart (0-10)"** or
-   **"A chart of its own"** → it's back on its own chart, history intact.
-7. **Unchanged:** the Log tab's move (still category only), apply-to-days buttons,
-   sleep chart, both themes.
+2. **A "Lines" button on every line chart (new).** Insights → each chart that draws
+   lines (Energy & mood, Sleep, Bedtime → wake, Stress load, Illness & gut, every
+   category chart) has a small button top-right, e.g. **"Straight · auto ▾"**.
+   Calories and Macros (bars) don't.
+3. **Auto picked a best fit (changed look).** Without touching anything: charts
+   you log almost daily (likely Energy & mood, Stress) stay **smooth**; charts
+   with gaps (Health & pain, Illness & gut) are now **straight** lines — the long
+   swooping arcs across unlogged days are gone; **K-Meditation** (two readings)
+   shows **just the dots**; minutes charts keep their rounded plateau.
+4. **Change one.** Health & pain → tap the button → menu: **Auto (Straight) /
+   Smooth / Straight / Steps / Points only**. Pick **Points only** → only dots, no
+   lines; **Steps** → square steps; the button now shows your choice without
+   "· auto". Swipe the app away and reopen → still your choice.
+5. **Minutes charts.** On e.g. **Breath & Awareness (min)** the menu also has
+   **Plateau**. Pick **Straight** → it becomes a normal line chart (unlogged days at
+   0), legend names still tap to log and ⇄ still moves. **Auto (Plateau)** → back.
+6. **Back to automatic.** Any chart → **Auto (…)** → returns to the best-fit style.
+7. **Unchanged:** tap-a-day to log, ⇄ two-step move (G-13), sleep editing, both
+   themes.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
-- 🔶 **dedicated1** — Energy, Mood, Stress, Release, Infection, Stool and Warming
+- 🔶 **dedicated1** — (2026-10-30: he asked directly why Stress load and Illness &
+  gut have no ⇄ and whether any chart could be movable; explained in chat — no hard
+  restriction, the choice is what happens to the special behaviour; options a/b/c
+  offered, awaiting his pick.) Energy, Mood, Stress, Release, Infection, Stool and Warming
   bottle each live in their own fixed chart (Wellbeing & sleep, Illness & gut)
   with bespoke rendering (Infection's carry-forward-until-resolved, Stool's
   Bristol coloring, Release's dual axis) — they don't go through the
@@ -1107,7 +1130,10 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone17** — phone report on **G-13** (checklist above). No schema change.
+- 🟦 **phone18** — phone report on **G-14** (checklist above). No schema change.
+- ✅ **phone17** (G-13) — answered 2026-10-30, "Great."; asked why Stress / Illness &
+  gut can't be moved (→ dedicated1, answered in chat with options) and asked for line
+  styles (→ G-14).
 - ✅ **phone16** (G-12) — answered 2026-10-30, "Great. Working as well."; his next ask became G-13.
 - ✅ **phone15** (G-11) — answered 2026-10-29, "Great. Working."; his next ask became G-12.
 - ✅ **phone14** (G-10.1) — answered 2026-10-29, "Working thanks"; his next ask became G-11.
@@ -1252,12 +1278,13 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-13** (checklist above). G-10 itself
-(working day + Move-a-day sheet) still has no direct report — see phone13.
+**Waiting on Immanuel's phone report for G-14** (checklist above) and his pick for
+🔶 dedicated1 (making Energy/Mood/Stress/Release/Infection/Stool/Warming bottle
+movable — options a/b/c given in chat 2026-10-30). G-10 itself still has no direct
+report — see phone13.
 
-G-13 (2026-10-30): Insights ⇄ move is two steps (category → exact chart), mixed
-scales get one axis each, bad combinations warn first. Details under Done → G-13.
-Note for 🔶 dedicated1: Energy, Mood, Stress etc. still sit outside this system.
+G-14 (2026-10-30): per-chart line style with an automatic best fit. Details under
+Done → G-14.
 
 **Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
 Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed

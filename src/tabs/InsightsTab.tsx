@@ -16,6 +16,7 @@ import {
 import { allGroups, assignMetricToGroup } from '../lib/groups'
 import { assignMetricToChart, axisKindFor, chartFor, DUR_CHART, RATING_CHART } from '../lib/chartLayout'
 import type { ChartOption } from '../components/MoveMetricSheet'
+import { autoLineStyle, curveType, lineProps, loadChartStyles, setChartStyle, LINE_STYLE_LABEL, type LineStyle } from '../lib/chartStyle'
 import { loadInsightsLayout, orderIds, setSectionCollapsed, moveSection, type InsightsLayout } from '../lib/insightsLayout'
 import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '../lib/hiddenMetrics'
 import { useTheme } from '../lib/theme'
@@ -81,6 +82,19 @@ export default function InsightsTab() {
   // already does, since "combine" and "move to a category" are the same operation
   // under the hood (a category's members always share one chart).
   const [combining, setCombining] = useState<{ name: string; from: string; chart: string } | null>(null)
+  // Per-chart line style (lib/chartStyle.ts). Held in state so a change repaints at
+  // once; written through to the synced meta table.
+  const [chartStyles, setChartStyles] = useState<Record<string, LineStyle>>(() => loadChartStyles())
+  const lineCtl = (key: string, auto: LineStyle, duration = false): LineControl => ({
+    value: chartStyles[key] ?? auto,
+    auto,
+    chosen: key in chartStyles,
+    options: duration ? ['plateau', 'smooth', 'straight', 'step', 'points'] : ['smooth', 'straight', 'step', 'points'],
+    onChange: (st) => {
+      void setChartStyle(key, st).then(() => setChartStyles(loadChartStyles()))
+    },
+  })
+  const col = <T extends Record<string, unknown>>(rows: T[], k: string) => rows.map((r) => r[k] as number | null | undefined)
   // Collapsed by default — the grid used to occupy the whole first screen before
   // any chart was visible.
   const [tapOpen, setTapOpen] = useState(false)
@@ -644,8 +658,10 @@ export default function InsightsTab() {
       icon: <GroupIcon group="wellbeing" />,
       body: (
         <>
-          {(wb.length > 0 || hasRelease) && (
-            <ChartCard title="Energy & mood">
+          {(wb.length > 0 || hasRelease) && (() => {
+            const lc = lineCtl('energy-mood', autoLineStyle([col(moodData, 'energy'), col(moodData, 'mood')]))
+            return (
+            <ChartCard title="Energy & mood" lines={lc}>
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -655,17 +671,15 @@ export default function InsightsTab() {
                     <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: colRelease, fontSize: 10 }} />
                   )}
                   <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="energy" stroke={colEnergy} strokeWidth={2} dot={false} connectNulls />
-                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="mood" stroke={colMood} strokeWidth={2} dot={false} connectNulls />
+                  <Line isAnimationActive={false} yAxisId="l" dataKey="energy" {...lineProps(lc.value, colEnergy, false)} strokeWidth={2} connectNulls />
+                  <Line isAnimationActive={false} yAxisId="l" dataKey="mood" {...lineProps(lc.value, colMood, false)} strokeWidth={2} connectNulls />
                   {hasRelease && (
                     <Line
                       isAnimationActive={false}
                       yAxisId="r"
-                      type="monotone"
                       dataKey="release"
-                      stroke={colRelease}
+                      {...lineProps(lc.value, colRelease, releaseDot)}
                       strokeWidth={2}
-                      dot={releaseDot}
                     />
                   )}
                 </LineChart>
@@ -679,10 +693,14 @@ export default function InsightsTab() {
                 onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
               />
             </ChartCard>
-          )}
+            )
+          })()}
 
-          {hasSleep && (
-            <ChartCard title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top · tap a day to edit">
+          {hasSleep && (() => {
+            const lc = lineCtl('sleep', autoLineStyle([col(sleepData, 'hours'), col(sleepData, 'quality')]))
+            const lt = lineCtl('sleep-times', autoLineStyle([col(sleepData, 'bed'), col(sleepData, 'wake')]))
+            return (
+            <ChartCard lines={lc} title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top · tap a day to edit">
               <ResponsiveContainer width="100%" height={170}>
                 <LineChart data={sleepData} margin={{ left: -20, right: -20, top: 8 }} onClick={openSleepAt} style={{ cursor: 'pointer' }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -690,8 +708,8 @@ export default function InsightsTab() {
                   <YAxis yAxisId="l" domain={[0, 12]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                   <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={{ fill: colSleepQuality, fontSize: 10 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" name="Hours asleep" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-                  <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" name="Felt quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                  <Line isAnimationActive={false} yAxisId="l" dataKey="hours" name="Hours asleep" {...lineProps(lc.value, colSleepHours)} strokeWidth={2} connectNulls={false} />
+                  <Line isAnimationActive={false} yAxisId="r" dataKey="quality" name="Felt quality" {...lineProps(lc.value, colSleepQuality)} strokeWidth={2} connectNulls={false} />
                 </LineChart>
               </ResponsiveContainer>
               <Legend
@@ -706,7 +724,10 @@ export default function InsightsTab() {
                       is the same night as the column over it. Evening at the top,
                       morning at the bottom: the band reads as the night going down
                       the page, and a later bedtime visibly pushes it lower. */}
-                  <div className="mb-1 mt-4 text-[10px] uppercase tracking-wide text-ink-500">Bedtime → wake</div>
+                  <div className="mb-1 mt-4 flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-wide text-ink-500">Bedtime → wake</span>
+                    <LineStylePicker ctl={lt} />
+                  </div>
                   <ResponsiveContainer width="100%" height={150}>
                     <ComposedChart data={sleepData} margin={{ left: -20, right: -20, top: 4 }} onClick={openSleepAt} style={{ cursor: 'pointer' }}>
                       <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -715,9 +736,9 @@ export default function InsightsTab() {
                       {/* Mirror axis, hidden: keeps the plot exactly as wide as the one above. */}
                       <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={false} axisLine={false} />
                       <Tooltip contentStyle={tooltipStyle} formatter={clockTip} />
-                      <Area isAnimationActive={false} yAxisId="t" type="monotone" dataKey="night" name="Night" stroke="none" fill={colSleepHours} fillOpacity={0.18} connectNulls={false} legendType="none" tooltipType="none" />
-                      <Line isAnimationActive={false} yAxisId="t" type="monotone" dataKey="bed" name="Bedtime" stroke={colSleepBed} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-                      <Line isAnimationActive={false} yAxisId="t" type="monotone" dataKey="wake" name="Woke" stroke={colSleepWake} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                      <Area isAnimationActive={false} yAxisId="t" type={curveType(lt.value)} dataKey="night" name="Night" stroke="none" fill={colSleepHours} fillOpacity={0.18} connectNulls={false} legendType="none" tooltipType="none" />
+                      <Line isAnimationActive={false} yAxisId="t" dataKey="bed" name="Bedtime" {...lineProps(lt.value, colSleepBed)} strokeWidth={2} connectNulls={false} />
+                      <Line isAnimationActive={false} yAxisId="t" dataKey="wake" name="Woke" {...lineProps(lt.value, colSleepWake)} strokeWidth={2} connectNulls={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                   <Legend
@@ -732,17 +753,20 @@ export default function InsightsTab() {
                 Edit sleep…
               </button>
             </ChartCard>
-          )}
+            )
+          })()}
 
-          {stressData.some((d) => d.stress != null) && (
-            <ChartCard title="Stress load" hint="low is good — high stress sits at the bottom">
+          {stressData.some((d) => d.stress != null) && (() => {
+            const lc = lineCtl('stress', autoLineStyle([col(stressData, 'stress')]))
+            return (
+            <ChartCard lines={lc} title="Stress load" hint="low is good — high stress sits at the bottom">
               <ResponsiveContainer width="100%" height={150}>
                 <LineChart data={stressData} margin={{ left: -20, right: 8, top: 8 }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  <Line isAnimationActive={false} type="monotone" dataKey="stress" stroke={colStress} strokeWidth={2} dot={false} connectNulls />
+                  <Line isAnimationActive={false} dataKey="stress" {...lineProps(lc.value, colStress, false)} strokeWidth={2} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
               <button
@@ -752,7 +776,8 @@ export default function InsightsTab() {
                 + Log stress
               </button>
             </ChartCard>
-          )}
+            )
+          })()}
         </>
       ),
     })
@@ -766,8 +791,10 @@ export default function InsightsTab() {
       id: 'section-illness-gut',
       title: 'Illness & gut',
       icon: <GroupIcon group="symptom" />,
-      body: (
-        <ChartCard title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
+      body: (() => {
+        const lc = lineCtl('illness', autoLineStyle([col(illnessData, 'infection'), col(illnessData, 'gutPain'), col(illnessData, 'stool')]))
+        return (
+        <ChartCard lines={lc} title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
           <ResponsiveContainer width="100%" height={170}>
             <LineChart data={illnessData} margin={{ left: -20, right: 8, top: 8 }}>
               <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -778,9 +805,9 @@ export default function InsightsTab() {
               <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
               <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
               <ReferenceLine y={4} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
-              <Line isAnimationActive={false} type="monotone" dataKey="infection" name="Infection" stroke={illnessPalette.Infection} strokeWidth={2} dot={false} connectNulls />
-              <Line isAnimationActive={false} type="monotone" dataKey="gutPain" name="Gut pain" stroke={illnessPalette['Gut pain']} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-              <Line isAnimationActive={false} type="monotone" dataKey="stool" name="Stool (Bristol)" stroke={illnessPalette.Stool} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+              <Line isAnimationActive={false} dataKey="infection" name="Infection" {...lineProps(lc.value, illnessPalette.Infection, false)} strokeWidth={2} connectNulls />
+              <Line isAnimationActive={false} dataKey="gutPain" name="Gut pain" {...lineProps(lc.value, illnessPalette['Gut pain'])} strokeWidth={2} connectNulls={false} />
+              <Line isAnimationActive={false} dataKey="stool" name="Stool (Bristol)" {...lineProps(lc.value, illnessPalette.Stool)} strokeWidth={2} connectNulls={false} />
             </LineChart>
           </ResponsiveContainer>
           <Legend
@@ -794,7 +821,8 @@ export default function InsightsTab() {
             onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
           />
         </ChartCard>
-      ),
+        )
+      })(),
     })
   }
 
@@ -813,24 +841,39 @@ export default function InsightsTab() {
         <>
           {gc.charts.map((c) => {
             const move = (key: string) => setCombining({ name: key, from: gc.key, chart: c.id })
+            const styleKey = `cat:${gc.key}:${c.id}`
             if (c.kind === 'duration' && c.duration) {
+              const lc = lineCtl(styleKey, 'plateau', true)
+              const pickDay = (d: string) => setSheet({ name: c.duration![0].key, category: categoryOf(c.duration![0].key), date: d })
               return (
-                <ChartCard key={c.id} title={c.title} hint="tap a day, or a name below, to log it">
-                  <PlateauChart
-                    dates={spine}
-                    series={c.duration}
-                    unit={c.durationUnit}
-                    onPickDay={(d) => setSheet({ name: c.duration![0].key, category: categoryOf(c.duration![0].key), date: d })}
-                    onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
-                    onCombineSeries={move}
-                  />
+                <ChartCard key={c.id} title={c.title} hint="tap a day, or a name below, to log it" lines={lc}>
+                  {lc.value === 'plateau' ? (
+                    <PlateauChart
+                      dates={spine}
+                      series={c.duration}
+                      unit={c.durationUnit}
+                      onPickDay={pickDay}
+                      onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
+                      onCombineSeries={move}
+                    />
+                  ) : (
+                    <DurationLines
+                      spine={spine}
+                      series={c.duration}
+                      style={lc.value}
+                      onPickDay={pickDay}
+                      onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
+                      onMove={move}
+                    />
+                  )}
                 </ChartCard>
               )
             }
             if (c.kind === 'rating' && c.rating) {
               const r = c.rating
+              const lc = lineCtl(styleKey, autoLineStyle(r.keys.map((k) => col(r.rows, k))))
               return (
-                <ChartCard key={c.id} title={c.title} hint={r.reversed ? 'low is good — worse sits at the bottom' : undefined}>
+                <ChartCard key={c.id} title={c.title} hint={r.reversed ? 'low is good — worse sits at the bottom' : undefined} lines={lc}>
                   <ResponsiveContainer width="100%" height={170}>
                     <LineChart data={r.rows} margin={{ left: -20, right: 8, top: 8 }}>
                       <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -838,8 +881,8 @@ export default function InsightsTab() {
                       <YAxis domain={[0, 10]} reversed={r.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                       <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
                       {r.keys.map((k) => (
-                        <Line isAnimationActive={false} key={k} type="monotone" dataKey={k} name={labelForTrack(k)}
-                          stroke={r.palette[k]} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                        <Line isAnimationActive={false} key={k} dataKey={k} name={labelForTrack(k)}
+                          {...lineProps(lc.value, r.palette[k])} strokeWidth={2} connectNulls />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
@@ -857,6 +900,7 @@ export default function InsightsTab() {
                   key={c.id}
                   title={c.title}
                   data={c.mixed}
+                  lines={lineCtl(styleKey, autoLineStyle(c.mixed.series.filter((x) => x.shape === 'line').map((x) => col(c.mixed!.rows, x.key))))}
                   onPickDay={(d) => setSheet({ name: c.members[0], category: categoryOf(c.members[0]), date: d })}
                   onPick={(k) => setSheet({ name: k, category: categoryOf(k) })}
                   onMove={move}
@@ -869,6 +913,7 @@ export default function InsightsTab() {
                   key={c.id}
                   group={c.card}
                   spine={spine}
+                  lineCtl={(auto) => lineCtl(styleKey, auto)}
                   onLog={() => setSheet({ name: c.card!.name, category: null })}
                   onMove={() => move(c.card!.name)}
                 />
@@ -1114,11 +1159,13 @@ function categoryOf(name: string): string | null {
 function TrackCard({
   group,
   spine,
+  lineCtl,
   onLog,
   onMove,
 }: {
   group: { name: string; unit: string; count: number; series: { date: string; rawDate: string; value: number }[] }
   spine: string[]
+  lineCtl?: (auto: LineStyle) => LineControl
   onLog: () => void
   onMove?: () => void
 }) {
@@ -1135,15 +1182,16 @@ function TrackCard({
     // vertical columns as everything else for the same date.
     const byDate = new Map(group.series.map((s) => [s.rawDate, s.value]))
     const data = spine.map((d) => ({ date: fmtDate(d), value: byDate.get(d) ?? null }))
+    const lc = lineCtl?.(autoLineStyle([data.map((x) => x.value)]))
     return (
-      <ChartCard title={title}>
+      <ChartCard title={title} lines={lc}>
         <ResponsiveContainer width="100%" height={150}>
           <LineChart data={data} margin={{ left: -20, right: 8, top: 8 }}>
             <CartesianGrid stroke="var(--line)" vertical={false} />
             <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
             <YAxis domain={domain} reversed={reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} allowDecimals={false} />
             <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-            <Line isAnimationActive={false} type="monotone" dataKey="value" stroke={colorForTrack(group.name)} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+            <Line isAnimationActive={false} dataKey="value" {...lineProps(lc?.value ?? 'smooth', colorForTrack(group.name))} strokeWidth={2} connectNulls />
           </LineChart>
         </ResponsiveContainer>
         <div className="mt-1 flex items-center gap-3">
@@ -1319,10 +1367,21 @@ function SectionLabel({
   )
 }
 
-function ChartCard({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+interface LineControl {
+  value: LineStyle
+  auto: LineStyle
+  chosen: boolean
+  options: LineStyle[]
+  onChange: (style: LineStyle | null) => void
+}
+
+function ChartCard({ title, hint, lines, children }: { title: string; hint?: string; lines?: LineControl; children: React.ReactNode }) {
   return (
     <div className="card">
-      <div className="label mb-0.5">{title}</div>
+      <div className="mb-0.5 flex items-start justify-between gap-2">
+        <div className="label !mb-0">{title}</div>
+        {lines && <LineStylePicker ctl={lines} />}
+      </div>
       {hint && <div className="mb-2 text-[10px] text-ink-500">{hint}</div>}
       {children}
     </div>
@@ -1438,12 +1497,14 @@ function SeriesLegend({
 function MixedChart({
   title,
   data,
+  lines,
   onPickDay,
   onPick,
   onMove,
 }: {
   title: string
   data: MixedData
+  lines: LineControl
   onPickDay: (date: string) => void
   onPick: (key: string) => void
   onMove: (key: string) => void
@@ -1451,7 +1512,7 @@ function MixedChart({
   const left = data.axes.filter((a) => a.orientation === 'left').length
   const right = data.axes.filter((a) => a.orientation === 'right').length
   return (
-    <ChartCard title={title} hint="tap a day, or a name below, to log it · each scale has its own axis">
+    <ChartCard title={title} hint="tap a day, or a name below, to log it · each scale has its own axis" lines={lines}>
       <ResponsiveContainer width="100%" height={180}>
         <ComposedChart
           data={data.rows}
@@ -1490,12 +1551,10 @@ function MixedChart({
                 isAnimationActive={false}
                 key={s.key}
                 yAxisId={s.axis}
-                type="monotone"
                 dataKey={s.key}
                 name={s.label}
-                stroke={s.shape === 'dot' ? 'none' : s.color}
+                {...lineProps(s.shape === 'dot' ? 'points' : lines.value, s.color)}
                 strokeWidth={2}
-                dot={{ r: s.shape === 'dot' ? 3.5 : 2, fill: s.color, stroke: s.color }}
                 connectNulls
               />
             ),
@@ -1511,5 +1570,94 @@ function MixedChart({
         onMove={onMove}
       />
     </ChartCard>
+  )
+}
+
+// The "Lines" control in a chart's header: tap to show the options, tap one to
+// apply it to this chart. "Auto" says what it currently resolves to, so going back
+// to it is never a guess.
+function LineStylePicker({ ctl }: { ctl: LineControl }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="rounded-lg border border-ink-700 px-2 py-0.5 text-[10px] text-ink-400 hover:text-cream"
+      >
+        {LINE_STYLE_LABEL[ctl.value]}{ctl.chosen ? '' : ' · auto'} ▾
+      </button>
+      {open && (
+        <div className="absolute right-0 top-6 z-20 w-44 space-y-0.5 rounded-xl border border-ink-700 bg-ink-900 p-1.5 shadow-lg">
+          <StyleOption label={`Auto (${LINE_STYLE_LABEL[ctl.auto]})`} on={!ctl.chosen} onClick={() => { ctl.onChange(null); setOpen(false) }} />
+          {ctl.options.map((o) => (
+            <StyleOption key={o} label={LINE_STYLE_LABEL[o]} on={ctl.chosen && ctl.value === o} onClick={() => { ctl.onChange(o); setOpen(false) }} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StyleOption({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`block w-full rounded-lg px-2.5 py-1.5 text-left text-xs ${on ? 'bg-brand-500 text-ink-900' : 'text-ink-300 hover:bg-ink-800'}`}
+    >
+      {label}
+    </button>
+  )
+}
+
+// A minutes chart drawn as lines or points instead of the plateau. Same data and
+// the same "no entry = 0 minutes" reading the plateau uses — except in points-only,
+// where a day with nothing logged simply has no dot.
+function DurationLines({
+  spine,
+  series,
+  style,
+  onPickDay,
+  onPick,
+  onMove,
+}: {
+  spine: string[]
+  series: PlateauSeries[]
+  style: LineStyle
+  onPickDay: (date: string) => void
+  onPick: (key: string) => void
+  onMove: (key: string) => void
+}) {
+  const rows = spine.map((d, i) => {
+    const row: Record<string, number | string | null> = { date: fmtDate(d) }
+    for (const s of series) row[s.key] = s.values[i] ?? (style === 'points' ? null : 0)
+    return row
+  })
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={170}>
+        <LineChart
+          data={rows}
+          margin={{ left: -20, right: 8, top: 8 }}
+          onClick={(st: { activeTooltipIndex?: number } | null) => {
+            const i = st?.activeTooltipIndex
+            if (i != null && spine[i]) onPickDay(spine[i])
+          }}
+          style={{ cursor: 'pointer' }}
+        >
+          <CartesianGrid stroke="var(--line)" vertical={false} />
+          <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+          <YAxis domain={[0, 'auto']} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
+          <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+          {series.map((s) => (
+            <Line isAnimationActive={false} key={s.key} dataKey={s.key} name={s.label}
+              {...lineProps(style, s.color, style === 'points' ? { r: 2 } : false)} strokeWidth={2} connectNulls={false} />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+      <SeriesLegend items={series.map((s) => ({ key: s.key, color: s.color }))} onPick={onPick} onMove={onMove} />
+    </>
   )
 }
