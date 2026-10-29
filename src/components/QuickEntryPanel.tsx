@@ -18,7 +18,8 @@ import {
 } from '../lib/hiddenMetrics'
 import { loadCollapsedGroups, setGroupCollapsed } from '../lib/uiPrefs'
 import { readMetric, lastMetricValue, writeMetric, readSegments, writeSegment, rollupKindFor } from '../lib/metricStore'
-import { daysAgoISO } from '../lib/dates'
+import { daysAgoISO, fmtDate } from '../lib/dates'
+import { applyTargets, mergeNote, rangeLabel } from '../lib/applyBack'
 import { IconNote } from './icons'
 import { MetricIcon, GroupIcon } from './metricIcons'
 import AddMetricSheet from './AddMetricSheet'
@@ -136,6 +137,8 @@ export default function QuickEntryPanel({
   const [addingGroup, setAddingGroup] = useState(false)
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState<string | null>(null)
+  // "Saved for 16–18 Oct" under the row that was just applied back.
+  const [applied, setApplied] = useState<{ name: string; msg: string } | null>(null)
   const [qlBusy, setQlBusy] = useState<string | null>(null)
   const [qlFlash, setQlFlash] = useState<string | null>(null)
 
@@ -273,6 +276,41 @@ export default function QuickEntryPanel({
       await persistItem(it)
       setJustSaved(it.name)
       setTimeout(() => setJustSaved((n) => (n === it.name ? null : n)), 1500)
+      onChanged()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Copy this row's value — plus its note and intensity, if it has them — onto other
+  // days, counted back from the Log day (lib/applyBack.ts). A range that includes
+  // the Log day saves it first exactly as Save would; "the day before" leaves the
+  // Log day itself untouched. In a morning/afternoon/evening segment it writes that
+  // same segment on each day, so the rollups stay right.
+  async function applyBack(it: Item, days: string[]) {
+    const d = drafts.get(it.name)
+    if (!d) return
+    setBusy(true)
+    try {
+      const seg = usesSegment(segment, it.name) ? (segment as Segment) : null
+      const copiedNote = d.note
+      const intensityArg = d.intensity ?? undefined
+      for (const day of days) {
+        if (day === date) {
+          await persistItem(it)
+          continue
+        }
+        const noteArg = mergeNote(readSaved(day, it, seg).note, copiedNote)
+        if (seg) await writeSegment(day, seg, it.name, d.value, noteArg, intensityArg)
+        else await writeMetric(day, it.name, d.value, noteArg, intensityArg)
+      }
+      const scale = scaleForTrack(it.name, it.category)
+      const shownValue = kindForTrack(it.name) === 'bool'
+        ? (d.value >= 1 ? 'yes' : 'no')
+        : `${formatValue(d.value, scale)}${displayScale(scale).unit}`
+      const msg = `Saved ${shownValue}${copiedNote.trim() ? ' + note' : ''} for ${days.length === 1 ? fmtDate(days[0]) : rangeLabel(days)}`
+      setApplied({ name: it.name, msg })
+      setTimeout(() => setApplied((a) => (a?.name === it.name && a.msg === msg ? null : a)), 2500)
       onChanged()
     } finally {
       setBusy(false)
@@ -485,6 +523,10 @@ export default function QuickEntryPanel({
                   justSaved={justSaved === it.name}
                   onChange={(patch) => setDraft(it.name, patch)}
                   onSave={() => void saveOne(it)}
+                  date={date}
+                  busy={busy}
+                  appliedMsg={applied?.name === it.name ? applied.msg : null}
+                  onApplyBack={(days) => void applyBack(it, days)}
                   onHide={() => void hideRow(it.name)}
                   onRemove={customs.some((c) => c.key === it.name) ? () => void removeCategory(it.name) : undefined}
                   onMove={() => setMovingMetric(it)}
@@ -650,6 +692,10 @@ const QuickRow = memo(function QuickRow({
   justSaved,
   onChange,
   onSave,
+  date,
+  busy,
+  appliedMsg,
+  onApplyBack,
   onHide,
   onRemove,
   onMove,
@@ -663,6 +709,10 @@ const QuickRow = memo(function QuickRow({
   justSaved: boolean
   onChange: (patch: Partial<RowState>) => void
   onSave: () => void
+  date: string
+  busy: boolean
+  appliedMsg: string | null
+  onApplyBack: (days: string[]) => void
   onHide: () => void
   // Present only for a category he defined himself — a built-in has nothing to
   // remove, only to hide.
@@ -797,6 +847,27 @@ const QuickRow = memo(function QuickRow({
             value={draft.note}
             onChange={(e) => onChange({ note: e.target.value, noteTouched: true })}
           />
+          {/* Lives in this panel rather than on the row: the Log screen was halved
+              on purpose (G-1), and this is an occasional action next to the note
+              it copies. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-ink-500">
+              Apply {isBool ? (on ? 'yes' : 'no') : `${formatValue(draft.value, scale)}${shown.unit}`}
+              {draft.note.trim() ? ' + note' : ''} to:
+            </span>
+            {applyTargets(date).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className="chip !px-2.5 !py-0.5 !text-xs"
+                disabled={busy}
+                onClick={() => onApplyBack(t.days)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {appliedMsg && <div className="text-xs text-brand-300">{appliedMsg}</div>}
           <div className="flex flex-wrap gap-x-4 gap-y-1">
             {/* Anything dictation files under `tracks` shows up here, including things
                 that aren't metrics at all. One tap removes the row; the data stays. */}

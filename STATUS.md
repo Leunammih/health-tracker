@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-29 (G-11: sleep editable from Insights; bedtime → wake band on the Sleep chart)_
+_Last updated: 2026-10-29 (G-12: apply-back for sleep and the Log quick-entry rows)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -1005,34 +1005,54 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     bedtimes and one gap: band renders and breaks at the gap; tapping the band chart
     opened the sheet on the tapped day; changing quality + Save wrote the row and
     the chart updated; tooltip "Bedtime : 23:30 / Woke : 07:30". No console errors.
+- **G-12 — "apply to earlier days" everywhere (2026-10-29)** — no schema change. His
+  ask after confirming G-11: the same day-before / 3-day / 7-day apply as the
+  Insights tap-to-log sheet, for the other editors. Asked scope (only Sleep lacked
+  it inside Insights); his answer: **Sleep + the Log tab's quick-entry rows**.
+  - New `src/lib/applyBack.ts` — `applyTargets(selected)` (day before, 3- and 7-day
+    spans ending on the selected day), `rangeLabel`, `mergeNote`. QuickLogSheet now
+    uses the same helpers (behaviour unchanged, re-verified).
+  - **Sleep** (`SleepCard`, so Log and the Insights sleep sheet both get it): an
+    "Also apply to: [17 Oct] [16–18 Oct] [12–18 Oct]" chip row under Save sleep —
+    copies bedtime, wake and felt quality onto those nights (overwrites; a night
+    has one bedtime, nothing to merge).
+  - **Log quick-entry rows** — the chips live inside each row's note panel (the
+    pencil button), next to Hide / Move: "Apply 9/10 + note to: …". Kept off the
+    row itself because the Log screen was deliberately halved in G-1. Counted back
+    from the Log day; a range that includes it saves it exactly as Save would; the
+    day-before chip leaves the Log day alone. Copies value, note (same merge rule)
+    and intensity if set. In Morning/Afternoon/Evening mode it writes that segment
+    on each day, so each day's rollup recomputes correctly.
+  - Verified in-browser both themes: Energy 9 + note onto 17–19 Oct (17th's own
+    note kept + joined); day-before with no note left notes alone and didn't touch
+    the Log day; Morning segment ×3 days → three morning rows, rollups 4; sleep ×7
+    nights; Insights sleep sheet shows the chips; Insights tap-to-log regression
+    test identical to G-10.1. No console errors.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-11**. No schema change._
+_Replaced each iteration — this is the list for **G-12**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **New bedtime → wake panel.** Insights → Wellbeing & sleep → **Sleep** card.
-   Under the hours/quality chart (and its legend) there's now a second chart
-   labelled **BEDTIME → WAKE**: clock times down the left (evening at the top,
-   morning at the bottom), a gold **Bedtime** line, a light **Woke** line, and a
-   shaded band between them for each night. Its dates line up with the chart
-   above (same day = same column). A night you went to bed after midnight sits
-   visibly lower. Failure: no second chart, or times look scrambled around
-   midnight.
-3. **Touch a point → real clock times.** Press on a night in the new panel →
-   the tooltip says e.g. **"Bedtime : 23:30, Woke : 07:30"** (not decimals).
-4. **Tap a day to edit (new).** Tap any day on either sleep chart → a **Sleep**
-   sheet opens **on that day** (its chip highlighted) with the same Bedtime /
-   Wake wheels, hours-asleep figure and Felt quality slider as on the Log tab.
-   Change the wake time → the hours figure changes; move quality → **Save sleep**
-   ("✓ Saved"). **Done** → both charts show the new values for that day.
-5. **Other days from the sheet.** In the sheet's day strip tap a different day
-   (dots = days that already have sleep) → its values load; save one with no
-   sleep yet → it appears on the charts.
-6. **Edit sleep… link.** Under the card, **Edit sleep…** opens the same sheet on
-   today.
-7. **Unchanged:** the Log tab's Sleep card (same editor), Energy & mood above it,
-   the tap-to-log sheet from G-10.1 (counting back from the selected day), both
-   themes. Then put back any test values.
+2. **Log rows (new).** Log → pick a day in the strip (e.g. the 18th) → on any
+   slider row (e.g. **Energy**) move the slider, then tap the **pencil** button
+   next to Save. Under the note box a new line reads **"Apply 7/10 to: [17 Oct]
+   [16–18 Oct] [12–18 Oct]"** (it says "+ note" once you type a note). Tap
+   **16–18 Oct** → **"Saved 7/10 for 16–18 Oct"** appears, and the row shows
+   "saved". Tap the 16th / 17th in the strip → Energy is 7 there too.
+3. **Notes along, never lost.** Type a note, tap **12–18 Oct**. Days that already
+   had their own note show both, joined with ";". Empty note → other days' notes
+   are left as they were.
+4. **"Day before" leaves the Log day alone.** Change the slider, tap **17 Oct**
+   (the single date) → only the 17th changes; the 18th keeps what it had.
+5. **Segments.** Tap **Morning** at the top of Log, then do step 2 on Energy →
+   each of those days gets a morning value (Insights' Energy line moves for those
+   days; other parts of the day untouched).
+6. **Sleep (new).** Log → Sleep card → set bedtime / wake / quality → under **Save
+   sleep** a chip row **"Also apply to: [17 Oct] [16–18 Oct] [12–18 Oct]"** → tap
+   one → **"Saved for …"**, and Insights → Sleep shows those nights. The same chips
+   are in the Insights sleep sheet (tap a day on the Sleep chart).
+7. **Unchanged:** the Insights tap-to-log sheet's buttons (G-10.1), Save / Save N
+   changed on Log, Quick log chips, both themes. Then put back any test values.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -1051,7 +1071,8 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone15** — phone report on **G-11** (checklist above). No schema change.
+- 🟦 **phone16** — phone report on **G-12** (checklist above). No schema change.
+- ✅ **phone15** (G-11) — answered 2026-10-29, "Great. Working."; his next ask became G-12.
 - ✅ **phone14** (G-10.1) — answered 2026-10-29, "Working thanks"; his next ask became G-11.
 - 🟦 **phone13** — phone report on **G-10**. Partly answered 2026-10-29: he reported
   the Insights apply-range bug (→ G-10.1) but nothing yet on the working day / Move
@@ -1194,12 +1215,11 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-11** (checklist above). G-10 itself
+**Waiting on Immanuel's phone report for G-12** (checklist above). G-10 itself
 (working day + Move-a-day sheet) still has no direct report — see phone13.
 
-G-11 (2026-10-29): Sleep is editable from Insights (tap a day → sheet with the Log
-tab's sleep editor), and the Sleep card gained a bedtime → wake panel. Details under
-Done → G-11.
+G-12 (2026-10-29): day-before / 3-day / 7-day apply added to the sleep editor and
+the Log quick-entry rows. Details under Done → G-12.
 
 **Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
 Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed

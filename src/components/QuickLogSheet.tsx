@@ -6,6 +6,7 @@ import {
 } from '../lib/metrics'
 import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
 import { daysEndingOn, fmtDate } from '../lib/dates'
+import { mergeNote, rangeLabel } from '../lib/applyBack'
 import { IconNote } from './icons'
 import { MetricIcon } from './metricIcons'
 
@@ -104,15 +105,9 @@ export default function QuickLogSheet({
     }
   }
 
-  // The note a copied-onto day should end up with. No note on screen → leave the
-  // day's own note alone (undefined = keep). A day that already has a different
-  // note keeps it, with this one added, rather than losing it.
+  // See mergeNote: keeps a day's own different note, never overwrites it.
   function noteFor(d: string, draft: string): string | undefined {
-    if (!draft) return undefined
-    const existing = readMetric(d, name).note?.trim()
-    if (!existing) return draft
-    if (existing.includes(draft)) return undefined
-    return `${existing}; ${draft}`
+    return mergeNote(readMetric(d, name).note, draft)
   }
 
   const dayBefore = daysEndingOn(date, 2)[0]
@@ -257,14 +252,3 @@ export default function QuickLogSheet({
   )
 }
 
-// '16–18 Oct', or 'Sep 28 – Oct 4' across a month boundary — whatever fmtDate gives
-// for each end, collapsed when the month matches.
-function rangeLabel(days: string[]): string {
-  const first = fmtDate(days[0])
-  const last = fmtDate(days[days.length - 1])
-  if (days[0].slice(0, 7) === days[days.length - 1].slice(0, 7)) {
-    const lastDay = String(Number(days[days.length - 1].slice(8)))
-    return first.replace(/\d+/, (d) => `${d}–${lastDay}`)
-  }
-  return `${first} – ${last}`
-}

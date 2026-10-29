@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { sleepOn, upsertSleep } from '../db/queries'
-import { sleepDurationMin } from '../lib/dates'
+import { fmtDate, sleepDurationMin } from '../lib/dates'
+import { applyTargets, rangeLabel } from '../lib/applyBack'
 import TimePicker5 from './TimePicker5'
 
 // Where the picker opens for a day with no sleep saved yet. Harmless to pre-fill:
@@ -18,6 +19,7 @@ export default function SleepCard({ date, onChanged }: { date: string; onChanged
   const [quality, setQuality] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
+  const [applied, setApplied] = useState<string | null>(null)
 
   useEffect(() => {
     const row = sleepOn(date)
@@ -25,6 +27,7 @@ export default function SleepCard({ date, onChanged }: { date: string; onChanged
     setEnd(row?.sleep_end ?? DEFAULT_WAKE)
     setQuality(row?.sleep_quality ?? null)
     setJustSaved(false)
+    setApplied(null)
   }, [date])
 
   const duration = start && end ? sleepDurationMin(start, end) : null
@@ -36,6 +39,21 @@ export default function SleepCard({ date, onChanged }: { date: string; onChanged
       setJustSaved(true)
       onChanged()
       setTimeout(() => setJustSaved(false), 1500)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Same bedtime, wake and felt quality onto other nights, counted back from the
+  // selected day like every other "apply" control (lib/applyBack.ts). Overwrites
+  // those nights' sleep — there's no note to merge, and a night has one bedtime.
+  async function applyTo(days: string[]) {
+    setBusy(true)
+    try {
+      for (const d of days) await upsertSleep(d, start || null, end || null, quality)
+      setApplied(`Saved for ${days.length === 1 ? fmtDate(days[0]) : rangeLabel(days)}`)
+      onChanged()
+      setTimeout(() => setApplied(null), 2200)
     } finally {
       setBusy(false)
     }
@@ -80,6 +98,15 @@ export default function SleepCard({ date, onChanged }: { date: string; onChanged
       <button className="btn-primary w-full !py-2 text-sm" disabled={busy} onClick={() => void save()}>
         {justSaved ? '✓ Saved' : 'Save sleep'}
       </button>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-ink-500">Also apply to:</span>
+        {applyTargets(date).map((t) => (
+          <button key={t.key} type="button" className="chip !px-2.5 !py-0.5 !text-xs" disabled={busy} onClick={() => void applyTo(t.days)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {applied && <div className="text-xs text-brand-300">{applied}</div>}
     </div>
   )
 }
