@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-29 (G-10.1: Insights tap-to-log bulk apply counts back from the selected day, copies the note)_
+_Last updated: 2026-10-29 (G-11: sleep editable from Insights; bedtime → wake band on the Sleep chart)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -982,37 +982,57 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
   Verified in-browser both themes: selected the 19th (today 29th) → 17th–19th got
   6/10 + note, the 17th's existing note kept and joined, today untouched; 7-day and
   day-before variants correct; no-note apply kept existing notes. No console errors.
+- **G-11 — edit sleep from Insights, bedtime/wake on the chart (2026-10-29)** — no
+  schema change. His ask after confirming G-10.1 works: tap the Sleep chart to edit
+  duration and quality, and show (and edit) bedtime and wake time in the same card.
+  - **Tap to edit** — both sleep charts take `onClick`; Recharts' `activeTooltipIndex`
+    indexes the shared spine, so the tapped column opens new `SleepSheet` on that
+    day. The sheet is a `DayStrip` (dots = days with sleep) + the **same
+    `SleepCard`** the Log tab uses (bedtime/wake wheels, felt quality, Save sleep) —
+    one editor behind two doors, so they can't drift. Duration stays computed, never
+    stored: changing a time is how duration changes. An "Edit sleep…" link under the
+    card opens it on today.
+  - **Bedtime → wake** — a second, stacked chart in the same card on the same date
+    axis and margins (a hidden mirror right axis keeps the plot width identical, so
+    columns line up with the hours/quality chart above). Times are plotted as hours
+    since noon (`clockOffset`) so a night across midnight is one continuous span;
+    reversed axis = evening at top, morning at bottom; a shaded band between
+    bedtime and wake is the night itself. Axis fitted to his data and snapped to
+    2h/4h ticks; tooltip shows real clock times. Put in a stacked panel rather than
+    on the hours/quality axes because a clock time on a 0-12 "hours" axis would read
+    as a quantity.
+  - Verified in-browser both themes with 8 seeded nights incl. 00:45 and 01:30
+    bedtimes and one gap: band renders and breaks at the gap; tapping the band chart
+    opened the sheet on the tapped day; changing quality + Save wrote the row and
+    the chart updated; tooltip "Bedtime : 23:30 / Woke : 07:30". No console errors.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-10.1**. No schema change._
+_Replaced each iteration — this is the list for **G-11**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Buttons name their days (new).** Insights → tap **Wrist pain** (or any pain
-   item) in a chart legend → in the sheet's day strip tap a day about 10 days back
-   (e.g. the 18th). Expected: the buttons read **"Apply to 16–18 Oct"**, **"Apply
-   to 12–18 Oct"**, **"Same for 17 Oct"**, and a small line underneath says
-   **"Counted back from 18 Oct."** Tap a different day → all three labels change
-   with it. Failure: they still say "last 3 days" / "yesterday".
-3. **Apply lands on those days, not on recent ones (the fix).** With the 18th
-   selected, set the slider to e.g. 3 → **Apply to 16–18 Oct**. Expected: a line
-   **"Saved 3/10 for 16–18 Oct"** appears under the buttons, the dots on the strip
-   show the 16th/17th/18th logged, and in the chart those three days sit at 3.
-   The last few days (26th–28th) are **unchanged**. Failure: the recent days
-   changed instead.
-4. **Notes come along (new).** Still on the 18th: **Add note** → type "test note"
-   → **Apply to 16–18 Oct**. Line reads **"Saved 3/10 + note for 16–18 Oct"**. Tap
-   the 16th in the strip → open the note: it says "test note". If one of those
-   days already had its own note, it now shows **both**, joined with ";" — the old
-   note isn't lost. **Same for 17 Oct** behaves the same way for just that day.
-5. **No note = other days' notes untouched.** Pick a day, clear its note field
-   (empty), apply to 3 days → days that had notes still have them.
-6. **"Saved …" confirmation (small fix).** Tap the big **Save … for 18 Oct** →
-   a "Saved …" line now appears under the buttons for ~2 seconds (it used to
-   vanish instantly, so you may never have seen it).
-7. **Then clean up** the test values/notes (Clear this day, or re-save the real
-   values). **Unchanged — check nothing regressed:** the G-10 working-day bar and
-   Move-a-day sheet (still awaiting your report — see the G-10 notes in Done), Log
-   sliders, meals, both themes.
+2. **New bedtime → wake panel.** Insights → Wellbeing & sleep → **Sleep** card.
+   Under the hours/quality chart (and its legend) there's now a second chart
+   labelled **BEDTIME → WAKE**: clock times down the left (evening at the top,
+   morning at the bottom), a gold **Bedtime** line, a light **Woke** line, and a
+   shaded band between them for each night. Its dates line up with the chart
+   above (same day = same column). A night you went to bed after midnight sits
+   visibly lower. Failure: no second chart, or times look scrambled around
+   midnight.
+3. **Touch a point → real clock times.** Press on a night in the new panel →
+   the tooltip says e.g. **"Bedtime : 23:30, Woke : 07:30"** (not decimals).
+4. **Tap a day to edit (new).** Tap any day on either sleep chart → a **Sleep**
+   sheet opens **on that day** (its chip highlighted) with the same Bedtime /
+   Wake wheels, hours-asleep figure and Felt quality slider as on the Log tab.
+   Change the wake time → the hours figure changes; move quality → **Save sleep**
+   ("✓ Saved"). **Done** → both charts show the new values for that day.
+5. **Other days from the sheet.** In the sheet's day strip tap a different day
+   (dots = days that already have sleep) → its values load; save one with no
+   sleep yet → it appears on the charts.
+6. **Edit sleep… link.** Under the card, **Edit sleep…** opens the same sheet on
+   today.
+7. **Unchanged:** the Log tab's Sleep card (same editor), Energy & mood above it,
+   the tap-to-log sheet from G-10.1 (counting back from the selected day), both
+   themes. Then put back any test values.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -1031,7 +1051,8 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone14** — phone report on **G-10.1** (checklist above). No schema change.
+- 🟦 **phone15** — phone report on **G-11** (checklist above). No schema change.
+- ✅ **phone14** (G-10.1) — answered 2026-10-29, "Working thanks"; his next ask became G-11.
 - 🟦 **phone13** — phone report on **G-10**. Partly answered 2026-10-29: he reported
   the Insights apply-range bug (→ G-10.1) but nothing yet on the working day / Move
   sheet itself.
@@ -1173,12 +1194,12 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-10.1** (checklist above), and still on
-G-10 (working day + Move-a-day sheet) which he hasn't reported on directly.
+**Waiting on Immanuel's phone report for G-11** (checklist above). G-10 itself
+(working day + Move-a-day sheet) still has no direct report — see phone13.
 
-G-10.1 (2026-10-29): Insights tap-to-log "Apply to last 3/7 days" / "Same for
-yesterday" now count back from the selected day and copy the note. Details under
-Done → G-10.1.
+G-11 (2026-10-29): Sleep is editable from Insights (tap a day → sheet with the Log
+tab's sleep editor), and the Sleep card gained a bedtime → wake panel. Details under
+Done → G-11.
 
 **Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
 Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed

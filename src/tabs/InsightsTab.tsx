@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine,
+  ComposedChart, Area,
 } from 'recharts'
 import { daysAgoISO, dateSpine, fmtDate, sleepDurationMin } from '../lib/dates'
 import {
@@ -18,6 +19,7 @@ import { loadHiddenMetrics, supplementMetricNames, isSuppressedMetric } from '..
 import { useTheme } from '../lib/theme'
 import PlateauChart, { type PlateauSeries } from '../components/PlateauChart'
 import QuickLogSheet from '../components/QuickLogSheet'
+import SleepSheet from '../components/SleepSheet'
 import MoveMetricSheet from '../components/MoveMetricSheet'
 import { MetricIcon, GroupIcon } from '../components/metricIcons'
 import { IconMeal } from '../components/icons'
@@ -313,15 +315,47 @@ export default function InsightsTab() {
   const sleepData = spine.map((d) => {
     const w = sleepByDate.get(d)
     const mins = w?.sleep_start && w?.sleep_end ? sleepDurationMin(w.sleep_start, w.sleep_end) : null
+    const bed = clockOffset(w?.sleep_start)
+    const wake = clockOffset(w?.sleep_end)
     return {
       date: fmtDate(d),
       hours: mins != null ? Math.round((mins / 60) * 10) / 10 : null,
       quality: w?.sleep_quality ?? null,
+      bed,
+      wake,
+      // The shaded band between the two — the night itself.
+      night: bed != null && wake != null ? [bed, wake] : null,
     }
   })
   const hasSleep = sleepData.some((r) => r.hours != null || r.quality != null)
+  const hasSleepTimes = sleepData.some((r) => r.bed != null || r.wake != null)
+  // Clock axis fitted to his actual nights (padded half an hour), so a 23:00-07:30
+  // routine isn't squashed into a 24h scale.
+  const clockVals = sleepData.flatMap((r) => [r.bed, r.wake]).filter((v): v is number => v != null)
+  // Snapped to the tick step (2h, or 4h for a wide spread) so the ticks read
+  // 22:00 / 00:00 / 02:00… and both ends of the axis carry a label.
+  const clockLo = clockVals.length ? Math.min(...clockVals) - 0.5 : 10
+  const clockHi = clockVals.length ? Math.max(...clockVals) + 0.5 : 20
+  const clockStep = clockHi - clockLo > 10 ? 4 : 2
+  const clockDomain: [number, number] = [
+    Math.max(0, Math.floor(clockLo / clockStep) * clockStep),
+    Math.min(24, Math.ceil(clockHi / clockStep) * clockStep),
+  ]
+  const clockTicks: number[] = []
+  for (let t = clockDomain[0]; t <= clockDomain[1]; t += clockStep) clockTicks.push(t)
+  const [sleepSheet, setSleepSheet] = useState<{ date?: string } | null>(null)
+  // Recharts reports the tapped column by index into the data, which is the spine.
+  const openSleepAt = (state: { activeTooltipIndex?: number } | null) => {
+    const i = state?.activeTooltipIndex
+    if (i != null && spine[i]) setSleepSheet({ date: spine[i] })
+  }
   const colSleepHours = colorForTrack('sleep hours')
   const colSleepQuality = colorForTrack('sleep quality')
+  // Bedtime/wake get the two sleep hues, matched by meaning: going to bed with felt
+  // quality's colour would suggest a link that isn't there, so bedtime takes the
+  // hours colour (the night starts) and wake a lighter text tone.
+  const colSleepBed = colSleepHours
+  const colSleepWake = 'var(--text)'
 
   // --- energy / mood (0-10, high is good) + release (0-100, 0 at top).
   // Release defaults to a constant 0 line and only dips on days with an entry.
@@ -577,16 +611,16 @@ export default function InsightsTab() {
           )}
 
           {hasSleep && (
-            <ChartCard title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top">
+            <ChartCard title="Sleep" hint="high is good — more sleep and better felt quality both sit at the top · tap a day to edit">
               <ResponsiveContainer width="100%" height={170}>
-                <LineChart data={sleepData} margin={{ left: -20, right: -20, top: 8 }}>
+                <LineChart data={sleepData} margin={{ left: -20, right: -20, top: 8 }} onClick={openSleepAt} style={{ cursor: 'pointer' }}>
                   <CartesianGrid stroke="var(--line)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
                   <YAxis yAxisId="l" domain={[0, 12]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
                   <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={{ fill: colSleepQuality, fontSize: 10 }} />
                   <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
-                  <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                  <Line isAnimationActive={false} yAxisId="l" type="monotone" dataKey="hours" name="Hours asleep" stroke={colSleepHours} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                  <Line isAnimationActive={false} yAxisId="r" type="monotone" dataKey="quality" name="Felt quality" stroke={colSleepQuality} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
                 </LineChart>
               </ResponsiveContainer>
               <Legend
@@ -595,6 +629,37 @@ export default function InsightsTab() {
                   { color: colSleepQuality, label: 'Felt quality (0-10)' },
                 ]}
               />
+              {hasSleepTimes && (
+                <>
+                  {/* Same date axis and margins as the chart above, so a column here
+                      is the same night as the column over it. Evening at the top,
+                      morning at the bottom: the band reads as the night going down
+                      the page, and a later bedtime visibly pushes it lower. */}
+                  <div className="mb-1 mt-4 text-[10px] uppercase tracking-wide text-ink-500">Bedtime → wake</div>
+                  <ResponsiveContainer width="100%" height={150}>
+                    <ComposedChart data={sleepData} margin={{ left: -20, right: -20, top: 4 }} onClick={openSleepAt} style={{ cursor: 'pointer' }}>
+                      <CartesianGrid stroke="var(--line)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
+                      <YAxis yAxisId="t" reversed domain={clockDomain} ticks={clockTicks} interval={0} tickFormatter={fmtClockOffset} tick={{ fill: 'var(--faint)', fontSize: 10 }} />
+                      {/* Mirror axis, hidden: keeps the plot exactly as wide as the one above. */}
+                      <YAxis yAxisId="r" orientation="right" domain={[0, 10]} tick={false} axisLine={false} />
+                      <Tooltip contentStyle={tooltipStyle} formatter={clockTip} />
+                      <Area isAnimationActive={false} yAxisId="t" type="monotone" dataKey="night" name="Night" stroke="none" fill={colSleepHours} fillOpacity={0.18} connectNulls={false} legendType="none" tooltipType="none" />
+                      <Line isAnimationActive={false} yAxisId="t" type="monotone" dataKey="bed" name="Bedtime" stroke={colSleepBed} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                      <Line isAnimationActive={false} yAxisId="t" type="monotone" dataKey="wake" name="Woke" stroke={colSleepWake} strokeWidth={2} dot={{ r: 2 }} connectNulls={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                  <Legend
+                    items={[
+                      { color: colSleepBed, label: 'Bedtime' },
+                      { color: colSleepWake, label: 'Woke' },
+                    ]}
+                  />
+                </>
+              )}
+              <button type="button" className="mt-3 text-xs text-brand-400 underline" onClick={() => setSleepSheet({})}>
+                Edit sleep…
+              </button>
             </ChartCard>
           )}
 
@@ -909,6 +974,15 @@ export default function InsightsTab() {
         )
       })}
 
+      {sleepSheet && (
+        <SleepSheet
+          dates={spine}
+          initialDate={sleepSheet.date}
+          onClose={() => setSleepSheet(null)}
+          onChanged={() => setRefresh((k) => k + 1)}
+        />
+      )}
+
       {sheet && (
         <QuickLogSheet
           name={sheet.name}
@@ -1038,6 +1112,25 @@ const tooltipStyle = { background: 'var(--surface)', border: '1px solid var(--li
 // computed values arrive as long floats — nothing wants "6.666666666666667" in a
 // tooltip. One decimal is past the precision any of these metrics actually has.
 const roundTip = (v: number | string): number | string => (typeof v === 'number' ? Math.round(v * 10) / 10 : v)
+
+// Bed and wake times on one continuous axis: hours since 12:00 noon, so a night
+// that crosses midnight (23:30 → 07:00) stays one unbroken span instead of jumping
+// from 23 to 7. 23:30 → 11.5, 01:00 → 13, 07:00 → 19.
+function clockOffset(t: string | null | undefined): number | null {
+  if (!t) return null
+  const [h, m] = t.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return null
+  return (((h - 12 + 24) % 24) * 60 + m) / 60
+}
+
+function fmtClockOffset(v: number): string {
+  const total = Math.round(v * 60)
+  const h = (Math.floor(total / 60) + 12) % 24
+  const m = total % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+const clockTip = (v: number | string | (number | string)[]): string | number => (typeof v === 'number' ? fmtClockOffset(v) : Array.isArray(v) ? '' : v)
 
 const MEAL_BAR_LABELS: Record<string, string> = {
   protein: 'Protein',
