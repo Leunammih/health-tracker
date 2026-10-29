@@ -41,6 +41,16 @@ export function fmtDay(iso: string): string {
   return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+// The `n` days ending on `endISO`, oldest first — "the last 3 days" counted back
+// from a chosen day rather than from today.
+export function daysEndingOn(endISO: string, n: number): string[] {
+  const d = new Date(endISO + 'T00:00:00')
+  d.setDate(d.getDate() - (n - 1))
+  const off = d.getTimezoneOffset()
+  const start = new Date(d.getTime() - off * 60_000).toISOString().slice(0, 10)
+  return expandDateRange(start, endISO)
+}
+
 export function daysAgoISO(n: number): string {
   const d = new Date()
   d.setDate(d.getDate() - n)

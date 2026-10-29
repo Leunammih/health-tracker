@@ -5,7 +5,7 @@ import {
   displayScale, toDisplay, fromDisplay, formatValue,
 } from '../lib/metrics'
 import { readMetric, lastMetricValue, writeMetric, datesWithMetric } from '../lib/metricStore'
-import { fmtDate } from '../lib/dates'
+import { daysEndingOn, fmtDate } from '../lib/dates'
 import { IconNote } from './icons'
 import { MetricIcon } from './metricIcons'
 
@@ -60,8 +60,12 @@ export default function QuickLogSheet({
     setValue(clampToScale(saved.value ?? fallback ?? scale.min, scale))
     setNoteDraft(saved.note ?? '')
     setNoteTouched(false)
-    setStatus(null)
   }, [date, name, version])
+
+  // Separate from the reload above: that one also runs after every save (via
+  // `version`), and clearing the status there wiped each "Saved …" confirmation
+  // the moment it was set. Only a different day or item should clear it.
+  useEffect(() => setStatus(null), [date, name])
 
   // `withNote` only when committing the day currently on screen — the bulk helpers
   // below omit it so every other day keeps its own note.
@@ -79,18 +83,48 @@ export default function QuickLogSheet({
     }
   }
 
-  // Copy the current slider value onto the last N days in one go. Notes are left
-  // alone — each day keeps whatever it already had.
-  async function applyLastNDays(n: number) {
+  // Copy the slider value — and the note, if there is one — onto the selected day
+  // and the n-1 days before it. Counted back from the SELECTED day, not from today:
+  // filling in last week's knee pain from the 18th means the 16th-18th, not the
+  // three days before whenever he happens to be typing it.
+  async function applyBack(n: number) {
     setBusy(true)
     try {
-      const targets = dates.slice(-n)
+      const targets = daysEndingOn(date, n)
+      const draft = noteDraft.trim()
       for (const d of targets) {
-        await writeMetric(d, name, value)
+        await writeMetric(d, name, value, d === date ? (noteTouched ? draft || null : undefined) : noteFor(d, draft))
       }
       setVersion((k) => k + 1)
       onChanged()
-      setStatus(`Saved ${fmt(value)}${shown.unit} for the last ${n} days`)
+      setStatus(`Saved ${fmt(value)}${shown.unit}${draft ? ' + note' : ''} for ${rangeLabel(targets)}`)
+      setTimeout(() => setStatus(null), 2200)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The note a copied-onto day should end up with. No note on screen → leave the
+  // day's own note alone (undefined = keep). A day that already has a different
+  // note keeps it, with this one added, rather than losing it.
+  function noteFor(d: string, draft: string): string | undefined {
+    if (!draft) return undefined
+    const existing = readMetric(d, name).note?.trim()
+    if (!existing) return draft
+    if (existing.includes(draft)) return undefined
+    return `${existing}; ${draft}`
+  }
+
+  const dayBefore = daysEndingOn(date, 2)[0]
+
+  async function sameForDayBefore() {
+    const draft = noteDraft.trim()
+    setBusy(true)
+    try {
+      await writeMetric(dayBefore, name, value, noteFor(dayBefore, draft))
+      setVersion((k) => k + 1)
+      onChanged()
+      setStatus(`Saved ${fmt(value)}${shown.unit}${draft ? ' + note' : ''} for ${fmtDate(dayBefore)}`)
       setTimeout(() => setStatus(null), 2200)
     } finally {
       setBusy(false)
@@ -192,21 +226,18 @@ export default function QuickLogSheet({
         </button>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <button className="btn-ghost !py-2 text-xs" disabled={busy} onClick={() => void applyLastNDays(3)}>
-            Apply to last 3 days
+          <button className="btn-ghost !py-2 text-xs" disabled={busy} onClick={() => void applyBack(3)}>
+            Apply to {rangeLabel(daysEndingOn(date, 3))}
           </button>
-          <button className="btn-ghost !py-2 text-xs" disabled={busy} onClick={() => void applyLastNDays(7)}>
-            Apply to last 7 days
+          <button className="btn-ghost !py-2 text-xs" disabled={busy} onClick={() => void applyBack(7)}>
+            Apply to {rangeLabel(daysEndingOn(date, 7))}
           </button>
           <button
             className="btn-ghost !py-2 text-xs"
             disabled={busy}
-            onClick={() => {
-              const y = dates[dates.length - 2]
-              if (y) void save(y, value)
-            }}
+            onClick={() => void sameForDayBefore()}
           >
-            Same for yesterday
+            Same for {fmtDate(dayBefore)}
           </button>
           <button
             className="rounded-xl bg-ink-800 px-3 py-2 text-xs text-red-400 hover:bg-ink-700"
@@ -217,8 +248,23 @@ export default function QuickLogSheet({
           </button>
         </div>
 
-        <div className="mt-3 h-4 text-center text-xs text-brand-300">{status}</div>
+        <p className="mt-2 text-center text-[11px] text-ink-500">
+          Counted back from {fmtDate(date)}{noteDraft.trim() ? ', note included' : ''}.
+        </p>
+        <div className="mt-2 h-4 text-center text-xs text-brand-300">{status}</div>
       </div>
     </div>
   )
+}
+
+// '16–18 Oct', or 'Sep 28 – Oct 4' across a month boundary — whatever fmtDate gives
+// for each end, collapsed when the month matches.
+function rangeLabel(days: string[]): string {
+  const first = fmtDate(days[0])
+  const last = fmtDate(days[days.length - 1])
+  if (days[0].slice(0, 7) === days[days.length - 1].slice(0, 7)) {
+    const lastDay = String(Number(days[days.length - 1].slice(8)))
+    return first.replace(/\d+/, (d) => `${d}–${lastDay}`)
+  }
+  return `${first} – ${last}`
 }

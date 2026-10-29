@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-14 (G-10: the logging day stays put; move a day's logs to another date)_
+_Last updated: 2026-10-29 (G-10.1: Insights tap-to-log bulk apply counts back from the selected day, copies the note)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -965,46 +965,54 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     note; Undo restored the DB byte-for-byte as checked; a clash-free move with one
     meal unticked left that meal behind; Meals builder opens on the working day and
     a builder date pick moves it; Back to today clears the bar. No console errors.
+- **G-10.1 — bulk apply counts back from the selected day (2026-10-29)** — no schema
+  change. His phone report: on the Insights tap-to-log sheet (Wrist pain, day 18
+  selected, today 28) "Apply to last 3/7 days" and "Same for yesterday" counted from
+  today, not from the day he'd picked. `QuickLogSheet` sliced the end of the Insights
+  spine (always ending today). Now `daysEndingOn(selected, n)` (new in
+  `lib/dates.ts`, plain date maths so it can reach before the spine's first day);
+  buttons name their real range ("Apply to 16–18 Oct", "Same for 17 Oct") plus a
+  "Counted back from …" line. **Notes now copy too** (his ask): the note on screen
+  goes onto every day in the range; a day with its own different note keeps it with
+  this one appended ("left knee; worse on stairs"), an identical one isn't doubled,
+  and with no note on screen every other day's note is left alone. Also fixed a
+  pre-existing bug found while verifying: the "Saved …" confirmation under the
+  buttons never showed — the reload effect that runs after every save (on
+  `version`) cleared it in the same tick; it now clears only on a day/item change.
+  Verified in-browser both themes: selected the 19th (today 29th) → 17th–19th got
+  6/10 + note, the 17th's existing note kept and joined, today untouched; 7-day and
+  day-before variants correct; no-note apply kept existing notes. No console errors.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-10**. No schema change._
+_Replaced each iteration — this is the list for **G-10.1**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **The day stays after saving (new).** Log → in the day strip tap **yesterday**.
-   An amber bar appears at the very top: **"Logging for <yesterday> — not today ·
-   Back to today"**. Type "test" in the box → **Save without Claude**. Expected:
-   the strip is *still* on yesterday and the bar is still there. Failure: it jumps
-   to today. (Delete the "test" entry afterwards from Recent entries.)
-3. **…and across tabs and a restart (new).** Still on yesterday: go to **Meals** —
-   the same amber bar shows yesterday's date; tap the build/dictate option and the
-   date it shows should be yesterday, not today. Back to **Log** → still
-   yesterday. Swipe the app away completely and reopen → still yesterday.
-4. **Back to today (new).** Tap **Back to today** in the bar → strip jumps to today,
-   bar disappears. (Not testable quickly, just so you know: if the app sits unused
-   for 6 hours it goes back to today on its own.)
-5. **Move a day — the sheet (new).** Pick a day that has logs → under the date
-   field tap **"Logged on the wrong day? Move <day>'s logs to another date…"**. A
-   sheet lists everything on that day, grouped (tracked items, energy/mood, meals…),
-   all ticked. Pick a target day in its strip. If the target already has the same
-   things, those rows get a small **clash** tag and a box below asks about each one;
-   the big button reads **"Answer N clashes first"** and won't work until you've
-   chosen for every one. Untick one item → the count on the button drops by one.
-   Tap **Cancel** → nothing changed.
-6. **Move a day — for real, then undo (new).** Best on two days you don't mind
-   touching: open the sheet again, pick the target, answer the clashes (try one
-   **Keep existing** and one **Merge** on something in minutes), tap **Move N
-   items**. Expected: you land on the target day; a green bar says **"Moved N items
-   from … to … · 1 kept where it was"** with **Undo**; the sliders on the target
-   show the moved values (a merged minutes item shows the sum). Tap **Undo** →
-   you're back on the original day and both days look exactly as before. Failure
-   to report: anything missing after Undo, or a "Keep existing" item that vanished
-   from both days.
-7. **Unchanged — check nothing regressed:** dictating an entry with Claude, the
-   quick-entry sliders and morning/evening segments, sleep, supplements (skip/
-   pause), meals (photo, dictate, builder, edit an old meal — its date should stay
-   the meal's own date), Insights charts, both themes. Also still open from G-9
-   (never reported): Productivity in hours, ⇄ on Movement, supplement markers only
-   on Illness & gut.
+2. **Buttons name their days (new).** Insights → tap **Wrist pain** (or any pain
+   item) in a chart legend → in the sheet's day strip tap a day about 10 days back
+   (e.g. the 18th). Expected: the buttons read **"Apply to 16–18 Oct"**, **"Apply
+   to 12–18 Oct"**, **"Same for 17 Oct"**, and a small line underneath says
+   **"Counted back from 18 Oct."** Tap a different day → all three labels change
+   with it. Failure: they still say "last 3 days" / "yesterday".
+3. **Apply lands on those days, not on recent ones (the fix).** With the 18th
+   selected, set the slider to e.g. 3 → **Apply to 16–18 Oct**. Expected: a line
+   **"Saved 3/10 for 16–18 Oct"** appears under the buttons, the dots on the strip
+   show the 16th/17th/18th logged, and in the chart those three days sit at 3.
+   The last few days (26th–28th) are **unchanged**. Failure: the recent days
+   changed instead.
+4. **Notes come along (new).** Still on the 18th: **Add note** → type "test note"
+   → **Apply to 16–18 Oct**. Line reads **"Saved 3/10 + note for 16–18 Oct"**. Tap
+   the 16th in the strip → open the note: it says "test note". If one of those
+   days already had its own note, it now shows **both**, joined with ";" — the old
+   note isn't lost. **Same for 17 Oct** behaves the same way for just that day.
+5. **No note = other days' notes untouched.** Pick a day, clear its note field
+   (empty), apply to 3 days → days that had notes still have them.
+6. **"Saved …" confirmation (small fix).** Tap the big **Save … for 18 Oct** →
+   a "Saved …" line now appears under the buttons for ~2 seconds (it used to
+   vanish instantly, so you may never have seen it).
+7. **Then clean up** the test values/notes (Clear this day, or re-save the real
+   values). **Unchanged — check nothing regressed:** the G-10 working-day bar and
+   Move-a-day sheet (still awaiting your report — see the G-10 notes in Done), Log
+   sliders, meals, both themes.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -1023,7 +1031,10 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone13** — phone report on **G-10** (checklist above). No schema change.
+- 🟦 **phone14** — phone report on **G-10.1** (checklist above). No schema change.
+- 🟦 **phone13** — phone report on **G-10**. Partly answered 2026-10-29: he reported
+  the Insights apply-range bug (→ G-10.1) but nothing yet on the working day / Move
+  sheet itself.
 - 🟦 **phone12** — phone report on **G-9**. Not answered; he moved straight to the
   G-10 ask. Its three checks are folded into item 7 of the G-10 checklist.
 - ✅ **phone11** (G-8) — answered 2026-08-21: combine works; three follow-ups
@@ -1162,13 +1173,12 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-10** (checklist above).
+**Waiting on Immanuel's phone report for G-10.1** (checklist above), and still on
+G-10 (working day + Move-a-day sheet) which he hasn't reported on directly.
 
-G-10 was his ask of 2026-10-14: (1) don't jump back to today after adding an
-entry — stay on the chosen day until he changes it (his pick: return to today
-after 6h unused); (2) move a whole day's logs to another date, and when the target
-already has logs, ask what to replace / merge / keep rather than guessing. Details
-under Done → G-10.
+G-10.1 (2026-10-29): Insights tap-to-log "Apply to last 3/7 days" / "Same for
+yesterday" now count back from the selected day and copy the note. Details under
+Done → G-10.1.
 
 **Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
 Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed
