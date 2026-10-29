@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-30 (G-14: per-chart line style — smooth / straight / steps / points / plateau, auto best fit)_
+_Last updated: 2026-10-30 (G-15: Energy, Mood, Stress, Release, Infection, Stool, Gut pain movable — behaviour travels with the item)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -1085,52 +1085,86 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     plateau; Points only → no stroke, 14 dots; Steps; Movement → Straight renders
     lines with ⇄ legend, Auto returns it to the plateau; choices survive reload;
     sleep card shows both controls. No console errors.
+- **G-15 — the fixed charts' items are movable, behaviour travels (2026-10-30)** — no
+  schema change. Answers 🔶 dedicated1 with his pick **(a)**: Energy, Mood, Release,
+  Stress, Infection, Stool and Illness & gut's Gut pain can go on any chart, keeping
+  what makes them special; other items can also go onto the fixed charts.
+  - **`lib/chartLayout.ts`** — two fixed hosts (`fx-wellbeing` = Wellbeing & sleep,
+    `fx-illness` = Illness & gut) alongside the categories; `FIXED_DEFAULTS` puts each
+    fixed item on its original chart (`energy-mood`, `stress`, `illness`), which
+    keeps its old title while it holds any of its own items. `placementFor()`
+    replaces `chartFor()`: a fixed item's choice counts wherever it points; a
+    category item's counts in its own category or on a fixed chart. Gut pain is a
+    separate mirror key `~gutpain` (logs as Stomach pain), so moving it never touches
+    Stomach pain's own chart. `directionOf()`: stool is neutral (4 ideal) and doesn't
+    vote on axis reversal. `axisKindFor`: '%' is now its own 'percent' kind (0-100) —
+    previously % items shared the 0-10 chart and drew off its top.
+  - **Insights** — one builder (`groupCharts`) for categories and fixed hosts;
+    fixed items are `SeriesSpec`s built from the data the old charts used, carrying
+    their behaviour: infection's carried-forward values, stool's ideal-4
+    `refLine`, release's own dot and reversed 0-100% axis. One renderer
+    (`renderChart`) → PlateauChart / DurationLines for minutes, TrackCard for a lone
+    plain item, new **`MetricChart`** (replaces MixedChart and the old rating/fixed
+    line charts) for everything else. Hints are composed from what's on the chart
+    ("infection carries forward…", "stool: 4 is ideal", "low is good…"). Supplement
+    / event markers follow Infection (else Stool, else Gut pain). Sleep stays fixed
+    (two-panel, not a metric chart). Saved line styles for the three fixed charts
+    keep their old keys.
+  - **Move sheet** — the two fixed sections are destinations (step 1); a fixed item's
+    original chart is always offered in its home section ("Stress load (its usual
+    chart)") even after it emptied and disappeared.
+  - **Warming bottle** was in the dedicated list but drawn nowhere since its counter
+    was removed — now an ordinary yes/no item with its own small chart, movable.
+  - Stool alone on its axis reads as "Bristol 1-7" (domain 1-7); sharing with 0-10
+    ratings it sits inside 0-10 as before.
+  - Verified in-browser both themes with release, stool, gut-pain and a supplement
+    event seeded: default layout = previous titles + the new Warming bottle card;
+    Stress → Health & pain (same scale), Infection → Practice minutes (2nd axis,
+    still carried forward, marker followed), Stool → its own chart (ideal line kept,
+    Bristol axis), Release → Health & pain (reversed % axis), Knee pain → Illness &
+    gut; all moved back → `chart_assignments` empty, layout back to default. G-10.1,
+    G-11, G-13, G-14 regression scripts all pass. No console errors.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-14**. No schema change._
+_Replaced each iteration — this is the list for **G-15**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **A "Lines" button on every line chart (new).** Insights → each chart that draws
-   lines (Energy & mood, Sleep, Bedtime → wake, Stress load, Illness & gut, every
-   category chart) has a small button top-right, e.g. **"Straight · auto ▾"**.
-   Calories and Macros (bars) don't.
-3. **Auto picked a best fit (changed look).** Without touching anything: charts
-   you log almost daily (likely Energy & mood, Stress) stay **smooth**; charts
-   with gaps (Health & pain, Illness & gut) are now **straight** lines — the long
-   swooping arcs across unlogged days are gone; **K-Meditation** (two readings)
-   shows **just the dots**; minutes charts keep their rounded plateau.
-4. **Change one.** Health & pain → tap the button → menu: **Auto (Straight) /
-   Smooth / Straight / Steps / Points only**. Pick **Points only** → only dots, no
-   lines; **Steps** → square steps; the button now shows your choice without
-   "· auto". Swipe the app away and reopen → still your choice.
-5. **Minutes charts.** On e.g. **Breath & Awareness (min)** the menu also has
-   **Plateau**. Pick **Straight** → it becomes a normal line chart (unlogged days at
-   0), legend names still tap to log and ⇄ still moves. **Auto (Plateau)** → back.
-6. **Back to automatic.** Any chart → **Auto (…)** → returns to the best-fit style.
-7. **Unchanged:** tap-a-day to log, ⇄ two-step move (G-13), sleep editing, both
-   themes.
+2. **Same layout as before.** Insights: Energy & mood, Sleep, Stress load and
+   Illness & gut are where they were with the same lines. Small differences: their
+   legends now show **⇄** buttons and which axis each line reads on ("(0-10, left)",
+   "Release 💦 (%, 0 at top, right)"), and the hints say what each item does
+   ("infection carries forward…", "stool: 4 is ideal"). **New:** a small
+   **Warming bottle** chart in its category (it used to be shown nowhere).
+3. **Move Stress (new).** Stress load → **⇄** next to Stress → step 1 now lists
+   **Wellbeing & sleep** and **Illness & gut** above your categories → pick
+   **Health & pain** → **Health & pain (0-10) — same scale** → Stress joins that
+   chart and the Stress load chart disappears.
+4. **Behaviour travels (new).** Move **Infection** onto any other chart → its line
+   still stays flat at the last level until a day you logged it gone, and the
+   supplement "Started …" markers move with it. Move **Stool** to "A chart of its
+   own" → its dashed **4 = ideal** line comes along, axis reads **Bristol 1-7**.
+   Move **Release** onto a 0-10 chart → it gets its own reversed % axis on the
+   right.
+5. **Onto a fixed chart (new).** ⇄ on e.g. **Knee pain** → **Illness & gut** → the
+   **Illness & gut** chart → Knee pain draws there with Infection and Stool.
+6. **Put it all back.** ⇄ → **Wellbeing & sleep** → **"Stress load (its usual
+   chart)"** brings Stress load back exactly as before; same for the others
+   (Illness & gut → "Illness & gut"; Release → Wellbeing & sleep → "Energy & mood").
+7. **Unchanged:** Sleep chart + editing, line styles (your saved choices on Energy
+   & mood / Stress / Illness & gut kept), tap-a-day to log, apply-to-days buttons,
+   both themes.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
-- 🔶 **dedicated1** — (2026-10-30: he asked directly why Stress load and Illness &
-  gut have no ⇄ and whether any chart could be movable; explained in chat — no hard
-  restriction, the choice is what happens to the special behaviour; options a/b/c
-  offered, awaiting his pick.) Energy, Mood, Stress, Release, Infection, Stool and Warming
-  bottle each live in their own fixed chart (Wellbeing & sleep, Illness & gut)
-  with bespoke rendering (Infection's carry-forward-until-resolved, Stool's
-  Bristol coloring, Release's dual axis) — they don't go through the
-  customisable-category system at all, so they have no ⇄ button and can't be
-  moved like everything else now can. Extending "move and customise" to these
-  specifically means either losing that bespoke rendering when moved, or
-  keeping it permanently regardless of category — a real design choice, not
-  guessed at. Say the word if you want this built next and which way to take it.
+- ✅ **dedicated1** — answered 2026-10-30: **(a)**, behaviour travels with the item → built as G-15.
 - 🟦 **dupes1** — delete the duplicate 2026-08-05 chicken soup and one 2026-07-19
   quinoa bowl (Meals tab), and the "No supplements in the last four days" event
   (Log tab). Double-counted calories; the "stray reference line on three
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone18** — phone report on **G-14** (checklist above). No schema change.
+- 🟦 **phone19** — phone report on **G-15** (checklist above). No schema change.
+- ✅ **phone18** (G-14) — answered 2026-10-30, "Great. Thanks."; picked (a) for dedicated1 → G-15.
 - ✅ **phone17** (G-13) — answered 2026-10-30, "Great."; asked why Stress / Illness &
   gut can't be moved (→ dedicated1, answered in chat with options) and asked for line
   styles (→ G-14).
@@ -1278,43 +1312,14 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-14** (checklist above) and his pick for
-🔶 dedicated1 (making Energy/Mood/Stress/Release/Infection/Stool/Warming bottle
-movable — options a/b/c given in chat 2026-10-30). G-10 itself still has no direct
-report — see phone13.
+**Waiting on Immanuel's phone report for G-15** (checklist above). G-10 itself
+(working day + Move-a-day sheet) still has no direct report — see phone13.
 
-G-14 (2026-10-30): per-chart line style with an automatic best fit. Details under
-Done → G-14.
-
-**Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
-Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed
-charts outside the customisable-category system entirely, so "move and customise
-all items traced" doesn't yet reach them. Needs his steer on which way to take it
-before building, not a guess.
+G-15 (2026-10-30): the fixed charts' items (Energy, Mood, Release, Stress,
+Infection, Stool, Gut pain) are movable with their behaviour, and the fixed charts
+accept other items. Details under Done → G-15. Sleep remains a fixed chart.
 
 Nothing else is queued. Next feature work needs a fresh ask.
-
-Known gap, unchanged since G-2: **intensity is captured but not charted.**
-`PlateauChart` is hand-rolled SVG with no tooltip. Cheapest options first: tint each
-day's plateau by intensity; add a tooltip; an average-intensity line.
-
-Older, unscheduled follow-ups (unchanged, not blocking):
-- A supplement's label photo is stored but never read — wire a vision call
-  (mirror `analyseMeal` in `ai/anthropic.ts` + a tool in `ai/schemas.ts`).
-- Phase D/D-2 (plateau charts, tap-to-log sliders, day-strip swipe, time-of-day
-  segments) still unverified on a real phone.
-
-**Environment note:** the Browser pane's `preview_start` and occasionally other
-tools intermittently time out on an unrelated safety classifier — usually clears on
-retry within a call or two. When `preview_start`/`navigate` both report "no preview
-is open" but the dev server (`lsof -nP -iTCP:5199 -sTCP:LISTEN`) is still up, the
-pane itself has closed — re-run `preview_start` with the `url` param to reopen it.
-`read_console_messages` does **not** clear across reloads — compare the `?t=…` HMR
-cache-buster in a stack trace against the current reload time before trusting an
-error as live. Also still true: scroll events don't reach React handlers in this
-pane — set `scrollTop` then `dispatchEvent(new Event('scroll'))` — and
-`window.__ht.all(sql)` takes **no bind parameters**, inline values into the SQL
-string.
 
 ## Dev hygiene
 After a schema change: `rm -rf node_modules/.vite` and, in the browser test tab,

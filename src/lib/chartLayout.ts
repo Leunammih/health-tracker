@@ -13,7 +13,7 @@
 // a chart id that means something else there.
 
 import { getMeta, setMeta } from '../db/queries'
-import { isLowerBetter, kindForTrack, scaleForTrack } from './metrics'
+import { isLowerBetter, kindForTrack, labelForTrack, scaleForTrack } from './metrics'
 
 const KEY = 'chart_assignments'
 
@@ -37,16 +37,70 @@ export const DUR_CHART = 'dur'
 export const RATING_CHART = 'rating'
 export const ownChart = (metric: string) => `card:${metric}`
 
+// ---- The fixed charts (G-15) ----
+// Energy & mood, Stress load and Illness & gut predate categories. They are now
+// ordinary charts that live in two fixed "hosts" — the Wellbeing & sleep and
+// Illness & gut sections — and their items can be moved like any other. Each
+// item's special behaviour travels with it (see the series built in InsightsTab):
+// infection carries forward, stool marks 4 as ideal, release keeps its reversed
+// 0-100% axis.
+export const FX_WELLBEING = 'fx-wellbeing'
+export const FX_ILLNESS = 'fx-illness'
+export const FIXED_HOSTS: { key: string; label: string }[] = [
+  { key: FX_WELLBEING, label: 'Wellbeing & sleep' },
+  { key: FX_ILLNESS, label: 'Illness & gut' },
+]
+export const isFixedHost = (key: string) => key === FX_WELLBEING || key === FX_ILLNESS
+
+// Illness & gut's "Gut pain" is a mirror of the Stomach pain metric, which also
+// appears in its own category — a separate key so the mirror can be moved (or
+// left) without touching Stomach pain itself.
+export const GUT_PAIN_MIRROR = '~gutpain'
+
+// Where each of those items lives until he moves it, and the names its original
+// charts keep while they still hold any of their original items.
+export const FIXED_DEFAULTS: Record<string, { group: string; chart: string }> = {
+  energy: { group: FX_WELLBEING, chart: 'energy-mood' },
+  mood: { group: FX_WELLBEING, chart: 'energy-mood' },
+  release: { group: FX_WELLBEING, chart: 'energy-mood' },
+  stress: { group: FX_WELLBEING, chart: 'stress' },
+  infection: { group: FX_ILLNESS, chart: 'illness' },
+  [GUT_PAIN_MIRROR]: { group: FX_ILLNESS, chart: 'illness' },
+  stool: { group: FX_ILLNESS, chart: 'illness' },
+}
+export const FIXED_CHART_TITLES: Record<string, string> = {
+  'energy-mood': 'Energy & mood',
+  stress: 'Stress load',
+  illness: 'Illness & gut',
+}
+export const isFixedItem = (metric: string) => metric in FIXED_DEFAULTS
+
+export function chartMemberLabel(metric: string): string {
+  return metric === GUT_PAIN_MIRROR ? 'Gut pain' : labelForTrack(metric)
+}
+
+// Which way is good, for deciding whether a shared 0-10 axis is drawn upside down.
+// Stool is neither: 4 is ideal and both ends are bad, so it doesn't vote.
+export function directionOf(metric: string): 'low' | 'high' | 'neutral' {
+  if (metric === 'stool') return 'neutral'
+  if (metric === GUT_PAIN_MIRROR) return 'low'
+  return isLowerBetter(metric) ? 'low' : 'high'
+}
+
 // The scale family a metric's values live on — two metrics with the same one can
-// share an axis. Ratings and percentages share the 0-10 rating chart today, so
-// they count as one family here too. Anything else only shares with its own unit;
+// share an axis. Anything else only shares with its own unit;
 // a unitless number is assumed to share with nothing.
 export type AxisKind = string
 export function axisKindFor(metric: string): AxisKind {
+  // Bristol 1-7 has always been drawn on the shared 0-10 axis (with its ideal-4
+  // line); the gut-pain mirror is a 0-10 pain score.
+  if (metric === 'stool' || metric === GUT_PAIN_MIRROR) return 'rating'
   if (kindForTrack(metric) === 'bool') return 'bool'
   const unit = scaleForTrack(metric, null).unit
   if (unit === 'min') return 'duration'
-  if (unit === '/10' || unit === '%') return 'rating'
+  if (unit === '/10') return 'rating'
+  // Percentages used to share the 0-10 chart, which drew 60% off the top of it.
+  if (unit === '%') return 'percent'
   return unit ? `unit:${unit}` : `metric:${metric}`
 }
 
@@ -57,16 +111,32 @@ export function defaultChartFor(metric: string): string {
   return ownChart(metric)
 }
 
-export function chartFor(metric: string, group: string): string {
+// Where an item is drawn: {host, chart}. A host is a category key or one of the
+// fixed hosts. `category` is the item's own category (null for the fixed items,
+// which have none on the Insights side). A category item's choice counts while it
+// stays in that category, or when it points at a fixed chart; a fixed item's
+// counts wherever it points, as long as that host still exists.
+export function placementFor(
+  metric: string,
+  category: string | null,
+  hostExists: (key: string) => boolean,
+): { group: string; chart: string } {
+  const def = defaultPlacement(metric, category)
   const a = load()[metric]
-  return a && a.group === group ? a.chart : defaultChartFor(metric)
+  if (!a || !hostExists(a.group)) return def
+  if (isFixedItem(metric) || isFixedHost(a.group) || a.group === category) return a
+  return def
 }
 
-// Writing the metric's own default chart clears the entry, so "put it back where it
+export function defaultPlacement(metric: string, category: string | null): { group: string; chart: string } {
+  return FIXED_DEFAULTS[metric] ?? { group: category ?? 'other', chart: defaultChartFor(metric) }
+}
+
+// Writing the item's default place clears the entry, so "put it back where it
 // would have gone anyway" leaves no stored override behind.
-export async function assignMetricToChart(metric: string, group: string, chart: string): Promise<void> {
+export async function assignMetricToChart(metric: string, group: string, chart: string, isDefault: boolean): Promise<void> {
   const next = load()
-  if (chart === defaultChartFor(metric)) delete next[metric]
+  if (isDefault) delete next[metric]
   else next[metric] = { group, chart }
   await setMeta(KEY, Object.keys(next).length ? JSON.stringify(next) : null)
 }
@@ -104,7 +174,7 @@ export function combineVerdict(metric: string, members: string[]): Verdict {
   // Same 0-10 axis, opposite meaning: pain (low is good) next to clarity (high is
   // good) is drawn right way up, so one of them reads upside down.
   const ratings = all.filter((m) => axisKindFor(m) === 'rating')
-  const mixedDirection = ratings.some((m) => isLowerBetter(m)) && ratings.some((m) => !isLowerBetter(m))
+  const mixedDirection = ratings.some((m) => directionOf(m) === 'low') && ratings.some((m) => directionOf(m) === 'high')
   const note = mixedDirection
     ? 'Some of these are "low is good" and some "high is good" — they share one 0-10 axis drawn the normal way up.'
     : undefined

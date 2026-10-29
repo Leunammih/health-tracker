@@ -1,8 +1,17 @@
 import { useState } from 'react'
-import type { ResolvedGroup } from '../lib/groups'
 import { GroupIcon, MetricIcon } from './metricIcons'
-import { labelForTrack } from '../lib/metrics'
-import { axisKindFor, combineVerdict, defaultChartFor, ownChart, type Verdict } from '../lib/chartLayout'
+import { axisKindFor, chartMemberLabel, combineVerdict, defaultChartFor, FIXED_CHART_TITLES, FIXED_DEFAULTS, FX_ILLNESS, FX_WELLBEING, ownChart, type Verdict } from '../lib/chartLayout'
+
+// A category, or one of the two fixed sections (Wellbeing & sleep, Illness & gut).
+export interface Destination {
+  key: string
+  label: string
+  icon?: string
+}
+type ResolvedGroup = Destination
+
+// The fixed sections have no category icon of their own; borrow the matching one.
+const iconGroup = (key: string) => (key === FX_WELLBEING ? 'wellbeing' : key === FX_ILLNESS ? 'symptom' : key)
 
 export interface ChartOption {
   id: string
@@ -57,10 +66,18 @@ export default function MoveMetricSheet({
   function optionsFor(g: ResolvedGroup): ChartOption[] {
     const list = (charts?.[g.key] ?? []).map((c) => ({ ...c, members: c.members.filter((m) => m !== metric) }))
     const own = ownChart(metric)
-    const usual = defaultChartFor(metric)
+    // A fixed item's usual place in its home section is its original chart (Stress
+    // load, Energy & mood…) — offered even when that chart is empty and gone, so
+    // putting it back is one tap.
+    const home = FIXED_DEFAULTS[metric]
+    const usual = home && home.group === g.key ? home.chart : defaultChartFor(metric)
     const extra: ChartOption[] = []
-    const scale = axisKindFor(metric) === 'duration' ? ' (min)' : ' (0-10)'
-    if (!list.some((c) => c.id === usual)) extra.push({ id: usual, title: usual === own ? 'A chart of its own' : `New ${g.label} chart${scale}`, members: [] })
+    const kind = axisKindFor(metric)
+    const scale = kind === 'duration' ? ' (min)' : kind === 'rating' ? ' (0-10)' : kind === 'percent' ? ' (%)' : ''
+    const usualTitle = FIXED_CHART_TITLES[usual]
+      ? `${FIXED_CHART_TITLES[usual]} (its usual chart)`
+      : usual === own ? 'A chart of its own' : `New ${g.label} chart${scale}`
+    if (!list.some((c) => c.id === usual)) extra.push({ id: usual, title: usualTitle, members: [] })
     if (usual !== own && !list.some((c) => c.id === own)) extra.push({ id: own, title: 'A chart of its own', members: [] })
     return [...list.filter((c) => c.members.length || c.id === currentChart), ...extra]
   }
@@ -83,9 +100,9 @@ export default function MoveMetricSheet({
                 ‹
               </button>
             )}
-            <MetricIcon name={metric} size={18} />
+            <MetricIcon name={metric === '~gutpain' ? 'stomach pain' : metric} size={18} />
             <span className="truncate">
-              Move {labelForTrack(metric)}
+              Move {chartMemberLabel(metric)}
               {group && stepped ? ` → ${group.label}` : ''}
             </span>
           </span>
@@ -137,7 +154,7 @@ export default function MoveMetricSheet({
                     ) : null}
                   </span>
                   {c.members.length > 0 && (
-                    <span className="text-[11px] text-ink-400">with {c.members.map(labelForTrack).join(', ')}</span>
+                    <span className="text-[11px] text-ink-400">with {c.members.map(chartMemberLabel).join(', ')}</span>
                   )}
                   {!isCurrent && verdict.level === 'axis' && c.members.length > 0 && (
                     <span className="text-[11px] text-ink-500">Its scale differs, so it gets its own axis on the right.</span>
@@ -168,13 +185,13 @@ export default function MoveMetricSheet({
                   }`}
                 >
                   <span className="flex w-full items-center gap-2">
-                    <GroupIcon group={g.key} icon={g.icon} size={16} />
+                    <GroupIcon group={iconGroup(g.key)} icon={g.icon} size={16} />
                     {g.label}
                     {isCurrent && <span className="ml-auto text-[11px] text-brand-500">current</span>}
                     {stepped && !isCurrent && <span className="ml-auto text-ink-500">›</span>}
                   </span>
                   {members.length > 0 && (
-                    <span className="pl-6 text-[11px] text-ink-400">with {members.map(labelForTrack).join(', ')}</span>
+                    <span className="pl-6 text-[11px] text-ink-400">with {members.map(chartMemberLabel).join(', ')}</span>
                   )}
                 </button>
               )

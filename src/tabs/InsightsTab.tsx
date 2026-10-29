@@ -14,7 +14,10 @@ import {
   canonicalTrackName, chartPalette, scaleForTrack, displayScale, toDisplay, paletteGroup,
 } from '../lib/metrics'
 import { allGroups, assignMetricToGroup } from '../lib/groups'
-import { assignMetricToChart, axisKindFor, chartFor, DUR_CHART, RATING_CHART } from '../lib/chartLayout'
+import {
+  assignMetricToChart, axisKindFor, chartMemberLabel, defaultPlacement, directionOf, DUR_CHART, FIXED_CHART_TITLES,
+  FIXED_DEFAULTS, FIXED_HOSTS, FX_ILLNESS, FX_WELLBEING, GUT_PAIN_MIRROR, isFixedHost, isFixedItem, placementFor, RATING_CHART,
+} from '../lib/chartLayout'
 import type { ChartOption } from '../components/MoveMetricSheet'
 import { autoLineStyle, curveType, lineProps, loadChartStyles, setChartStyle, LINE_STYLE_LABEL, type LineStyle } from '../lib/chartStyle'
 import { loadInsightsLayout, orderIds, setSectionCollapsed, moveSection, type InsightsLayout } from '../lib/insightsLayout'
@@ -29,7 +32,7 @@ import { IconMeal } from '../components/icons'
 import heroResources from '../assets/hero-resources.jpg'
 import { classifyMeal, FOOD_GROUP_KEYS, type FoodGroupBreakdown } from '../lib/foodGroups'
 import { loadGoals } from '../lib/goals'
-import type { Track, Meal, Ingredient } from '../types'
+import type { Meal, Ingredient } from '../types'
 
 const RANGES = [
   { label: '3d', days: 3 },
@@ -177,219 +180,27 @@ export default function InsightsTab() {
     return dateSpine(earliest !== null && earliest > since ? earliest : since)
   }, [wb, gut, inf, meals, ctx, tracks, acts, since])
 
-  // Metrics with their own dedicated chart elsewhere on this page (Energy & mood,
-  // Sleep, Stress, Illness & gut) must not ALSO appear in their category's generic
-  // chart below, or the same number would be drawn twice. `stomach pain` is
-  // deliberately NOT here — it appears in both the Pain-shaped chart below AND the
-  // Illness & gut chart (see illnessData above), which is intentional.
-  const DEDICATED = useMemo(
-    () => new Set(['energy', 'mood', 'stress', 'release', 'infection', 'stool', 'warming bottle']),
-    [],
-  )
+  // Items whose values are NOT plain per-day track rows — they come from the
+  // wellbeing / day_context / infections / gut_events tables, or need their own
+  // treatment (infection's carry-forward). They're built as special series below
+  // and must not ALSO be read as ordinary tracks, or the same number would be drawn
+  // twice. Warming bottle used to be listed here too, but no chart ever drew it, so
+  // it couldn't be seen or moved; it's an ordinary yes/no item now.
+  const DEDICATED = useMemo(() => new Set(['energy', 'mood', 'stress', 'release', 'infection', 'stool']), [])
 
-  // One real chart per CATEGORY rather than three hardcoded blocks keyed to the
-  // literal names 'movement'/'practice'/'symptom'. Categories are user-defined (see
-  // lib/groups.ts) — a group invented on the phone matches none of those literal
-  // names, so routing has to come from what's actually IN the group, not its key:
-  // every member a duration -> the same rounded-plateau chart Movement draws today;
-  // every member a 0-10/percent rating -> the same multi-line chart Pain draws
-  // today; anything mixed -> one small card per metric, as the old catch-all
-  // "Other" section always did. This is what makes "create a category" mean
-  // something in Insights instead of the item just falling into Other.
-  // Each category's chart area used to be an all-or-nothing choice: every member a
-  // duration -> one shared plateau, every member a rating -> one shared line chart,
-  // ANYTHING else mixed in -> fall back to one small card per metric, no merging at
-  // all. That was the bug: a category holding Brain clarity (rating) alongside
-  // Computer time and Phone use (both duration) fell into the "anything else"
-  // branch, so Computer time and Phone use stopped sharing a chart even though nothing
-  // about them individually changed. Categories now bucket by SHAPE independently —
-  // every duration member always shares one plateau, every rating member always
-  // shares one line chart, and only what's left over (checkmarks, plain numbers,
-  // measurements) falls back to individual cards. All three can render together
-  // under the same heading.
-  const groupCharts = useMemo(() => {
-    const hidden = loadHiddenMetrics()
-    const supplements = supplementMetricNames()
 
-    const byGroup = new Map<string, Set<string>>()
-    for (const t of tracks) {
-      if (t.value == null || DEDICATED.has(t.name)) continue
-      if (isSuppressedMetric(t.name, hidden, supplements)) continue
-      const set = byGroup.get(groupForTrack(t.name, t.category)) ?? new Set<string>()
-      set.add(t.name)
-      byGroup.set(groupForTrack(t.name, t.category), set)
+  // Host first (a category or a fixed section), then the exact chart in it
+  // (lib/chartLayout.ts). Moving an ordinary item into another CATEGORY also moves
+  // its category, as before; putting it on a fixed chart, or moving one of the
+  // fixed items, leaves the Log tab's categories alone.
+  async function moveMetricToChart(name: string, host: string, chart: string) {
+    let category = isFixedItem(name) ? null : groupForTrack(name)
+    if (category !== null && !isFixedHost(host) && category !== host) {
+      await assignMetricToGroup(name, host)
+      category = host
     }
-
-    return allGroups().map((g): GroupCharts => {
-      const names = [...(byGroup.get(g.key) ?? [])].sort()
-      // Workouts (the `activities` table) always fold into the canonical 'movement'
-      // key specifically, whatever it has been renamed to display as — they are not
-      // part of the customisable-metric system, so they cannot be reassigned to a
-      // different group the way a track can. They always sit on Movement's shared
-      // duration chart.
-      const isMovement = g.key === 'movement'
-      if (!names.length && !(isMovement && acts.length)) return { key: g.key, label: g.label, icon: g.icon, charts: [] }
-
-      // Duration values per series key: tracks, plus workouts on Movement.
-      const durByName = new Map<string, Map<string, number>>()
-      const addDur = (key: string, date: string, mins: number | null) => {
-        if (!key || mins == null) return
-        const m = durByName.get(key) ?? new Map<string, number>()
-        m.set(date, (m.get(date) ?? 0) + mins)
-        durByName.set(key, m)
-      }
-      const activityKeys = new Set<string>()
-      if (isMovement) {
-        for (const a of acts) {
-          const key = defForName(a.type ?? '')?.key ?? (a.type ?? '').trim().toLowerCase()
-          if (!key) continue
-          activityKeys.add(key)
-          addDur(key, a.date, a.duration_min)
-        }
-      }
-      for (const t of tracks) if (names.includes(t.name) && axisKindFor(t.name) === 'duration') addDur(t.name, t.date, t.value)
-
-      // Which chart each member is on: his explicit choice (lib/chartLayout.ts), else
-      // the default for its shape. Workout-only keys always ride the shared one.
-      const byChart = new Map<string, string[]>()
-      const put = (chart: string, name: string) => {
-        const list = byChart.get(chart) ?? []
-        if (!list.includes(name)) list.push(name)
-        byChart.set(chart, list)
-      }
-      for (const n of names) put(chartFor(n, g.key), n)
-      for (const k of activityKeys) if (!names.includes(k)) put(DUR_CHART, k)
-
-      const order = (id: string) => (id === DUR_CHART ? 0 : id === RATING_CHART ? 1 : 2)
-      const charts = [...byChart.entries()]
-        .sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
-        .map(([id, members]) => buildChart(g, id, members, durByName, activityKeys))
-      return { key: g.key, label: g.label, icon: g.icon, charts }
-    })
-
-    function buildChart(
-      g: { key: string; label: string },
-      id: string,
-      members: string[],
-      durByName: Map<string, Map<string, number>>,
-      activityKeys: Set<string>,
-    ): CategoryChart {
-      const kindOf = (m: string) => (activityKeys.has(m) && !tracks.some((t) => t.name === m) ? 'duration' : axisKindFor(m))
-      const kinds = [...new Set(members.map(kindOf))]
-      const palette = chartPalette(members, paletteGroup(g.key), light)
-      // The two shared charts keep the category's name; any other chart is named by
-      // what's on it, so two 0-10 charts in one category can't share a title.
-      const named = id === DUR_CHART || id === RATING_CHART
-      const memberTitle = members.length <= 2
-        ? members.map(labelForTrack).join(' & ')
-        : `${labelForTrack(members[0])}, ${labelForTrack(members[1])} +${members.length - 2}`
-      const base = named ? g.label : memberTitle
-
-      if (kinds.length === 1 && kinds[0] === 'duration') {
-        // Members store minutes either way — only their preferred DISPLAY unit can
-        // differ (an hours-mode metric like Computer time still stores raw minutes,
-        // see G-7a). Hours only when every member prefers it, and never on Movement,
-        // whose workouts are plain minutes.
-        const hours = g.key !== 'movement' && members.every((n) => displayScale(scaleForTrack(n, null)).unit === 'h')
-        const factor = hours ? 60 : 1
-        const series: PlateauSeries[] = members
-          .filter((k) => durByName.has(k))
-          .map((key) => ({
-            key,
-            label: labelForTrack(key),
-            color: palette[key],
-            values: spine.map((d) => {
-              const v = durByName.get(key)!.get(d)
-              return v == null ? null : v / factor
-            }),
-          }))
-        const unit = hours ? 'h' : 'min'
-        return { id, title: `${base} (${unit})`, members, kind: 'duration', duration: series, durationUnit: unit }
-      }
-
-      if (kinds.length === 1 && kinds[0] === 'rating') {
-        // Reversed only when EVERY member is lowerIsBetter — a mixed chart draws
-        // right-way-up rather than picking a direction that misrepresents half of it.
-        const reversed = members.every((n) => isLowerBetter(n))
-        return {
-          id, title: `${base} (0-10)`, members, kind: 'rating',
-          rating: { keys: members, rows: buildRows(spine, tracks, members), palette, reversed },
-        }
-      }
-
-      if (members.length === 1) {
-        const name = members[0]
-        const rowsForName = tracks.filter((t) => t.name === name && t.value != null)
-        const scale = scaleForTrack(name, rowsForName.find((r) => r.category)?.category ?? null)
-        return {
-          id, title: labelForTrack(name), members, kind: 'card',
-          card: {
-            name,
-            unit: displayScale(scale).unit,
-            count: rowsForName.length,
-            series: rowsForName.map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: toDisplay(r.value as number, scale) })),
-          },
-        }
-      }
-
-      // Different scales on one chart: one axis per scale family, in order of first
-      // appearance — the first on the left, the second on the right, any more
-      // stacked beside those (the move sheet warns before it comes to that).
-      const axisIds = kinds
-      const axes: MixedAxis[] = axisIds.map((k, i) => {
-        const of = members.filter((m) => kindOf(m) === k)
-        const sample = of[0]
-        const orientation: 'left' | 'right' = i % 2 === 0 ? 'left' : 'right'
-        const side = i < 2 ? orientation : `far ${orientation}`
-        if (k === 'duration') {
-          const hours = of.every((n) => !activityKeys.has(n) && displayScale(scaleForTrack(n, null)).unit === 'h')
-          return { id: k, label: hours ? 'h' : 'min', orientation, side, domain: [0, 'auto'], factor: hours ? 60 : 1 }
-        }
-        if (k === 'rating') return { id: k, label: '0-10', orientation, side, domain: [0, 10], reversed: of.every((n) => isLowerBetter(n)) }
-        if (k === 'bool') return { id: k, label: 'yes/no', orientation, side, domain: [0, 1] }
-        // Weight and other plain numbers: fitted to the data, not from 0 — 78 kg on a
-        // 0-80 axis is a flat line along the top.
-        return { id: k, label: displayScale(scaleForTrack(sample, null)).unit || labelForTrack(sample), orientation, side, domain: ['auto', 'auto'] }
-      })
-      const rows = spine.map((d) => {
-        const row: Record<string, number | string | null> = { date: fmtDate(d), rawDate: d }
-        for (const m of members) {
-          const k = kindOf(m)
-          if (k === 'duration') {
-            const v = durByName.get(m)?.get(d)
-            row[m] = v == null ? null : v / (axes.find((a) => a.id === k)!.factor ?? 1)
-          } else {
-            const t = tracks.find((x) => x.name === m && x.date === d && x.value != null)
-            row[m] = t ? toDisplay(t.value as number, scaleForTrack(m, t.category)) : null
-          }
-        }
-        return row
-      })
-      const series = members.map((m) => ({
-        key: m,
-        label: labelForTrack(m),
-        color: palette[m],
-        axis: kindOf(m),
-        shape: (kindOf(m) === 'duration' ? 'bar' : kindOf(m) === 'bool' ? 'dot' : 'line') as 'bar' | 'line' | 'dot',
-      }))
-      return {
-        id, title: `${base} (${axes.map((a) => a.label).join(' · ')})`, members, kind: 'mixed',
-        mixed: { rows, series, axes },
-      }
-    }
-  }, [tracks, acts, spine, light, DEDICATED])
-
-  // Every chart in each category with what's on it, for the move sheet's second step.
-  const chartsByGroup = useMemo(() => {
-    const map: Record<string, ChartOption[]> = {}
-    for (const gc of groupCharts) map[gc.key] = gc.charts.map((c) => ({ id: c.id, title: c.title, members: c.members }))
-    return map
-  }, [groupCharts])
-
-  // Category first, then the exact chart inside it (lib/chartLayout.ts).
-  async function moveMetricToChart(name: string, group: string, chart: string) {
-    if (groupForTrack(name) !== group) await assignMetricToGroup(name, group)
-    await assignMetricToChart(name, group, chart)
+    const def = defaultPlacement(name, category)
+    await assignMetricToChart(name, host, chart, def.group === host && def.chart === chart)
     setCombining(null)
     setRefresh((k) => k + 1)
   }
@@ -455,7 +266,6 @@ export default function InsightsTab() {
     mood: wbByDate.get(d)?.mood ?? null,
     release: releaseByDate.get(d) ?? 0,
   }))
-  const hasRelease = releaseByDate.size > 0
   const colEnergy = colorForTrack('energy')
   const colMood = colorForTrack('mood')
   const colRelease = colorForTrack('release')
@@ -516,11 +326,238 @@ export default function InsightsTab() {
     })
   }, [inf, gut, tracks, spine])
 
-  const hasIllness = illnessData.some((r) => r.infection != null || r.gutPain != null || r.stool != null)
   const illnessPalette = useMemo(
     () => chartPalette(['Infection', 'Gut pain', 'Stool'], 'illness', light),
     [light],
   )
+
+  // ---- Every chart on the page that holds movable items (G-13 + G-15) ----
+  // One builder for the categories AND the old fixed charts (Energy & mood, Stress
+  // load, Illness & gut), which now live in two fixed hosts. Each item is placed
+  // on {host, chart} by lib/chartLayout.ts — his choice, else its default — and a
+  // chart's look comes from what's on it: all minutes → plateau, a lone plain item
+  // → its small card, anything else → MetricChart with one axis per scale. The
+  // fixed items bring their own behaviour wherever they go: infection carries
+  // forward, stool draws its ideal-4 line, release keeps its reversed 0-100% axis.
+  const groupCharts = useMemo(() => {
+    const hidden = loadHiddenMetrics()
+    const supplements = supplementMetricNames()
+    const groups = allGroups()
+    const hostKeys = new Set([...groups.map((g) => g.key), ...FIXED_HOSTS.map((h) => h.key)])
+    const hostExists = (k: string) => hostKeys.has(k)
+
+    // Special series for the fixed items, from the data the old charts used.
+    const specials = new Map<string, SeriesSpec>()
+    const addSpecial = (spec: SeriesSpec) => {
+      if (spec.values.some((v) => v != null && !(spec.key === 'release' && v === 0))) specials.set(spec.key, spec)
+    }
+    addSpecial({ key: 'energy', label: 'Energy', logKey: 'energy', values: moodData.map((r) => r.energy), color: colEnergy, dot: 'none', connectNulls: true })
+    addSpecial({ key: 'mood', label: 'Mood', logKey: 'mood', values: moodData.map((r) => r.mood), color: colMood, dot: 'none', connectNulls: true })
+    // Rests at 0% on unlogged days (the old chart's rail along the top), with a
+    // dot only on days it happened.
+    addSpecial({ key: 'release', label: 'Release 💦', logKey: 'release', values: moodData.map((r) => r.release), color: colRelease, dot: 'release', connectNulls: false })
+    addSpecial({ key: 'stress', label: 'Stress', logKey: 'stress', values: stressData.map((r) => r.stress), color: colStress, dot: 'none', connectNulls: true })
+    addSpecial({ key: 'infection', label: 'Infection', logKey: 'infection', values: illnessData.map((r) => r.infection), color: illnessPalette.Infection, dot: 'none', connectNulls: true, carries: true })
+    addSpecial({ key: GUT_PAIN_MIRROR, label: 'Gut pain', logKey: 'stomach pain', values: illnessData.map((r) => r.gutPain), color: illnessPalette['Gut pain'], dot: 'default', connectNulls: false })
+    addSpecial({ key: 'stool', label: 'Stool (Bristol, 4 ideal)', logKey: 'stool', values: illnessData.map((r) => r.stool), color: illnessPalette.Stool, dot: 'default', connectNulls: false, refLine: { y: 4 } })
+
+    // Ordinary items by category.
+    const byGroup = new Map<string, Set<string>>()
+    for (const t of tracks) {
+      if (t.value == null || DEDICATED.has(t.name)) continue
+      if (isSuppressedMetric(t.name, hidden, supplements)) continue
+      const g = groupForTrack(t.name, t.category)
+      const set = byGroup.get(g) ?? new Set<string>()
+      set.add(t.name)
+      byGroup.set(g, set)
+    }
+
+    // Minutes per item per day — tracks, plus workouts (always Movement's).
+    const durByName = new Map<string, Map<string, number>>()
+    const addDur = (key: string, date: string, mins: number | null) => {
+      if (!key || mins == null) return
+      const m = durByName.get(key) ?? new Map<string, number>()
+      m.set(date, (m.get(date) ?? 0) + mins)
+      durByName.set(key, m)
+    }
+    const activityKeys = new Set<string>()
+    for (const a of acts) {
+      const key = defForName(a.type ?? '')?.key ?? (a.type ?? '').trim().toLowerCase()
+      if (!key) continue
+      activityKeys.add(key)
+      addDur(key, a.date, a.duration_min)
+    }
+    for (const t of tracks) if (!DEDICATED.has(t.name) && axisKindFor(t.name) === 'duration') addDur(t.name, t.date, t.value)
+    const trackNames = new Set(tracks.map((t) => t.name))
+    const isActivityOnly = (m: string) => activityKeys.has(m) && !trackNames.has(m)
+    const kindOf = (m: string) => (isActivityOnly(m) ? 'duration' : axisKindFor(m))
+
+    // Place everything.
+    const placed = new Map<string, Map<string, string[]>>() // host → chart → members
+    const put = (host: string, chart: string, name: string) => {
+      const charts = placed.get(host) ?? new Map<string, string[]>()
+      const list = charts.get(chart) ?? []
+      if (!list.includes(name)) list.push(name)
+      charts.set(chart, list)
+      placed.set(host, charts)
+    }
+    for (const [g, names] of byGroup) {
+      for (const n of [...names].sort()) {
+        const p = placementFor(n, g, hostExists)
+        put(p.group, p.chart, n)
+      }
+    }
+    for (const k of activityKeys) if (!trackNames.has(k)) put('movement', DUR_CHART, k)
+    for (const key of specials.keys()) {
+      const p = placementFor(key, null, hostExists)
+      put(p.group, p.chart, key)
+    }
+
+    const order = (id: string) => (id === 'energy-mood' || id === 'illness' ? -1 : id === DUR_CHART ? 0 : id === RATING_CHART ? 1 : id === 'stress' ? 3 : 2)
+    const hosts = [...FIXED_HOSTS.map((h) => ({ key: h.key, label: h.label, icon: undefined as string | undefined })), ...groups]
+    return hosts.map((g): GroupCharts => {
+      const charts = [...(placed.get(g.key) ?? new Map<string, string[]>()).entries()]
+        .sort(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
+        .map(([id, members]) => buildChart(g, id, members))
+      return { key: g.key, label: g.label, icon: g.icon, charts }
+    })
+
+    function seriesValues(m: string): (number | null)[] {
+      const sp = specials.get(m)
+      if (sp) return sp.values
+      return spine.map((d) => {
+        const t = tracks.find((x) => x.name === m && x.date === d && x.value != null)
+        return t ? toDisplay(t.value as number, scaleForTrack(m, t.category)) : null
+      })
+    }
+
+    function buildChart(g: { key: string; label: string }, id: string, members: string[]): CategoryChart {
+      const kinds = [...new Set(members.map(kindOf))]
+      const plain = members.filter((m) => !specials.has(m))
+      const palette = chartPalette(plain, paletteGroup(isFixedHost(g.key) ? 'symptom' : g.key), light)
+      const colorOf = (m: string) => specials.get(m)?.color ?? palette[m]
+      // A fixed chart keeps its name while it still holds one of its own items; the
+      // two shared category charts keep the category's; anything else is named by
+      // what's on it, so two 0-10 charts in one place can't share a title.
+      const fixedTitle = FIXED_CHART_TITLES[id] && members.some((m) => FIXED_DEFAULTS[m]?.chart === id) ? FIXED_CHART_TITLES[id] : null
+      const named = !isFixedHost(g.key) && (id === DUR_CHART || id === RATING_CHART)
+      const memberTitle = members.length <= 2
+        ? members.map(chartMemberLabel).join(' & ')
+        : `${chartMemberLabel(members[0])}, ${chartMemberLabel(members[1])} +${members.length - 2}`
+      const base = fixedTitle ?? (named ? g.label : memberTitle)
+      const styleKey = fixedTitle ? id : `cat:${g.key}:${id}`
+
+      if (kinds.length === 1 && kinds[0] === 'duration') {
+        // Members store minutes either way — only their preferred DISPLAY unit can
+        // differ (G-7a). Hours only when every member prefers it; workouts are
+        // plain minutes.
+        const hours = members.every((n) => !isActivityOnly(n) && displayScale(scaleForTrack(n, null)).unit === 'h')
+        const factor = hours ? 60 : 1
+        const series: PlateauSeries[] = members
+          .filter((k) => durByName.has(k))
+          .map((key) => ({
+            key,
+            label: labelForTrack(key),
+            color: colorOf(key),
+            values: spine.map((d) => {
+              const v = durByName.get(key)!.get(d)
+              return v == null ? null : v / factor
+            }),
+          }))
+        const unit = hours ? 'h' : 'min'
+        return { id, title: `${base} (${unit})`, members, styleKey, kind: 'duration', duration: series, durationUnit: unit }
+      }
+
+      if (members.length === 1 && !specials.has(members[0]) && !['rating', 'percent'].includes(kinds[0])) {
+        const name = members[0]
+        const rowsForName = tracks.filter((t) => t.name === name && t.value != null)
+        const scale = scaleForTrack(name, rowsForName.find((r) => r.category)?.category ?? null)
+        return {
+          id, title: labelForTrack(name), members, styleKey, kind: 'card',
+          card: {
+            name,
+            unit: displayScale(scale).unit,
+            count: rowsForName.length,
+            series: rowsForName.map((r) => ({ date: fmtDate(r.date), rawDate: r.date, value: toDisplay(r.value as number, scale) })),
+          },
+        }
+      }
+
+      // One axis per scale family, in order of first appearance — first on the
+      // left, second on the right, further ones beside those (the move sheet warns
+      // before it comes to that).
+      const axes: MixedAxis[] = kinds.map((k, i) => {
+        const of = members.filter((m) => kindOf(m) === k)
+        const orientation: 'left' | 'right' = i % 2 === 0 ? 'left' : 'right'
+        const side = i < 2 ? orientation : `far ${orientation}`
+        // Upside down only when every member that has a "good" direction says low
+        // is good — a mixed axis is drawn the normal way up, and stool (4 ideal)
+        // doesn't vote.
+        const dirs = of.map(directionOf).filter((d) => d !== 'neutral')
+        const reversed = dirs.length > 0 && dirs.every((d) => d === 'low')
+        if (k === 'duration') {
+          const hours = of.every((n) => !isActivityOnly(n) && displayScale(scaleForTrack(n, null)).unit === 'h')
+          return { id: k, label: hours ? 'h' : 'min', orientation, side, domain: [0, 'auto'], factor: hours ? 60 : 1 }
+        }
+        // Stool alone on its axis reads on its own Bristol 1-7 scale; sharing with
+        // 0-10 ratings it sits inside 0-10, as it always has on Illness & gut.
+        if (k === 'rating' && of.every((m) => m === 'stool')) return { id: k, label: 'Bristol 1-7', orientation, side, domain: [1, 7] }
+        if (k === 'rating') return { id: k, label: '0-10', orientation, side, domain: [0, 10], reversed }
+        if (k === 'percent') return { id: k, label: reversed ? '%, 0 at top' : '%', orientation, side, domain: [0, 100], reversed }
+        if (k === 'bool') return { id: k, label: 'yes/no', orientation, side, domain: [0, 1] }
+        // Weight and other plain numbers: fitted to the data, not from 0.
+        return { id: k, label: displayScale(scaleForTrack(of[0], null)).unit || labelForTrack(of[0]), orientation, side, domain: ['auto', 'auto'] }
+      })
+      const columns = new Map(members.map((m) => {
+        if (kindOf(m) === 'duration') {
+          const f = axes.find((a) => a.id === 'duration')!.factor ?? 1
+          return [m, spine.map((d) => {
+            const v = durByName.get(m)?.get(d)
+            return v == null ? null : v / f
+          })]
+        }
+        return [m, seriesValues(m)]
+      }))
+      const rows = spine.map((d, i) => {
+        const row: Record<string, number | string | null> = { date: fmtDate(d), rawDate: d }
+        for (const m of members) row[m] = columns.get(m)![i] ?? null
+        return row
+      })
+      const series = members.map((m) => {
+        const sp = specials.get(m)
+        const k = kindOf(m)
+        return {
+          key: m,
+          label: sp?.label ?? labelForTrack(m),
+          logKey: sp?.logKey ?? m,
+          color: colorOf(m),
+          axis: k,
+          shape: (k === 'duration' ? 'bar' : k === 'bool' ? 'dot' : 'line') as 'bar' | 'line' | 'dot',
+          dot: sp?.dot ?? 'default',
+          connectNulls: sp?.connectNulls ?? true,
+          refLine: sp?.refLine,
+        }
+      })
+      const hints: string[] = []
+      if (axes.length === 1 && axes[0].reversed) hints.push('low is good — worse sits at the bottom')
+      if (members.includes('infection')) hints.push('infection carries forward until you log it gone')
+      if (members.includes('stool')) hints.push('stool: 4 is ideal (dashed line)')
+      if (axes.length > 1) hints.push('each scale has its own axis')
+      const units = fixedTitle ? '' : ` (${axes.map((a) => a.label).join(' · ')})`
+      return {
+        id, title: `${base}${units}`, members, styleKey, kind: 'metric',
+        metric: { rows, series, axes, hint: hints.join(' · ') || undefined },
+      }
+    }
+  }, [tracks, acts, spine, light, DEDICATED, moodData, stressData, illnessData, illnessPalette, colEnergy, colMood, colRelease, colStress])
+
+  // Every chart in each host with what's on it, for the move sheet's second step.
+  const chartsByGroup = useMemo(() => {
+    const map: Record<string, ChartOption[]> = {}
+    for (const gc of groupCharts) map[gc.key] = gc.charts.map((c) => ({ id: c.id, title: c.title, members: c.members }))
+    return map
+  }, [groupCharts])
+  const chartsIn = (host: string) => groupCharts.find((g) => g.key === host)?.charts ?? []
 
   // --- calories, and the macro/food-group 100%-stacked bars, all on the shared
   // spine. Bar A splits calories into protein/fat/carbs by calorie share (4/4/9
@@ -631,7 +668,9 @@ export default function InsightsTab() {
 
   // Which section labels actually have something under them, so a section with
   // every chart hidden (no data yet) doesn't leave a floating empty header.
-  const hasWellbeingSection = wb.length > 0 || hasRelease || hasSleep || stressData.some((d) => d.stress != null)
+  const fxWellbeing = chartsIn(FX_WELLBEING)
+  const fxIllness = chartsIn(FX_ILLNESS)
+  const hasWellbeingSection = fxWellbeing.length > 0 || hasSleep
 
   // A faint texture, not a photo: every card below is fully opaque (bg-ink-800 /
   // its parchment equivalent), so this only ever shows through the gaps between
@@ -651,6 +690,78 @@ export default function InsightsTab() {
   // built-in Nutrition section.
   const sectionList: { id: string; title: string; icon: React.ReactNode; body: React.ReactNode }[] = []
 
+  // Supplement/event markers belong with the illness items (his call, 2026-08-21):
+  // drawn on whichever chart holds Infection — else Stool, else Gut pain — so they
+  // follow those items if they're moved.
+  const markerChart = (() => {
+    for (const key of ['infection', 'stool', GUT_PAIN_MIRROR]) {
+      for (const gc of groupCharts) for (const c of gc.charts) if (c.members.includes(key)) return `${gc.key}:${c.id}`
+    }
+    return null
+  })()
+
+  // One renderer for every movable chart, fixed or category.
+  const renderChart = (host: string, c: CategoryChart) => {
+    const move = (key: string) => setCombining({ name: key, from: host, chart: c.id })
+    if (c.kind === 'duration' && c.duration) {
+      const lc = lineCtl(c.styleKey, 'plateau', true)
+      const pickDay = (d: string) => setSheet({ name: c.duration![0].key, category: categoryOf(c.duration![0].key), date: d })
+      return (
+        <ChartCard key={c.id} title={c.title} hint="tap a day, or a name below, to log it" lines={lc}>
+          {lc.value === 'plateau' ? (
+            <PlateauChart
+              dates={spine}
+              series={c.duration}
+              unit={c.durationUnit}
+              onPickDay={pickDay}
+              onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
+              onCombineSeries={move}
+            />
+          ) : (
+            <DurationLines
+              spine={spine}
+              series={c.duration}
+              style={lc.value}
+              onPickDay={pickDay}
+              onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
+              onMove={move}
+            />
+          )}
+        </ChartCard>
+      )
+    }
+    if (c.kind === 'metric' && c.metric) {
+      const m = c.metric
+      const lc = lineCtl(c.styleKey, autoLineStyle(m.series.filter((x) => x.shape === 'line').map((x) => col(m.rows, x.key))))
+      return (
+        <MetricChart
+          key={c.id}
+          title={c.title}
+          data={m}
+          lines={lc}
+          releaseDot={releaseDot}
+          markers={markerChart === `${host}:${c.id}` ? eventMarkers : []}
+          onPickDay={(d) => setSheet({ name: m.series[0].logKey, category: categoryOf(m.series[0].logKey), date: d })}
+          onPick={(k) => setSheet({ name: k, category: categoryOf(k) })}
+          onMove={move}
+        />
+      )
+    }
+    if (c.card) {
+      return (
+        <TrackCard
+          key={c.id}
+          group={c.card}
+          spine={spine}
+          lineCtl={(auto) => lineCtl(c.styleKey, auto)}
+          onLog={() => setSheet({ name: c.card!.name, category: null })}
+          onMove={() => move(c.card!.name)}
+        />
+      )
+    }
+    return null
+  }
+
   if (hasWellbeingSection) {
     sectionList.push({
       id: 'section-wellbeing-sleep',
@@ -658,43 +769,7 @@ export default function InsightsTab() {
       icon: <GroupIcon group="wellbeing" />,
       body: (
         <>
-          {(wb.length > 0 || hasRelease) && (() => {
-            const lc = lineCtl('energy-mood', autoLineStyle([col(moodData, 'energy'), col(moodData, 'mood')]))
-            return (
-            <ChartCard title="Energy & mood" lines={lc}>
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={moodData} margin={{ left: -20, right: hasRelease ? -20 : 8, top: 8 }}>
-                  <CartesianGrid stroke="var(--line)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis yAxisId="l" domain={[0, 10]} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-                  {hasRelease && (
-                    <YAxis yAxisId="r" orientation="right" domain={[0, 100]} reversed tick={{ fill: colRelease, fontSize: 10 }} />
-                  )}
-                  <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  <Line isAnimationActive={false} yAxisId="l" dataKey="energy" {...lineProps(lc.value, colEnergy, false)} strokeWidth={2} connectNulls />
-                  <Line isAnimationActive={false} yAxisId="l" dataKey="mood" {...lineProps(lc.value, colMood, false)} strokeWidth={2} connectNulls />
-                  {hasRelease && (
-                    <Line
-                      isAnimationActive={false}
-                      yAxisId="r"
-                      dataKey="release"
-                      {...lineProps(lc.value, colRelease, releaseDot)}
-                      strokeWidth={2}
-                    />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
-              <Legend
-                items={[
-                  { color: colEnergy, label: 'Energy', key: 'energy' },
-                  { color: colMood, label: 'Mood', key: 'mood' },
-                  ...(hasRelease ? [{ color: colRelease, label: 'Release 💦 (0% top)', key: 'release' }] : []),
-                ]}
-                onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
-              />
-            </ChartCard>
-            )
-          })()}
+          {fxWellbeing.filter((c) => c.id === 'energy-mood').map((c) => renderChart(FX_WELLBEING, c))}
 
           {hasSleep && (() => {
             const lc = lineCtl('sleep', autoLineStyle([col(sleepData, 'hours'), col(sleepData, 'quality')]))
@@ -756,173 +831,30 @@ export default function InsightsTab() {
             )
           })()}
 
-          {stressData.some((d) => d.stress != null) && (() => {
-            const lc = lineCtl('stress', autoLineStyle([col(stressData, 'stress')]))
-            return (
-            <ChartCard lines={lc} title="Stress load" hint="low is good — high stress sits at the bottom">
-              <ResponsiveContainer width="100%" height={150}>
-                <LineChart data={stressData} margin={{ left: -20, right: 8, top: 8 }}>
-                  <CartesianGrid stroke="var(--line)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                  <Line isAnimationActive={false} dataKey="stress" {...lineProps(lc.value, colStress, false)} strokeWidth={2} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
-              <button
-                className="mt-1 text-xs text-ink-400 hover:text-cream"
-                onClick={() => setSheet({ name: 'stress', category: null })}
-              >
-                + Log stress
-              </button>
-            </ChartCard>
-            )
-          })()}
+          {fxWellbeing.filter((c) => c.id !== 'energy-mood').map((c) => renderChart(FX_WELLBEING, c))}
         </>
       ),
     })
   }
 
-  // The three fixed counters (Gut episodes / Infections / Warming bottle) that used
-  // to sit above this chart are gone — removed outright, not relocated, per his
-  // explicit call. The chart itself is untouched.
-  if (hasIllness) {
+  if (fxIllness.length) {
     sectionList.push({
       id: 'section-illness-gut',
       title: 'Illness & gut',
       icon: <GroupIcon group="symptom" />,
-      body: (() => {
-        const lc = lineCtl('illness', autoLineStyle([col(illnessData, 'infection'), col(illnessData, 'gutPain'), col(illnessData, 'stool')]))
-        return (
-        <ChartCard lines={lc} title="Illness & gut" hint="low is good; infection level carries forward until you log it gone">
-          <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={illnessData} margin={{ left: -20, right: 8, top: 8 }}>
-              <CartesianGrid stroke="var(--line)" vertical={false} />
-              {eventMarkers.map((m) => (
-                <ReferenceLine key={m.id} x={m.x} stroke="var(--accent)" strokeDasharray="2 2" label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
-              ))}
-              <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 10]} reversed tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-              <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-              <ReferenceLine y={4} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
-              <Line isAnimationActive={false} dataKey="infection" name="Infection" {...lineProps(lc.value, illnessPalette.Infection, false)} strokeWidth={2} connectNulls />
-              <Line isAnimationActive={false} dataKey="gutPain" name="Gut pain" {...lineProps(lc.value, illnessPalette['Gut pain'])} strokeWidth={2} connectNulls={false} />
-              <Line isAnimationActive={false} dataKey="stool" name="Stool (Bristol)" {...lineProps(lc.value, illnessPalette.Stool)} strokeWidth={2} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-          <Legend
-            items={[
-              { color: illnessPalette.Infection, label: 'Infection', key: 'infection' },
-              // "Gut pain" has no dedicated track — it routes to the existing
-              // "stomach pain" metric (see the illnessData comment above).
-              { color: illnessPalette['Gut pain'], label: 'Gut pain', key: 'stomach pain' },
-              { color: illnessPalette.Stool, label: 'Stool (Bristol, 4 ideal)', key: 'stool' },
-            ]}
-            onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
-          />
-        </ChartCard>
-        )
-      })(),
+      body: <>{fxIllness.map((c) => renderChart(FX_ILLNESS, c))}</>,
     })
   }
 
   // One entry per category, in the order this render's groupCharts already
-  // resolved — see that memo for how each bucket (duration/rating/cards) is built
-  // independently from what's actually logged in the category, so more than one can
-  // render together under the same heading. A renamed or newly-created category
-  // shows up here automatically.
+  // resolved. A renamed or newly-created category shows up here automatically.
   for (const gc of groupCharts) {
-    if (!gc.charts.length) continue
+    if (isFixedHost(gc.key) || !gc.charts.length) continue
     sectionList.push({
       id: `cat-${gc.key}`,
       title: gc.label,
       icon: <GroupIcon group={gc.key} icon={gc.icon} size={12} />,
-      body: (
-        <>
-          {gc.charts.map((c) => {
-            const move = (key: string) => setCombining({ name: key, from: gc.key, chart: c.id })
-            const styleKey = `cat:${gc.key}:${c.id}`
-            if (c.kind === 'duration' && c.duration) {
-              const lc = lineCtl(styleKey, 'plateau', true)
-              const pickDay = (d: string) => setSheet({ name: c.duration![0].key, category: categoryOf(c.duration![0].key), date: d })
-              return (
-                <ChartCard key={c.id} title={c.title} hint="tap a day, or a name below, to log it" lines={lc}>
-                  {lc.value === 'plateau' ? (
-                    <PlateauChart
-                      dates={spine}
-                      series={c.duration}
-                      unit={c.durationUnit}
-                      onPickDay={pickDay}
-                      onPickSeries={(key) => setSheet({ name: key, category: categoryOf(key) })}
-                      onCombineSeries={move}
-                    />
-                  ) : (
-                    <DurationLines
-                      spine={spine}
-                      series={c.duration}
-                      style={lc.value}
-                      onPickDay={pickDay}
-                      onPick={(key) => setSheet({ name: key, category: categoryOf(key) })}
-                      onMove={move}
-                    />
-                  )}
-                </ChartCard>
-              )
-            }
-            if (c.kind === 'rating' && c.rating) {
-              const r = c.rating
-              const lc = lineCtl(styleKey, autoLineStyle(r.keys.map((k) => col(r.rows, k))))
-              return (
-                <ChartCard key={c.id} title={c.title} hint={r.reversed ? 'low is good — worse sits at the bottom' : undefined} lines={lc}>
-                  <ResponsiveContainer width="100%" height={170}>
-                    <LineChart data={r.rows} margin={{ left: -20, right: 8, top: 8 }}>
-                      <CartesianGrid stroke="var(--line)" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
-                      <YAxis domain={[0, 10]} reversed={r.reversed} tick={{ fill: 'var(--faint)', fontSize: 11 }} />
-                      <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
-                      {r.keys.map((k) => (
-                        <Line isAnimationActive={false} key={k} dataKey={k} name={labelForTrack(k)}
-                          {...lineProps(lc.value, r.palette[k])} strokeWidth={2} connectNulls />
-                      ))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                  <SeriesLegend
-                    items={r.keys.map((k) => ({ key: k, color: r.palette[k] }))}
-                    onPick={(k) => setSheet({ name: k, category: categoryOf(k) })}
-                    onMove={move}
-                  />
-                </ChartCard>
-              )
-            }
-            if (c.kind === 'mixed' && c.mixed) {
-              return (
-                <MixedChart
-                  key={c.id}
-                  title={c.title}
-                  data={c.mixed}
-                  lines={lineCtl(styleKey, autoLineStyle(c.mixed.series.filter((x) => x.shape === 'line').map((x) => col(c.mixed!.rows, x.key))))}
-                  onPickDay={(d) => setSheet({ name: c.members[0], category: categoryOf(c.members[0]), date: d })}
-                  onPick={(k) => setSheet({ name: k, category: categoryOf(k) })}
-                  onMove={move}
-                />
-              )
-            }
-            if (c.card) {
-              return (
-                <TrackCard
-                  key={c.id}
-                  group={c.card}
-                  spine={spine}
-                  lineCtl={(auto) => lineCtl(styleKey, auto)}
-                  onLog={() => setSheet({ name: c.card!.name, category: null })}
-                  onMove={() => move(c.card!.name)}
-                />
-              )
-            }
-            return null
-          })}
-        </>
-      ),
+      body: <>{gc.charts.map((c) => renderChart(gc.key, c))}</>,
     })
   }
 
@@ -1112,7 +1044,7 @@ export default function InsightsTab() {
         <MoveMetricSheet
           metric={combining.name}
           currentGroup={combining.from}
-          groups={allGroups()}
+          groups={[...FIXED_HOSTS, ...allGroups()]}
           membersByGroup={Object.fromEntries(Object.entries(chartsByGroup).map(([k, cs]) => [k, cs.flatMap((c) => c.members)]))}
           charts={chartsByGroup}
           currentChart={combining.chart}
@@ -1136,17 +1068,6 @@ function parseMealIngredients(json: string | null): Ingredient[] {
 }
 
 // One row per spine date with a column per track name (null where unlogged).
-function buildRows(spine: string[], tracks: Track[], keys: string[]) {
-  const byDate = new Map<string, Record<string, number>>()
-  for (const t of tracks) {
-    if (t.value == null || !keys.includes(t.name)) continue
-    const row = byDate.get(t.date) ?? {}
-    row[t.name] = t.value
-    byDate.set(t.date, row)
-  }
-  return spine.map((d) => ({ date: fmtDate(d), rawDate: d, ...(byDate.get(d) ?? {}) }))
-}
-
 function categoryOf(name: string): string | null {
   const g = groupForTrack(name)
   if (g === 'symptom') return 'symptom'
@@ -1424,7 +1345,7 @@ function Legend({
   )
 }
 
-// ---- Category charts (G-13) ----
+// ---- Movable charts (G-13, G-15) ----
 
 interface MixedAxis {
   id: string
@@ -1436,22 +1357,48 @@ interface MixedAxis {
   factor?: number // minutes → shown unit, duration axes only
 }
 
-interface MixedData {
+// A fixed item's series and the behaviour it carries wherever it's drawn.
+interface SeriesSpec {
+  key: string
+  label: string
+  logKey: string            // what tapping it opens in the log sheet
+  values: (number | null)[] // aligned with the spine, display units
+  color: string
+  dot: 'none' | 'default' | 'release'
+  connectNulls: boolean
+  carries?: boolean         // infection: the values already carry forward
+  refLine?: { y: number }   // stool: the ideal-4 line
+}
+
+interface MetricSeries {
+  key: string
+  label: string
+  logKey: string
+  color: string
+  axis: string
+  shape: 'bar' | 'line' | 'dot'
+  dot: 'none' | 'default' | 'release'
+  connectNulls: boolean
+  refLine?: { y: number }
+}
+
+interface MetricData {
   rows: Record<string, number | string | null>[]
-  series: { key: string; label: string; color: string; axis: string; shape: 'bar' | 'line' | 'dot' }[]
+  series: MetricSeries[]
   axes: MixedAxis[]
+  hint?: string
 }
 
 interface CategoryChart {
   id: string
   title: string
   members: string[]
-  kind: 'duration' | 'rating' | 'card' | 'mixed'
+  styleKey: string // which saved line style it uses (lib/chartStyle.ts)
+  kind: 'duration' | 'card' | 'metric'
   duration?: PlateauSeries[]
   durationUnit?: 'min' | 'h'
-  rating?: { keys: string[]; rows: ReturnType<typeof buildRows>; palette: Record<string, string>; reversed: boolean }
   card?: { name: string; unit: string; count: number; series: { date: string; rawDate: string; value: number }[] }
-  mixed?: MixedData
+  metric?: MetricData
 }
 
 interface GroupCharts {
@@ -1467,7 +1414,9 @@ function SeriesLegend({
   onPick,
   onMove,
 }: {
-  items: { key: string; color: string; note?: string }[]
+  // `label` / `logKey` default to the metric's own; the fixed items pass theirs
+  // (Gut pain logs as Stomach pain).
+  items: { key: string; color: string; note?: string; label?: string; logKey?: string }[]
   onPick: (key: string) => void
   onMove: (key: string) => void
 }) {
@@ -1475,12 +1424,12 @@ function SeriesLegend({
     <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-300">
       {items.map((it) => (
         <span key={it.key} className="flex items-center gap-1">
-          <button className="flex items-center gap-1.5 hover:text-cream" onClick={() => onPick(it.key)}>
-            <MetricIcon name={it.key} color={it.color} size={14} />
-            {labelForTrack(it.key)}
+          <button className="flex items-center gap-1.5 hover:text-cream" onClick={() => onPick(it.logKey ?? it.key)}>
+            <MetricIcon name={it.logKey ?? it.key} color={it.color} size={14} />
+            {it.label ?? labelForTrack(it.key)}
             {it.note && <span className="text-ink-500">{it.note}</span>}
           </button>
-          <button className="text-ink-500 hover:text-cream" title={`Move ${labelForTrack(it.key)} to another graph`} onClick={() => onMove(it.key)}>
+          <button className="text-ink-500 hover:text-cream" title={`Move ${it.label ?? labelForTrack(it.key)} to another graph`} onClick={() => onMove(it.key)}>
             ⇄
           </button>
         </span>
@@ -1489,31 +1438,39 @@ function SeriesLegend({
   )
 }
 
-// A chart holding more than one kind of scale — minutes next to a 0-10 rating, say.
-// One Y axis per scale (first left, second right, any further ones beside those);
-// minutes draw as bars so they don't read as another 0-10 line, ratings and other
-// numbers as lines, yes/no as dots. Each legend entry says which axis it's read
-// against, since colour alone can't.
-function MixedChart({
+// Every movable chart that isn't a minutes plateau or a lone item's card: one Y
+// axis per scale (first left, second right, any more beside those; a single-axis
+// chart looks just like the old line charts), minutes as bars so they don't read
+// as another 0-10 line, ratings and numbers as lines in the chart's line style,
+// yes/no as dots. The fixed items' behaviour rides on their series: stool's ideal-4
+// line, release's own dot, infection's already-carried values. Supplement/event
+// markers are drawn here when this chart holds the illness items.
+function MetricChart({
   title,
   data,
   lines,
+  releaseDot,
+  markers,
   onPickDay,
   onPick,
   onMove,
 }: {
   title: string
-  data: MixedData
+  data: MetricData
   lines: LineControl
+  releaseDot: (p: { cx?: number; cy?: number; index?: number; payload?: { release?: number; rawDate?: string } }) => JSX.Element
+  markers: { id: string; x: string; label: string }[]
   onPickDay: (date: string) => void
   onPick: (key: string) => void
   onMove: (key: string) => void
 }) {
+  const multi = data.axes.length > 1
   const left = data.axes.filter((a) => a.orientation === 'left').length
   const right = data.axes.filter((a) => a.orientation === 'right').length
+  const firstAxis = data.axes[0]?.id
   return (
-    <ChartCard title={title} hint="tap a day, or a name below, to log it · each scale has its own axis" lines={lines}>
-      <ResponsiveContainer width="100%" height={180}>
+    <ChartCard title={title} hint={data.hint} lines={lines}>
+      <ResponsiveContainer width="100%" height={multi ? 180 : 170}>
         <ComposedChart
           data={data.rows}
           margin={{ left: -20 + (left - 1) * 4, right: right ? -20 + (right - 1) * 4 : 8, top: 8 }}
@@ -1525,6 +1482,10 @@ function MixedChart({
           style={{ cursor: 'pointer' }}
         >
           <CartesianGrid stroke="var(--line)" vertical={false} />
+          {markers.map((m) => (
+            <ReferenceLine key={m.id} x={m.x} yAxisId={firstAxis} stroke="var(--accent)" strokeDasharray="2 2"
+              label={{ value: m.label, fontSize: 9, fill: 'var(--faint)', angle: -90, position: 'insideTopRight' }} />
+          ))}
           <XAxis dataKey="date" tick={{ fill: 'var(--faint)', fontSize: 11 }} interval="preserveStartEnd" />
           {data.axes.map((a) => {
             const color = data.series.find((s) => s.axis === a.id)?.color ?? 'var(--faint)'
@@ -1538,11 +1499,14 @@ function MixedChart({
                 allowDecimals={a.id !== 'bool'}
                 ticks={a.id === 'bool' ? [0, 1] : undefined}
                 tickFormatter={a.id === 'bool' ? (v: number) => (v ? 'yes' : 'no') : undefined}
-                tick={{ fill: data.axes.length > 1 ? color : 'var(--faint)', fontSize: 10 }}
+                tick={{ fill: multi ? color : 'var(--faint)', fontSize: multi ? 10 : 11 }}
               />
             )
           })}
           <Tooltip contentStyle={tooltipStyle} formatter={roundTip} />
+          {data.series.filter((s) => s.refLine).map((s) => (
+            <ReferenceLine key={`ref-${s.key}`} y={s.refLine!.y} yAxisId={s.axis} stroke="var(--accent)" strokeDasharray="4 3" strokeOpacity={0.6} />
+          ))}
           {data.series.map((s) =>
             s.shape === 'bar' ? (
               <Bar isAnimationActive={false} key={s.key} yAxisId={s.axis} dataKey={s.key} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} maxBarSize={10} />
@@ -1553,9 +1517,13 @@ function MixedChart({
                 yAxisId={s.axis}
                 dataKey={s.key}
                 name={s.label}
-                {...lineProps(s.shape === 'dot' ? 'points' : lines.value, s.color)}
+                {...lineProps(
+                  s.shape === 'dot' ? 'points' : lines.value,
+                  s.color,
+                  s.dot === 'release' ? releaseDot : s.dot === 'none' ? false : { r: 2 },
+                )}
                 strokeWidth={2}
-                connectNulls
+                connectNulls={s.connectNulls}
               />
             ),
           )}
@@ -1564,7 +1532,13 @@ function MixedChart({
       <SeriesLegend
         items={data.series.map((s) => {
           const a = data.axes.find((x) => x.id === s.axis)
-          return { key: s.key, color: s.color, note: a ? `(${a.label}${data.axes.length > 1 ? `, ${a.side}` : ''})` : undefined }
+          return {
+            key: s.key,
+            label: s.label,
+            logKey: s.logKey,
+            color: s.color,
+            note: multi && a ? `(${a.label}, ${a.side})` : s.key === 'release' ? '(0% top)' : undefined,
+          }
         })}
         onPick={onPick}
         onMove={onMove}
