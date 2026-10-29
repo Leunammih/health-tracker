@@ -19,6 +19,7 @@ import {
 import { loadCollapsedGroups, setGroupCollapsed } from '../lib/uiPrefs'
 import { readMetric, lastMetricValue, writeMetric, readSegments, writeSegment, rollupKindFor } from '../lib/metricStore'
 import { daysAgoISO, fmtDate } from '../lib/dates'
+import { clearChartAssignment } from '../lib/chartLayout'
 import { applyTargets, mergeNote, rangeLabel } from '../lib/applyBack'
 import { IconNote } from './icons'
 import { MetricIcon, GroupIcon } from './metricIcons'
@@ -411,6 +412,9 @@ export default function QuickEntryPanel({
   }
 
   async function moveItemToGroup(name: string, group: string) {
+    // A category-only move from here lands it on that category's default chart;
+    // forget any exact-chart choice made in Insights (lib/chartLayout.ts).
+    await clearChartAssignment(name)
     setGroups(await assignMetricToGroup(name, group))
     setMovingMetric(null)
   }

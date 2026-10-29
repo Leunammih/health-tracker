@@ -2,7 +2,7 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-29 (G-12: apply-back for sleep and the Log quick-entry rows)_
+_Last updated: 2026-10-30 (G-13: move a metric onto an exact chart, extra axes for mixed scales, warnings for bad combinations)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
@@ -1028,31 +1028,67 @@ Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-dep
     the Log day; Morning segment ×3 days → three morning rows, rollups 4; sleep ×7
     nights; Insights sleep sheet shows the chips; Insights tap-to-log regression
     test identical to G-10.1. No console errors.
+- **G-13 — move onto an exact chart, with axes per scale (2026-10-30)** — no schema
+  change (meta key `chart_assignments`). His ask after confirming G-12: the ⇄ move
+  sheet in Insights only offered categories; after a category, let him pick the
+  exact chart; differing scales get their own axes; nonsensical combinations or too
+  many axes warn and ask first.
+  - **`src/lib/chartLayout.ts`** — per-metric `{group, chart}` in meta (synced).
+    Chart ids per category: `dur` (shared minutes chart), `rating` (shared 0-10
+    chart), `card:<metric>` (a metric's own chart, which others can join).
+    `chartFor()` honours an assignment only while the metric is still in that group;
+    `assignMetricToChart` clears the entry when it equals the default. `axisKindFor`
+    = duration / rating (0-10 and %) / bool / `unit:<u>` / unitless-per-metric.
+    `combineVerdict`: same scale → fine; 2 kinds → "adds a 2nd axis"; **warn** on 3+
+    axes, a yes/no among numbers, or >6 series; note (non-blocking) when a 0-10 axis
+    would mix low-is-good with high-is-good.
+  - **Insights `groupCharts`** now yields an explicit `charts[]` per category (members
+    by assignment, else by shape; workouts always on Movement's `dur`). A chart's
+    KIND comes from its members: all minutes → PlateauChart, all 0-10 → line chart,
+    single other → TrackCard, anything mixed → new **`MixedChart`** (Recharts
+    ComposedChart: one Y axis per scale, 1st left / 2nd right / further "far
+    left/right"; minutes as bars, ratings/numbers as lines, yes/no as dots; legend
+    names each item's axis; tap a day to log). Shared charts keep the category
+    title; others are titled by their members. Default layout (no assignments)
+    renders exactly as before.
+  - **`MoveMetricSheet`** — with `charts` (Insights): step 1 category (current one
+    now tappable, to move between charts in the same category) → step 2 charts in it
+    with a badge each ("same scale" / "adds a 2nd axis" / "⚠ 3 axes"), plus "New …
+    chart (0-10)" / "A chart of its own" → step 3 for a warning: why, then "Move it
+    there anyway" / "Pick another chart". Without `charts` (Log tab) unchanged; a
+    Log-tab category move now also clears the metric's chart assignment.
+  - Verified in-browser both themes: knee pain (0-10) onto Practice (min) → "PRACTICE
+    (MIN · 0-10)" with 2 axes, bars + line; weight (kg) onto it → ⚠ 3 axes warning,
+    back, then Move anyway → 3 axes, kg fitted to its data; tap-a-day opens the log
+    sheet; knee pain back to its own Health & pain chart; meta round-trips; default
+    charts unchanged; G-10.1 regression identical. No console errors.
 
 ## Check on your phone (current)
-_Replaced each iteration — this is the list for **G-12**. No schema change._
+_Replaced each iteration — this is the list for **G-13**. No schema change._
 
 1. **Get the build.** Settings → App version → **Check for updates** → **Update**.
-2. **Log rows (new).** Log → pick a day in the strip (e.g. the 18th) → on any
-   slider row (e.g. **Energy**) move the slider, then tap the **pencil** button
-   next to Save. Under the note box a new line reads **"Apply 7/10 to: [17 Oct]
-   [16–18 Oct] [12–18 Oct]"** (it says "+ note" once you type a note). Tap
-   **16–18 Oct** → **"Saved 7/10 for 16–18 Oct"** appears, and the row shows
-   "saved". Tap the 16th / 17th in the strip → Energy is 7 there too.
-3. **Notes along, never lost.** Type a note, tap **12–18 Oct**. Days that already
-   had their own note show both, joined with ";". Empty note → other days' notes
-   are left as they were.
-4. **"Day before" leaves the Log day alone.** Change the slider, tap **17 Oct**
-   (the single date) → only the 17th changes; the 18th keeps what it had.
-5. **Segments.** Tap **Morning** at the top of Log, then do step 2 on Energy →
-   each of those days gets a morning value (Insights' Energy line moves for those
-   days; other parts of the day untouched).
-6. **Sleep (new).** Log → Sleep card → set bedtime / wake / quality → under **Save
-   sleep** a chip row **"Also apply to: [17 Oct] [16–18 Oct] [12–18 Oct]"** → tap
-   one → **"Saved for …"**, and Insights → Sleep shows those nights. The same chips
-   are in the Insights sleep sheet (tap a day on the Sleep chart).
-7. **Unchanged:** the Insights tap-to-log sheet's buttons (G-10.1), Save / Save N
-   changed on Log, Quick log chips, both themes. Then put back any test values.
+2. **Nothing moved by itself.** Insights → scroll every category: the charts look
+   exactly as before this update (same titles, same items on each). Failure: an
+   item jumped to another chart without you moving it.
+3. **Step 2 (new).** Tap **⇄** next to a 0-10 item (e.g. **Anxiety** in Wellbeing)
+   → pick a category (e.g. **Wellbeing** itself — the current one is tappable now)
+   → a second screen asks **"Which chart should it go on?"** and lists that
+   category's charts with what's on them, e.g. **"Wellbeing (min) — adds a 2nd
+   axis — with Nap, Cold exposure…"**, plus **"A chart of its own"**. The **‹** at
+   the top goes back to the categories.
+4. **Second axis (new).** Pick the minutes chart → the sheet closes and that chart
+   is now titled e.g. **"Wellbeing (min · 0-10)"**: minutes as bars on the left
+   axis, Anxiety as a line on a 0-10 axis on the right; the legend says
+   "(min, left)" / "(0-10, right)". Tap a day on it → the log sheet opens.
+5. **Warning (new).** Move a third kind of thing onto that same chart (e.g. a
+   yes/no item like Intimacy/Sex, or Weight) → instead of moving, a box says why it
+   may not work (**"would need 3 different axes"** or **"A yes/no item has no
+   scale…"**) with **Move it there anyway** / **Pick another chart**. Pick another
+   → back to the list; Move anyway → it's added with its own extra axis.
+6. **Undo it.** ⇄ on the moved item → its category → **"New … chart (0-10)"** or
+   **"A chart of its own"** → it's back on its own chart, history intact.
+7. **Unchanged:** the Log tab's move (still category only), apply-to-days buttons,
+   sleep chart, both themes.
 
 ## Open markers
 Codes still awaiting Immanuel. Remove each as it is answered.
@@ -1071,7 +1107,8 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   charts" half of this is now moot on its own — G-9 restricted every event/
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
-- 🟦 **phone16** — phone report on **G-12** (checklist above). No schema change.
+- 🟦 **phone17** — phone report on **G-13** (checklist above). No schema change.
+- ✅ **phone16** (G-12) — answered 2026-10-30, "Great. Working as well."; his next ask became G-13.
 - ✅ **phone15** (G-11) — answered 2026-10-29, "Great. Working."; his next ask became G-12.
 - ✅ **phone14** (G-10.1) — answered 2026-10-29, "Working thanks"; his next ask became G-11.
 - 🟦 **phone13** — phone report on **G-10**. Partly answered 2026-10-29: he reported
@@ -1215,11 +1252,12 @@ chat → **wait** for the report → fix what came back → next feature. Full v
 `CLAUDE.md` under "Session workflow".
 
 ## Exact next step
-**Waiting on Immanuel's phone report for G-12** (checklist above). G-10 itself
+**Waiting on Immanuel's phone report for G-13** (checklist above). G-10 itself
 (working day + Move-a-day sheet) still has no direct report — see phone13.
 
-G-12 (2026-10-29): day-before / 3-day / 7-day apply added to the sleep editor and
-the Log quick-entry rows. Details under Done → G-12.
+G-13 (2026-10-30): Insights ⇄ move is two steps (category → exact chart), mixed
+scales get one axis each, bad combinations warn first. Details under Done → G-13.
+Note for 🔶 dedicated1: Energy, Mood, Stress etc. still sit outside this system.
 
 **Open design question, not yet built** — see 🔶 **dedicated1** above: Energy,
 Mood, Stress, Release, Infection, Stool and Warming bottle have bespoke fixed
