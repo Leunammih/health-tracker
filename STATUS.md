@@ -2,12 +2,31 @@
 
 Quick-start context for a fresh session. Full roadmap: `docs/PLAN.md`. Change log: `docs/DEVLOG.md`.
 
-_Last updated: 2026-10-30 (G-15: Energy, Mood, Stress, Release, Infection, Stool, Gut pain movable — behaviour travels with the item)_
+_Last updated: 2026-10-31 (master session set up; last feature work G-15, 2026-10-30)_
 
 ## What this is
 Private iPhone-first PWA (Vite + React + TS + Tailwind), no backend. Local SQLite (sql.js)
 in IndexedDB, Claude API called from the browser, **Dropbox** sync (OAuth PKCE).
 Live: https://leunammih.github.io/health-tracker/ — pushing to `main` auto-deploys.
+
+## Master session
+Since 2026-10-31 the project has one long-lived hub: **📱👑 hTA MASTER — Health Tracker**
+(Code tab, pinned, filed under *APPS & Addons*). Every new ask for the app starts there.
+
+- **`git pull` first, every time.** G-10 to G-15 (2026-10-14 → 10-30) were built and
+  pushed from outside the local checkout, which sat seven commits behind until
+  2026-10-31. GitHub `main` is the truth, not the local folder.
+- **Small fixes and the next feature iteration run in the master itself**, using the loop
+  under "How these sessions run" (build → verify → push → phone checklist → wait).
+- **Big, separable pieces** (a new phase, a research spike, a data-cleanup job) get their
+  own side session started *from* the master, titled `📱 hTA <n> <topic>` (next free
+  number: **14**), filed under *APPS & Addons*. When it reports back, the master checks the
+  diff and the deploy, then updates this file and the open markers.
+- **One writer on `main` at a time.** A side session that writes code runs in its own
+  worktree, or waits until the master's current iteration is pushed.
+- **Every master turn that changes something ends** with this file updated, committed and
+  pushed — so a fresh session (or a cleared master) can pick up from here alone.
+- Older `hTA` sessions (11b, 12, 13) are finished work; their results are recorded below.
 
 ## Done ✅
 - **Phase A** — storage-location panel, Log Q&A improvements, meal inline editing, delayed soreness.
@@ -1164,6 +1183,10 @@ Codes still awaiting Immanuel. Remove each as it is answered.
   supplement marker to the Illness & gut chart only, so it structurally can't
   appear elsewhere anymore. The underlying duplicate rows are still there.
 - 🟦 **phone19** — phone report on **G-15** (checklist above). No schema change.
+- 🔶 **scripts1** — `scripts/` (the Nextcloud calendar-sync script from hTA 10,
+  2026-07-31) has never been committed. Checked 2026-10-31: placeholders only, no
+  secrets. The repo is **public**, so committing it publishes it. Commit it, or add
+  `scripts/` to `.gitignore` and keep it local?
 - ✅ **phone18** (G-14) — answered 2026-10-30, "Great. Thanks."; picked (a) for dedicated1 → G-15.
 - ✅ **phone17** (G-13) — answered 2026-10-30, "Great."; asked why Stress / Illness &
   gut can't be moved (→ dedicated1, answered in chat with options) and asked for line
